@@ -1,0 +1,5 @@
+<resources>
+    <color name="bg">#FF151515</color>
+    <color name="notify_accent">#FFFF9E4F</color>
+    <color name="launcher_bg">#FF1E1E1E</color>
+</resources>

@@ -18,8 +18,8 @@ service cloud.firestore {
       return signedIn() && exists(/databases/$(database)/documents/owners/$(request.auth.uid));
     }
     function optStr(d, k, max) { return !(k in d) || d[k] == null || (d[k] is string && d[k].size() <= max); }
-    function optBool(d, k) { return !(k in d) || d[k] is bool; }
-    function optInt(d, k, lo, hi) { return !(k in d) || (d[k] is int && d[k] >= lo && d[k] <= hi); }
+    function optBool(d, k) { return !(k in d) || d[k] == null || d[k] is bool; }
+    function optInt(d, k, lo, hi) { return !(k in d) || d[k] == null || (d[k] is int && d[k] >= lo && d[k] <= hi); }
     function stamped(isCreate) {
       return request.resource.data.updatedAt == request.time
         && (isCreate ? request.resource.data.createdAt == request.time
