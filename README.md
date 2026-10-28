@@ -254,6 +254,8 @@ firebase deploy --only storage
 
 Anyone can *see* product photos. Only the owner can upload them, and only JPG/PNG/WebP under 5 MB. The app shrinks big photos before uploading.
 
+The first time, the tool may ask whether Storage can "read Firestore". **Say yes.** That's how the photo rules check that you're the owner.
+
 ---
 
 ## 13. Deploy the server code (Cloud Functions)
