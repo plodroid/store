@@ -48,8 +48,22 @@ jobs:
       - name: Compile debug APK
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon assembleDebug
+          set -o pipefail
+          ./gradlew --no-daemon assembleDebug 2>&1 | tee build.log
           cp app/build/outputs/apk/debug/app-debug.apk plodroid-store-owner-debug.apk
+
+      # If compiling fails, surface the compiler errors as run annotations
+      # (readable through the GitHub API) so they can be fixed quickly.
+      - name: Report compile errors
+        if: failure()
+        run: |
+          grep -E "^e: |error:|\* What went wrong" -A2 build.log | grep -v "^--$" | head -80 > errors.txt || true
+          split -l 8 errors.txt chunk_ || true
+          for f in chunk_*; do
+            [ -f "$f" ] || continue
+            msg=$(sed -e 's/%/%25/g' "$f" | awk '{printf "%s%%0A", $0}')
+            echo "::error title=Build error::${msg}"
+          done
 
       - uses: actions/upload-artifact@v4
         with:
