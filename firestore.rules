@@ -1,0 +1,156 @@
+rules_version = '2';
+
+// Plodroid Store — Firestore security rules
+//
+// Who can do what:
+//   • Anyone:      read visible products, visible categories and public site settings.
+//   • Nobody (client): create orders or feedback directly. The website goes through the
+//                  placeOrder / submitFeedback Cloud Functions, which check everything first.
+//   • The owner:   manage the catalogue, read/update orders and feedback, read alerts.
+//                  "Owner" = a signed-in account with a document at owners/{uid}.
+//                  Owner documents can only be created in the Firebase console.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function isOwner() {
+      return signedIn() && exists(/databases/$(database)/documents/owners/$(request.auth.uid));
+    }
+    function optStr(d, k, max) { return !(k in d) || d[k] == null || (d[k] is string && d[k].size() <= max); }
+    function optBool(d, k) { return !(k in d) || d[k] is bool; }
+    function optInt(d, k, lo, hi) { return !(k in d) || (d[k] is int && d[k] >= lo && d[k] <= hi); }
+    function stamped(isCreate) {
+      return request.resource.data.updatedAt == request.time
+        && (isCreate ? request.resource.data.createdAt == request.time
+                     : request.resource.data.get('createdAt', null) == resource.data.get('createdAt', null));
+    }
+    function onlyChanges(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys); }
+
+    // ── owners (created by hand in the console) ──────────────
+    match /owners/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow write: if false;
+    }
+
+    // ── products (public catalogue) ──────────────────────────
+    function validProduct(d) {
+      return d.keys().hasOnly(['name', 'price', 'stock', 'categoryId', 'image', 'imagePath', 'description',
+                               'unit', 'visible', 'archived', 'featured', 'sortOrder', 'lowStockThreshold',
+                               'createdAt', 'updatedAt'])
+        && d.keys().hasAll(['name', 'price', 'stock', 'visible', 'archived', 'updatedAt'])
+        && d.name is string && d.name.size() >= 1 && d.name.size() <= 120
+        && d.price is number && d.price >= 0 && d.price <= 100000
+        && d.stock is int && d.stock >= 0 && d.stock <= 1000000
+        && d.visible is bool && d.archived is bool
+        && optStr(d, 'categoryId', 64) && optStr(d, 'image', 2000) && optStr(d, 'imagePath', 300)
+        && optStr(d, 'description', 2000) && optStr(d, 'unit', 30)
+        && optBool(d, 'featured') && optInt(d, 'sortOrder', -1000000, 1000000)
+        && optInt(d, 'lowStockThreshold', 0, 100000);
+    }
+    match /products/{id} {
+      allow read: if isOwner() || (resource.data.visible == true && resource.data.archived == false);
+      allow create: if isOwner() && validProduct(request.resource.data) && stamped(true);
+      allow update: if isOwner() && validProduct(request.resource.data) && stamped(false);
+      allow delete: if isOwner();
+    }
+
+    // Owner-only product fields (cost price, SKU, barcode) live apart from the public doc.
+    match /productPrivate/{id} {
+      allow read, delete: if isOwner();
+      allow write: if isOwner()
+        && request.resource.data.keys().hasOnly(['costPrice', 'sku', 'barcode', 'updatedAt'])
+        && (!('costPrice' in request.resource.data) || request.resource.data.costPrice == null
+            || (request.resource.data.costPrice is number && request.resource.data.costPrice >= 0))
+        && optStr(request.resource.data, 'sku', 60) && optStr(request.resource.data, 'barcode', 60)
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    // ── categories ───────────────────────────────────────────
+    function validCategory(d) {
+      return d.keys().hasOnly(['name', 'description', 'image', 'imagePath', 'sortOrder', 'visible', 'createdAt', 'updatedAt'])
+        && d.keys().hasAll(['name', 'visible', 'sortOrder', 'updatedAt'])
+        && d.name is string && d.name.size() >= 1 && d.name.size() <= 60
+        && d.visible is bool && d.sortOrder is int
+        && optStr(d, 'description', 300) && optStr(d, 'image', 2000) && optStr(d, 'imagePath', 300);
+    }
+    match /categories/{id} {
+      allow read: if isOwner() || resource.data.visible == true;
+      allow create: if isOwner() && validCategory(request.resource.data) && stamped(true);
+      allow update: if isOwner() && validCategory(request.resource.data) && stamped(false);
+      allow delete: if isOwner();
+    }
+
+    // ── settings ─────────────────────────────────────────────
+    match /settings/site {
+      allow read: if true;
+      allow write: if isOwner()
+        && request.resource.data.keys().hasOnly(['storeName', 'heroTitle', 'heroSubtitle', 'announcement', 'whatsapp',
+                                                 'collection', 'delivery', 'deliveryFee', 'collectionNote',
+                                                 'deliveryNote', 'currency', 'updatedAt'])
+        && optStr(request.resource.data, 'storeName', 60) && optStr(request.resource.data, 'heroTitle', 120)
+        && optStr(request.resource.data, 'heroSubtitle', 200) && optStr(request.resource.data, 'announcement', 160)
+        && optStr(request.resource.data, 'whatsapp', 200) && optStr(request.resource.data, 'collectionNote', 200)
+        && optStr(request.resource.data, 'deliveryNote', 200)
+        && optBool(request.resource.data, 'collection') && optBool(request.resource.data, 'delivery')
+        && (!('deliveryFee' in request.resource.data)
+            || (request.resource.data.deliveryFee is number && request.resource.data.deliveryFee >= 0
+                && request.resource.data.deliveryFee <= 1000))
+        && (!('currency' in request.resource.data) || request.resource.data.currency == 'GBP')
+        && request.resource.data.updatedAt == request.time;
+    }
+    match /settings/owner {
+      allow read: if isOwner();
+      allow write: if isOwner()
+        && request.resource.data.keys().hasOnly(['defaultLowStock', 'notify', 'updatedAt'])
+        && optInt(request.resource.data, 'defaultLowStock', 0, 100000)
+        && (!('notify' in request.resource.data) || request.resource.data.notify is map)
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    // ── orders (created only by the placeOrder function) ─────
+    match /orders/{id} {
+      allow read: if isOwner();
+      allow create: if false;
+      allow update: if isOwner()
+        && onlyChanges(['status', 'paymentStatus', 'updatedAt'])
+        && resource.data.status != 'cancelled'                          // cancelled is final
+        && request.resource.data.status in ['new', 'confirmed', 'preparing', 'ready', 'completed', 'cancelled']
+        && (request.resource.data.paymentStatus == resource.data.paymentStatus
+            || (resource.data.isTest == false                         // test orders stay "mock"
+                && request.resource.data.paymentStatus in ['pending', 'paid', 'failed', 'refunded']))
+        && request.resource.data.updatedAt == request.time;
+      // Only cancelled test orders can be cleared away; real order history is kept.
+      allow delete: if isOwner() && resource.data.isTest == true && resource.data.status == 'cancelled';
+    }
+
+    // ── feedback (created only by the submitFeedback function) ─
+    match /feedback/{id} {
+      allow read, delete: if isOwner();
+      allow create: if false;
+      allow update: if isOwner() && onlyChanges(['read', 'archived'])
+        && request.resource.data.read is bool && request.resource.data.archived is bool;
+    }
+
+    // ── owner alerts written by the backend ──────────────────
+    match /notifications/{id} {
+      allow read, delete: if isOwner();
+      allow update: if isOwner() && onlyChanges(['read']) && request.resource.data.read is bool;
+      allow create: if false;
+    }
+
+    // ── phones that should receive push notifications ────────
+    match /ownerDevices/{token} {
+      allow read, delete: if isOwner();
+      allow create, update: if isOwner()
+        && request.resource.data.keys().hasOnly(['uid', 'platform', 'model', 'updatedAt'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    // Everything else (rateLimits, unknown collections) is closed.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

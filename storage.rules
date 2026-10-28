@@ -1,0 +1,29 @@
+rules_version = '2';
+
+// Product and category photos: anyone can view, only the owner can upload/delete.
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isOwner() {
+      return request.auth != null
+        && firestore.exists(/databases/(default)/documents/owners/$(request.auth.uid));
+    }
+    function validImage() {
+      return request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp)');
+    }
+
+    match /product-images/{productId}/{file} {
+      allow read: if true;
+      allow create, update: if isOwner() && validImage();
+      allow delete: if isOwner();
+    }
+    match /category-images/{categoryId}/{file} {
+      allow read: if true;
+      allow create, update: if isOwner() && validImage();
+      allow delete: if isOwner();
+    }
+    match /{all=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -21,6 +21,7 @@
 
 <header class="nav" id="nav">
   <div class="announce" id="announce" hidden><span data-bind="announcement"></span></div>
+  <div class="netbar" id="netbar" role="status" hidden>You're offline. Prices and stock may have changed, and orders can't be sent until you're back online.</div>
   <div class="wrap nav-inner">
 
     <a href="#shop" class="nav-link nav-first">Shop</a>
@@ -86,7 +87,7 @@
         <h2 id="shopTitle">All products</h2>
         <span class="muted" id="resultCount"></span>
       </div>
-      <p class="note" id="sampleNote" hidden>Sample products and prices shown for preview.</p>
+      <p class="note" id="modeNote" hidden>Preview mode: sample products and prices. Ordering and feedback are switched off.</p>
 
       <div class="grid" id="grid" aria-live="polite"></div>
 
@@ -102,7 +103,10 @@
 <footer class="footer">
   <div class="wrap footer-inner">
     <span>© <span id="yr"></span> <span data-bind="storeName">Plodroid Store</span></span>
-    <a id="contact" class="footer-link" href="#" target="_blank" rel="noopener" hidden>Contact us on WhatsApp</a>
+    <span class="footer-links">
+      <button class="footer-link" id="openFeedback" type="button">Send feedback</button>
+      <a id="contact" class="footer-link" href="#" target="_blank" rel="noopener" hidden>Contact us on WhatsApp</a>
+    </span>
   </div>
 </footer>
 
@@ -117,8 +121,8 @@
   </div>
   <div class="drawer-list" id="cartItems"></div>
   <div class="drawer-foot">
-    <div class="total"><span class="muted">Total</span><span id="cartTotal">£0.00</span></div>
-    <button class="btn-primary" id="checkout" type="button">Order on WhatsApp</button>
+    <div class="total"><span class="muted">Subtotal</span><span id="cartTotal">£0.00</span></div>
+    <button class="btn-primary" id="checkout" type="button">Checkout</button>
   </div>
 </aside>
 
@@ -128,6 +132,126 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
   </button>
   <div class="pd-body" id="pdBody"></div>
+</dialog>
+
+
+<!-- checkout -->
+<dialog class="pd modal" id="co" aria-labelledby="coTitle">
+  <button class="icon-btn pd-close" type="button" data-close aria-label="Close checkout">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+  </button>
+
+  <form class="modal-body" id="coForm" novalidate>
+    <h2 id="coTitle">Checkout</h2>
+
+    <div class="notice" role="note">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+      <p><strong>Test checkout.</strong> Online payment isn't switched on yet, so no money is taken and no card details are needed. Your order reaches the shop marked as a test.</p>
+    </div>
+
+    <div class="form-section">
+      <h3>Your order</h3>
+      <div class="sum-items" id="coItems"></div>
+    </div>
+
+    <fieldset class="form-section" id="coHow">
+      <legend>How you'll get it</legend>
+      <div class="choice" id="coChoices"></div>
+    </fieldset>
+
+    <div class="form-section">
+      <h3>Your details</h3>
+      <label class="inp"><span>Name</span><input name="name" autocomplete="name" required minlength="2" maxlength="80"></label>
+      <div class="row2">
+        <label class="inp"><span>Phone</span><input name="phone" type="tel" autocomplete="tel" inputmode="tel" maxlength="20"></label>
+        <label class="inp"><span>Email</span><input name="email" type="email" autocomplete="email" maxlength="120"></label>
+      </div>
+      <p class="hint">Add a phone number or an email (or both) so the shop can reach you about this order.</p>
+    </div>
+
+    <div class="form-section" id="coAddress" hidden>
+      <h3>Delivery address</h3>
+      <label class="inp"><span>Address line 1</span><input name="line1" autocomplete="address-line1" maxlength="120"></label>
+      <label class="inp"><span>Address line 2 <em>(optional)</em></span><input name="line2" autocomplete="address-line2" maxlength="120"></label>
+      <div class="row2">
+        <label class="inp"><span>Town or city</span><input name="city" autocomplete="address-level2" maxlength="60"></label>
+        <label class="inp"><span>Postcode</span><input name="postcode" autocomplete="postal-code" maxlength="12"></label>
+      </div>
+    </div>
+
+    <div class="form-section">
+      <label class="inp"><span>Note for the shop <em>(optional)</em></span><textarea name="note" maxlength="500" rows="3"></textarea></label>
+    </div>
+
+    <label class="hp" aria-hidden="true">Website<input name="website" tabindex="-1" autocomplete="off"></label>
+
+    <div class="sum" id="coSum"></div>
+    <p class="form-error" id="coError" role="alert" hidden></p>
+    <button class="btn-primary wide" id="coSubmit" type="submit">Place test order</button>
+  </form>
+
+  <div class="modal-body done-view" id="coDone" hidden>
+    <div class="done-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 10 17 19 7"/></svg>
+    </div>
+    <h2 id="coDoneTitle">Order received</h2>
+    <p class="done-ref" id="coRef"></p>
+    <div class="notice" role="note" id="coTestNote">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+      <p>This was a <strong>test order</strong>. No payment was taken.</p>
+    </div>
+    <div class="sum" id="coDoneSum"></div>
+    <p class="muted done-text">The shop has your order and your contact details. Keep your order reference handy.</p>
+    <div class="done-actions">
+      <button class="btn-primary" type="button" data-close>Done</button>
+      <button class="btn-ghost" type="button" id="coFeedback">Leave feedback</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- feedback -->
+<dialog class="pd modal" id="fb" aria-labelledby="fbTitle">
+  <button class="icon-btn pd-close" type="button" data-close aria-label="Close feedback">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+  </button>
+  <form class="modal-body" id="fbForm" novalidate>
+    <h2 id="fbTitle">Send feedback</h2>
+    <p class="muted modal-sub">Your message goes privately to the shop owner. It isn't published on this website.</p>
+
+    <fieldset class="form-section">
+      <legend>Rating <em>(optional)</em></legend>
+      <div class="stars" id="fbStars">
+        <input type="radio" name="rating" value="1" id="r1"><label for="r1" aria-label="1 star"></label>
+        <input type="radio" name="rating" value="2" id="r2"><label for="r2" aria-label="2 stars"></label>
+        <input type="radio" name="rating" value="3" id="r3"><label for="r3" aria-label="3 stars"></label>
+        <input type="radio" name="rating" value="4" id="r4"><label for="r4" aria-label="4 stars"></label>
+        <input type="radio" name="rating" value="5" id="r5"><label for="r5" aria-label="5 stars"></label>
+        <button class="stars-clear" type="button" id="fbClear" hidden>Clear</button>
+      </div>
+    </fieldset>
+
+    <label class="inp form-section"><span>Message</span>
+      <textarea name="message" required minlength="10" maxlength="1000" rows="5"></textarea>
+      <small class="counter" id="fbCount">0 / 1000</small>
+    </label>
+    <div class="row2">
+      <label class="inp"><span>Name <em>(optional)</em></span><input name="name" autocomplete="name" maxlength="60"></label>
+      <label class="inp"><span>Order reference <em>(optional)</em></span><input name="orderRef" placeholder="PS-XXXXXX" maxlength="9" autocapitalize="characters"></label>
+    </div>
+
+    <label class="hp" aria-hidden="true">Website<input name="website" tabindex="-1" autocomplete="off"></label>
+
+    <p class="form-error" id="fbError" role="alert" hidden></p>
+    <button class="btn-primary wide" id="fbSubmit" type="submit">Send feedback</button>
+  </form>
+  <div class="modal-body done-view" id="fbDone" hidden>
+    <div class="done-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 10 17 19 7"/></svg>
+    </div>
+    <h2>Thank you</h2>
+    <p class="muted done-text">Your feedback was sent to the shop.</p>
+    <div class="done-actions"><button class="btn-primary" type="button" data-close>Done</button></div>
+  </div>
 </dialog>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
