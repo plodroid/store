@@ -1,157 +1,102 @@
-# Store — a storefront driven by the POS app
+# Plodroid Store
 
-A single-page, Firebase-backed shop. The Android POS app writes to Firestore,
-this site is already listening, and the page repaints without a reload or a deploy.
+Customer-facing shop. Static site on GitHub Pages, products read live from Firestore.
 
 Live: **https://plodroid.github.io/store/**
 
 ```
-index.html           the whole page
-app.js               realtime listeners, product grid, basket, animations
+index.html           page markup
+styles.css           all styling (dark charcoal + selective liquid glass)
+app.js               catalogue, search, basket, product dialog, Firestore listeners
 firebase-config.js   ← the only file you edit
 ```
 
----
-
-## 1. Turn it on
-
-Right now the site runs on demo products so you can look at the design.
-To go live, open `firebase-config.js` and paste your web app config:
-
-Firebase console → Project settings → Your apps → Web app → Config.
-
-```js
-window.FIREBASE_CONFIG = {
-  apiKey: "AIza…",
-  authDomain: "yourproject.firebaseapp.com",
-  projectId: "yourproject",
-  storageBucket: "yourproject.appspot.com",
-  messagingSenderId: "…",
-  appId: "1:…",
-};
-```
-
-Commit. That's it — the demo products disappear the moment Firestore answers.
-
-> The web API key is public by design. Firestore rules are what protect the data, not the key.
-
-## 2. Enable GitHub Pages
-
-Repo → Settings → Pages → Source: `Deploy from a branch` → `main` / `root`.
+No build step, no packages.
 
 ---
 
-## 3. The data contract
+## Going live
 
-Both halves must agree on these shapes or they stop talking.
+1. Open `firebase-config.js` and paste your web app config
+   (Firebase console → Project settings → Your apps → Web app).
+2. Set `whatsapp` in `STORE_DEFAULTS` (or in `settings/site`, below) to turn on ordering
+   and the footer contact link. Format: `https://wa.me/44XXXXXXXXXX`.
+3. Commit.
 
-### `products/{autoId}`
+Until step 1 is done the site shows **sample products with made-up prices**, labelled
+"Sample products and prices shown for preview." Those live in `SAMPLE` at the top of `app.js`
+and disappear as soon as Firestore answers.
+
+> The web API key is public by design. Firestore rules protect the data.
+
+---
+
+## Data the app writes
+
+### `products/{id}`
 
 | field | type | notes |
 |---|---|---|
 | `name` | string | required |
-| `price` | number | **in DZD, no decimals** |
-| `category` | string | drives the filter pills automatically |
-| `stock` | number | `0` → renders as Sold out |
-| `image` | string | any public URL (Firebase Storage works) |
-| `description` | string | optional, clamped to 2 lines |
-| `featured` | bool | optional, shows a "Pick" badge and sorts first |
+| `price` | number | **GBP, in pounds** — `2.4` shows as £2.40 |
+| `category` | string | builds the category tabs automatically |
+| `stock` | number | optional. `0` → Sold out, `1–5` → "Only N left". Omit to hide stock entirely |
+| `image` | string | optional public URL. Missing or broken → clean lettered placeholder |
+| `description` | string | optional, shown in the product dialog |
+| `featured` | bool | optional, sorts first under "Featured" |
 | `order` | number | optional tiebreaker |
-| `active` | bool | `false` hides it from the site without deleting it |
-| `updatedAt` | timestamp | optional, for your own auditing |
+| `active` | bool | `false` hides the product without deleting it |
 
-### `settings/site`
+> Price changed from DZD to GBP in this version — the site is for UK customers and shows £ only.
 
-Everything here is editable from the app — site copy without touching code.
+### `settings/site` (optional)
 
 ```json
 {
   "storeName": "Plodroid Store",
-  "tagline": "A storefront that never disagrees with the till.",
-  "heroTitle": "Your shop counter,\nnow a storefront.",
-  "heroSubtitle": "…",
+  "heroTitle": "Everyday essentials,\nall in one place.",
+  "heroSubtitle": "Explore food, drinks, groceries and more.",
   "announcement": "",
-  "whatsapp": "https://wa.me/213XXXXXXXXX",
-  "downloadUrl": "https://…/pos.apk",
-  "currency": "DZD",
-  "rates": { "DZD": 1, "GBP": 0.00333, "USD": 0.00446 }
+  "whatsapp": "https://wa.me/44XXXXXXXXXX"
 }
 ```
 
-`announcement` non-empty → the banner under the nav appears.
-`rates` are **1 DZD → x**, so `GBP: 1/300` and `USD: 1/224` at the moment.
+`announcement` non-empty → thin banner above the nav.
 
 ---
 
-## 4. Firestore rules
-
-Public reads, owner-only writes. Paste into Firestore → Rules:
+## Firestore rules
 
 ```
 rules_version = '2';
 service cloud.firestore {
   match /databases/{db}/documents {
-    match /products/{id} {
-      allow read: if true;
-      allow write: if request.auth != null && request.auth.token.owner == true;
-    }
-    match /settings/{id} {
-      allow read: if true;
-      allow write: if request.auth != null && request.auth.token.owner == true;
+    match /{col}/{id} {
+      allow read: if col in ['products', 'settings'];
+      allow write: if request.auth != null && request.auth.uid == 'YOUR_UID';
     }
   }
 }
 ```
 
-Set the `owner` custom claim on your account once (Firebase Admin SDK, one call),
-or swap the condition for `request.auth.uid == 'YOUR_UID'` if you'd rather keep it blunt.
-
----
-
-## 5. The app side (Android / Kotlin)
-
-Same project, same collection names. Writing a product:
+## App side (Kotlin)
 
 ```kotlin
 val db = Firebase.firestore
 
-db.collection("products").document(productId)
-  .set(mapOf(
-    "name"        to name,
-    "price"       to priceDzd,          // Long, DZD
-    "category"    to category,
-    "stock"       to stock,
-    "image"       to imageUrl,
-    "description" to description,
-    "featured"    to featured,
-    "active"      to true,
-    "updatedAt"   to FieldValue.serverTimestamp(),
-  ), SetOptions.merge())
+db.collection("products").document(productId).set(mapOf(
+  "name" to name, "price" to priceGbp /* Double, pounds */, "category" to category,
+  "stock" to stock, "image" to imageUrl, "description" to description, "active" to true,
+), SetOptions.merge())
+
+// a sale
+db.collection("products").document(productId).update("stock", FieldValue.increment(-qty))
 ```
-
-Selling an item just decrements the same field:
-
-```kotlin
-db.collection("products").document(productId)
-  .update("stock", FieldValue.increment(-qty))
-```
-
-Editing site copy from the app:
-
-```kotlin
-db.collection("settings").document("site")
-  .set(mapOf("announcement" to "Free delivery in Annaba this week"), SetOptions.merge())
-```
-
-Offline is already handled — the Android SDK queues writes and flushes them when
-signal returns. Turn it on with `FirebaseFirestore.getInstance().firestoreSettings =
-firestoreSettings { isPersistenceEnabled = true }`.
 
 ---
 
-## Notes
+## Checks
 
-- Zero card components anywhere — glass blocks, left-bordered sections and plain tiles only.
-- Scroll reveals are reversible; they replay scrolling up as well as down.
-- Basket lives in `localStorage` and checks out to WhatsApp. No payment processing.
-- Append `?selftest` to the URL and check the console to run the currency-math asserts.
+- Append `?selftest` to the URL and open the console: asserts for GBP formatting, stock parsing,
+  filtering, search and sorting.
+- `prefers-reduced-motion` turns off every entrance and transition.

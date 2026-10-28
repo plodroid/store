@@ -1,12 +1,11 @@
 /* ──────────────────────────────────────────────────────────────
-   FIREBASE CONFIG — the only file you need to touch.
+   STORE CONFIG — the only file you need to edit.
 
-   1. Firebase console → Project settings → Your apps → Web app
-   2. Copy the config object over the placeholders below
-   3. Commit. Done. The site goes live the second the app writes.
+   Firebase console → Project settings → Your apps → Web app.
+   Paste the config over the placeholders and commit.
 
-   Leave it as-is and the site runs on demo products instead,
-   so you can look at the design before Firebase exists.
+   Until real keys are in, the site shows sample products
+   (clearly labelled as samples) so the design can be previewed.
    ────────────────────────────────────────────────────────────── */
 
 window.FIREBASE_CONFIG = {
@@ -18,23 +17,18 @@ window.FIREBASE_CONFIG = {
   appId:             "PASTE_APP_ID",
 };
 
-/* Firestore paths the Android app writes to. Keep these identical
-   on both sides or the two halves stop talking. */
+/* Firestore paths. Keep identical on the app side. */
 window.STORE_PATHS = {
-  products: "products",    // collection — one document per product
-  settings: "settings",    // collection
-  siteDoc:  "site",        // settings/site — the doc holding site copy
+  products: "products",   // one document per product, price in GBP
+  settings: "settings",
+  siteDoc:  "site",       // settings/site — editable site copy
 };
 
-/* Shown until settings/site arrives from Firestore. */
+/* Shown until settings/site loads (or forever, if it doesn't exist). */
 window.STORE_DEFAULTS = {
   storeName:    "Plodroid Store",
-  tagline:      "A storefront that never disagrees with the till.",
-  heroTitle:    "Your shop counter,\nnow a storefront.",
-  heroSubtitle: "Ring up a sale, change a price, restock a shelf — the website follows in the same second. One Firebase line between the till in your hand and the shop the world sees.",
-  announcement: "",                       // non-empty → banner appears
-  whatsapp:     "https://wa.me/213000000000",
-  downloadUrl:  "#",                      // APK link
-  currency:     "DZD",
-  rates:        { DZD: 1, GBP: 1 / 300, USD: 1 / 224 },  // 1 DZD → x
+  heroTitle:    "Everyday essentials,\nall in one place.",
+  heroSubtitle: "Explore food, drinks, groceries and more.",
+  announcement: "",   // non-empty → thin banner above the nav
+  whatsapp:     "",   // e.g. "https://wa.me/447700900000" — enables ordering + footer contact
 };
