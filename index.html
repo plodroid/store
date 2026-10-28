@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Plodroid Store — One app. One shop. Always in sync.</title>
+<meta name="description" content="A live storefront powered by your POS app. Edit a product in the app, the website updates instantly." />
+<meta name="theme-color" content="#06070C" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛍️</text></svg>" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        ink:    '#06070C',
+        blue:   '#4C8DFF',
+        violet: '#8A5CF6',
+        amber:  '#FFB020',
+      },
+      fontFamily: {
+        display: ['Figtree', 'system-ui', 'sans-serif'],
+        body:    ['Inter', 'system-ui', 'sans-serif'],
+      },
+    }
+  }
+}
+</script>
+
+<style>
+  :root{
+    --glass: rgba(255,255,255,.045);
+    --glass-strong: rgba(255,255,255,.075);
+    --hair: rgba(255,255,255,.09);
+    --hair-soft: rgba(255,255,255,.055);
+    --txt: #ECEEF4;
+    --dim: #9BA3B4;
+  }
+  *{ -webkit-tap-highlight-color: transparent; }
+  html{ background:#06070C; }
+  body{
+    background:#06070C; color:var(--txt);
+    font-family:'Inter',system-ui,sans-serif;
+    overflow-x:hidden;
+    -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,h3,h4,.font-display{ font-family:'Figtree',system-ui,sans-serif; letter-spacing:-.025em; }
+
+  /* ── ambient gemini light ─────────────────────────── */
+  .aurora{ position:fixed; inset:0; z-index:0; pointer-events:none; overflow:hidden; }
+  .orb{ position:absolute; border-radius:9999px; filter:blur(90px); opacity:.42; will-change:transform; }
+  @media (min-width:768px){ .orb{ filter:blur(130px); } }
+  .orb-a{ width:52vw; height:52vw; max-width:760px; max-height:760px; top:-14vh; left:-10vw;
+          background:radial-gradient(circle at 40% 40%, #4C8DFF, transparent 68%); }
+  .orb-b{ width:48vw; height:48vw; max-width:700px; max-height:700px; top:28vh; right:-14vw;
+          background:radial-gradient(circle at 60% 40%, #8A5CF6, transparent 68%); }
+  .orb-c{ width:40vw; height:40vw; max-width:560px; max-height:560px; bottom:-8vh; left:22vw;
+          background:radial-gradient(circle at 50% 50%, #FFB020, transparent 66%); opacity:.26; }
+  .grain{ position:fixed; inset:0; z-index:1; pointer-events:none; opacity:.4;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.32'/%3E%3C/svg%3E"); }
+
+  /* ── liquid glass primitives (no cards) ───────────── */
+  .glass{
+    background:var(--glass);
+    backdrop-filter:blur(26px) saturate(165%);
+    -webkit-backdrop-filter:blur(26px) saturate(165%);
+    border:1px solid var(--hair);
+  }
+  .glass-soft{
+    background:linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.018));
+    backdrop-filter:blur(30px) saturate(170%);
+    -webkit-backdrop-filter:blur(30px) saturate(170%);
+    border:1px solid var(--hair);
+  }
+  /* specular top edge, the apple tell */
+  .sheen{ position:relative; overflow:hidden; }
+  .sheen::before{
+    content:''; position:absolute; inset:0 0 auto 0; height:1px;
+    background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);
+  }
+  .rule{ height:1px; background:linear-gradient(90deg,transparent,var(--hair),transparent); }
+
+  .lbord{ border-left:1px solid var(--hair); padding-left:1.35rem; position:relative; }
+  .lbord::before{
+    content:''; position:absolute; left:-1px; top:0; width:1px; height:0;
+    background:linear-gradient(180deg,var(--c,#4C8DFF),transparent);
+    transition:height .9s cubic-bezier(.22,1,.36,1) .1s;
+  }
+  .in .lbord::before, .lbord.in::before{ height:100%; }
+
+  .gtext{ background:linear-gradient(100deg,#fff 10%,#AFC9FF 42%,#C6AEFF 68%,#FFD79A 94%);
+          -webkit-background-clip:text; background-clip:text; color:transparent; }
+
+  /* ── scroll reveal, reversible both directions ────── */
+  .rv{ opacity:0; transform:translate3d(0,26px,0); filter:blur(5px);
+       transition:opacity .85s cubic-bezier(.22,1,.36,1), transform .85s cubic-bezier(.22,1,.36,1), filter .85s ease; }
+  .rv.in{ opacity:1; transform:none; filter:none; }
+  .rv[data-d="1"]{ transition-delay:.07s } .rv[data-d="2"]{ transition-delay:.14s }
+  .rv[data-d="3"]{ transition-delay:.21s } .rv[data-d="4"]{ transition-delay:.28s }
+  .rv[data-d="5"]{ transition-delay:.35s } .rv[data-d="6"]{ transition-delay:.42s }
+  @media (prefers-reduced-motion:reduce){
+    .rv{ opacity:1 !important; transform:none !important; filter:none !important; }
+    .orb{ animation:none !important } html{ scroll-behavior:auto }
+  }
+
+  /* ── product tiles: zero card chrome ──────────────── */
+  .tile{ position:relative; transition:transform .5s cubic-bezier(.22,1,.36,1); }
+  .tile:hover{ transform:translateY(-6px); }
+  .shot{
+    position:relative; aspect-ratio:1/1; border-radius:22px; overflow:hidden;
+    background:radial-gradient(120% 90% at 50% 0%, rgba(255,255,255,.07), rgba(255,255,255,.018));
+    border:1px solid var(--hair-soft);
+    transition:border-color .45s ease, box-shadow .55s ease;
+  }
+  .tile:hover .shot{ border-color:rgba(255,255,255,.2); box-shadow:0 26px 60px -24px rgba(76,141,255,.55); }
+  .shot img{ width:100%; height:100%; object-fit:cover; transition:transform .75s cubic-bezier(.22,1,.36,1); }
+  .tile:hover .shot img{ transform:scale(1.07); }
+  .pill{ border:1px solid var(--hair); background:rgba(255,255,255,.04);
+         backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); transition:.3s ease; }
+  .pill:hover{ background:rgba(255,255,255,.09); border-color:rgba(255,255,255,.22) }
+  .pill[aria-pressed="true"]{
+    background:linear-gradient(100deg,rgba(76,141,255,.3),rgba(138,92,246,.3));
+    border-color:rgba(160,180,255,.5); color:#fff;
+  }
+
+  .btn-primary{
+    background:linear-gradient(100deg,#4C8DFF,#8A5CF6 62%,#B06CF2);
+    box-shadow:0 10px 36px -10px rgba(104,118,255,.75), inset 0 1px 0 rgba(255,255,255,.28);
+    transition:transform .32s cubic-bezier(.22,1,.36,1), box-shadow .32s ease, filter .32s ease;
+  }
+  .btn-primary:hover{ transform:translateY(-2px); filter:brightness(1.08);
+    box-shadow:0 18px 48px -12px rgba(104,118,255,.95), inset 0 1px 0 rgba(255,255,255,.35); }
+  .btn-primary:active{ transform:translateY(0) scale(.985) }
+
+  /* ── misc ─────────────────────────────────────────── */
+  .nav-wrap{ transition:background .45s ease, border-color .45s ease, backdrop-filter .45s ease; }
+  .nav-on{ background:rgba(8,9,15,.62); border-bottom-color:var(--hair);
+           backdrop-filter:blur(24px) saturate(180%); -webkit-backdrop-filter:blur(24px) saturate(180%); }
+  .nlink{ position:relative; }
+  .nlink::after{ content:''; position:absolute; left:0; bottom:-5px; height:1px; width:0;
+    background:linear-gradient(90deg,#4C8DFF,#8A5CF6); transition:width .4s cubic-bezier(.22,1,.36,1) }
+  .nlink:hover::after, .nlink[data-active="1"]::after{ width:100% }
+
+  .live-dot{ box-shadow:0 0 0 0 rgba(74,222,128,.7); animation:ping 2.4s cubic-bezier(.4,0,.6,1) infinite }
+  @keyframes ping{ 70%{ box-shadow:0 0 0 9px rgba(74,222,128,0) } 100%{ box-shadow:0 0 0 0 rgba(74,222,128,0) } }
+  .float{ animation:float 9s ease-in-out infinite }
+  @keyframes float{ 0%,100%{ transform:translateY(0) } 50%{ transform:translateY(-14px) } }
+  .marq{ display:flex; gap:3.5rem; width:max-content; animation:marq 36s linear infinite }
+  @keyframes marq{ to{ transform:translateX(-50%) } }
+
+  .drawer{ transform:translateX(100%); transition:transform .5s cubic-bezier(.22,1,.36,1) }
+  .drawer.open{ transform:none }
+  .scrim{ opacity:0; pointer-events:none; transition:opacity .4s ease }
+  .scrim.open{ opacity:1; pointer-events:auto }
+
+  ::-webkit-scrollbar{ width:9px } ::-webkit-scrollbar-track{ background:transparent }
+  ::-webkit-scrollbar-thumb{ background:rgba(255,255,255,.13); border-radius:9px }
+  ::-webkit-scrollbar-thumb:hover{ background:rgba(255,255,255,.24) }
+  ::selection{ background:rgba(138,92,246,.4) }
+  .skel{ background:linear-gradient(100deg,rgba(255,255,255,.04) 30%,rgba(255,255,255,.1) 50%,rgba(255,255,255,.04) 70%);
+         background-size:220% 100%; animation:sk 1.4s linear infinite }
+  @keyframes sk{ to{ background-position:-120% 0 } }
+</style>
+</head>
+
+<body class="font-body antialiased">
+
+<div class="aurora" aria-hidden="true">
+  <div class="orb orb-a" data-par="0.16"></div>
+  <div class="orb orb-b" data-par="-0.1"></div>
+  <div class="orb orb-c" data-par="0.07"></div>
+</div>
+<div class="grain" aria-hidden="true"></div>
+
+<!-- ══ NAV ══════════════════════════════════════════ -->
+<header id="nav" class="nav-wrap fixed top-0 inset-x-0 z-50 border-b border-transparent">
+  <nav class="mx-auto max-w-[1280px] px-5 sm:px-7 h-[62px] sm:h-[70px] flex items-center justify-between gap-4">
+    <a href="#top" class="flex items-center gap-2.5 shrink-0 group">
+      <span class="relative grid place-items-center w-9 h-9 rounded-[12px] overflow-hidden"
+            style="background:linear-gradient(135deg,#4C8DFF,#8A5CF6 60%,#FFB020)">
+        <span class="absolute inset-[1px] rounded-[11px] bg-ink/75 backdrop-blur-sm"></span>
+        <svg class="relative w-[17px] h-[17px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+      </span>
+      <span class="font-display font-extrabold text-[17px] tracking-tight" data-bind="storeName">Plodroid Store</span>
+    </a>
+
+    <div class="hidden lg:flex items-center gap-8 text-[13.5px] text-white/60">
+      <a href="#shop"    class="nlink hover:text-white transition">Shop</a>
+      <a href="#how"     class="nlink hover:text-white transition">How it works</a>
+      <a href="#sync"    class="nlink hover:text-white transition">Live sync</a>
+      <a href="#why"     class="nlink hover:text-white transition">Why us</a>
+      <a href="#app"     class="nlink hover:text-white transition">The app</a>
+    </div>
+
+    <div class="flex items-center gap-2 sm:gap-3">
+      <div class="hidden sm:flex items-center text-[11.5px] rounded-full overflow-hidden glass">
+        <button data-cur="DZD" class="cur px-2.5 py-[5px] transition">DZD</button>
+        <button data-cur="GBP" class="cur px-2.5 py-[5px] transition">GBP</button>
+        <button data-cur="USD" class="cur px-2.5 py-[5px] transition">USD</button>
+      </div>
+      <button id="cartBtn" class="relative glass rounded-full h-9 px-3.5 flex items-center gap-2 text-[13px] hover:bg-white/10 transition" aria-label="Open basket">
+        <svg class="w-[15px] h-[15px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6"/></svg>
+        <span id="cartCount" class="font-semibold tabular-nums">0</span>
+      </button>
+      <button id="menuBtn" class="lg:hidden glass rounded-full w-9 h-9 grid place-items-center" aria-label="Menu" aria-expanded="false">
+        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+      </button>
+    </div>
+  </nav>
+
+  <div id="mobNav" class="lg:hidden hidden border-t border-white/[.07]" style="background:rgba(8,9,15,.9);backdrop-filter:blur(24px)">
+    <div class="px-6 py-4 flex flex-col gap-1 text-[15px]">
+      <a href="#shop" class="py-2.5 text-white/70">Shop</a>
+      <div class="rule"></div>
+      <a href="#how"  class="py-2.5 text-white/70">How it works</a>
+      <div class="rule"></div>
+      <a href="#sync" class="py-2.5 text-white/70">Live sync</a>
+      <div class="rule"></div>
+      <a href="#why"  class="py-2.5 text-white/70">Why us</a>
+      <div class="rule"></div>
+      <a href="#app"  class="py-2.5 text-white/70">The app</a>
+    </div>
+  </div>
+</header>
+
+<!-- announcement -->
+<div id="announce" class="fixed top-[62px] sm:top-[70px] inset-x-0 z-40 hidden">
+  <div class="text-center text-[12px] py-[7px] px-4 border-b border-white/[.07]"
+       style="background:linear-gradient(90deg,rgba(76,141,255,.2),rgba(138,92,246,.2),rgba(255,176,32,.2));backdrop-filter:blur(18px)">
+    <span data-bind="announcement"></span>
+  </div>
+</div>
+
+<main id="top" class="relative z-10">
+
+<!-- ══ HERO ═════════════════════════════════════════ -->
+<section class="relative min-h-[100svh] flex items-center pt-28 pb-16 sm:pt-32">
+  <div class="mx-auto max-w-[1280px] w-full px-5 sm:px-7 grid lg:grid-cols-[1.06fr_.94fr] gap-14 lg:gap-10 items-center">
+
+    <div>
+      <div class="rv in inline-flex items-center gap-2.5 glass rounded-full pl-2 pr-3.5 py-1.5 text-[12px] text-white/70 mb-7">
+        <span class="live-dot w-1.5 h-1.5 rounded-full bg-green-400 ml-1"></span>
+        <span>Live inventory</span>
+        <span class="w-px h-3 bg-white/15"></span>
+        <span class="text-white/45">synced from the POS app</span>
+      </div>
+
+      <h1 class="rv in font-display font-extrabold leading-[.97] tracking-[-.04em]"
+          style="font-size:clamp(2.6rem,7.4vw,4.75rem)">
+        <span class="gtext" data-bind="heroTitle">Your shop counter,<br>now a storefront.</span>
+      </h1>
+
+      <p class="rv in mt-6 text-white/58 leading-relaxed max-w-[52ch]"
+         style="font-size:clamp(1rem,1.9vw,1.14rem)" data-bind="heroSubtitle">
+        Ring up a sale, change a price, restock a shelf — the website follows in the same second.
+        One Firebase line between the till in your hand and the shop the world sees.
+      </p>
+
+      <div class="rv in mt-9 flex flex-wrap items-center gap-3">
+        <a href="#shop" class="btn-primary rounded-full px-7 py-3.5 text-[14.5px] font-semibold text-white">
+          Browse the shop
+        </a>
+        <a href="#app" class="glass rounded-full px-6 py-3.5 text-[14.5px] font-medium hover:bg-white/10 transition flex items-center gap-2">
+          <svg class="w-4 h-4 text-white/60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>
+          Get the POS app
+        </a>
+      </div>
+
+      <div class="rv in mt-12 flex flex-wrap gap-x-10 gap-y-5">
+        <div><div class="font-display text-[26px] font-bold tabular-nums" data-count="0.4" data-suffix="s">0.4s</div><div class="text-[12px] text-white/40 mt-0.5">app → web sync</div></div>
+        <div class="w-px self-stretch bg-white/10 hidden sm:block"></div>
+        <div><div class="font-display text-[26px] font-bold tabular-nums" id="statSku">—</div><div class="text-[12px] text-white/40 mt-0.5">live products</div></div>
+        <div class="w-px self-stretch bg-white/10 hidden sm:block"></div>
+        <div><div class="font-display text-[26px] font-bold tabular-nums" data-count="99.9" data-suffix="%">99.9%</div><div class="text-[12px] text-white/40 mt-0.5">uptime on Firebase</div></div>
+      </div>
+    </div>
+
+    <!-- device: glass block, not a card -->
+    <div class="rv in relative hidden sm:block" data-d="2">
+      <div class="float relative mx-auto" style="max-width:340px">
+        <div class="absolute -inset-10 rounded-[60px] opacity-60 blur-3xl"
+             style="background:conic-gradient(from 160deg,#4C8DFF,#8A5CF6,#FFB020,#4C8DFF)"></div>
+
+        <div class="relative glass-soft sheen rounded-[38px] p-3.5 shadow-2xl">
+          <div class="rounded-[28px] overflow-hidden bg-ink/85 border border-white/[.08]">
+            <div class="px-4 pt-3.5 pb-2.5 flex items-center justify-between text-[10.5px] text-white/45">
+              <span>9:41</span>
+              <span class="flex items-center gap-1.5"><span class="live-dot w-1 h-1 rounded-full bg-green-400"></span>Firestore</span>
+            </div>
+            <div class="px-4 pb-3">
+              <div class="text-[11px] text-white/40">Editing product</div>
+              <div class="font-display font-bold text-[17px] mt-0.5" id="demoName">Espresso Beans 1kg</div>
+            </div>
+            <div class="rule"></div>
+            <div class="px-4 py-3.5 space-y-3.5">
+              <div class="flex items-center justify-between">
+                <span class="text-[12px] text-white/45">Price</span>
+                <span class="text-[14px] font-semibold tabular-nums" id="demoPrice">2 400 DZD</span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-[12px] text-white/45">Stock</span>
+                <span class="text-[14px] font-semibold tabular-nums" id="demoStock">18</span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-[12px] text-white/45">Visible online</span>
+                <span class="w-9 h-[22px] rounded-full relative" style="background:linear-gradient(90deg,#4C8DFF,#8A5CF6)">
+                  <span class="absolute right-[3px] top-[3px] w-4 h-4 rounded-full bg-white"></span>
+                </span>
+              </div>
+            </div>
+            <div class="px-4 pb-4 pt-1">
+              <div class="rounded-xl py-2.5 text-center text-[12.5px] font-semibold"
+                   style="background:linear-gradient(100deg,#4C8DFF,#8A5CF6)">Save &amp; publish</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- sync beam -->
+        <div class="absolute -bottom-7 left-1/2 -translate-x-1/2 flex items-center gap-2 glass rounded-full px-3.5 py-1.5 text-[11px] whitespace-nowrap">
+          <span class="live-dot w-1.5 h-1.5 rounded-full bg-green-400"></span>
+          <span class="text-white/65">pushed to the website</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <a href="#shop" class="absolute bottom-6 left-1/2 -translate-x-1/2 text-white/25 hover:text-white/60 transition hidden sm:block" aria-label="Scroll">
+    <svg class="w-5 h-5 animate-bounce" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>
+  </a>
+</section>
+
+<!-- ══ TRUST MARQUEE ════════════════════════════════ -->
+<section class="relative py-7 border-y border-white/[.06] overflow-hidden" style="background:rgba(255,255,255,.012)">
+  <div class="marq text-[12.5px] text-white/30 uppercase tracking-[.22em]">
+    <span>Realtime Firestore</span><span>·</span><span>Offline-first POS</span><span>·</span>
+    <span>Barcode scanning</span><span>·</span><span>Stock alerts</span><span>·</span>
+    <span>Multi-till</span><span>·</span><span>Receipt printing</span><span>·</span>
+    <span>Realtime Firestore</span><span>·</span><span>Offline-first POS</span><span>·</span>
+    <span>Barcode scanning</span><span>·</span><span>Stock alerts</span><span>·</span>
+    <span>Multi-till</span><span>·</span><span>Receipt printing</span><span>·</span>
+  </div>
+</section>
+
+<!-- ══ SHOP ═════════════════════════════════════════ -->
+<section id="shop" class="relative py-20 sm:py-28">
+  <div class="mx-auto max-w-[1280px] px-5 sm:px-7">
+
+    <div class="rv flex flex-wrap items-end justify-between gap-6 mb-9">
+      <div class="lbord" style="--c:#4C8DFF">
+        <div class="text-[12px] uppercase tracking-[.2em] text-blue/70 mb-2.5">The shop</div>
+        <h2 class="font-display font-extrabold leading-[1.04]" style="font-size:clamp(2rem,4.6vw,3.1rem)">
+          Everything on the shelf,<br class="hidden sm:block"> straight from the till.
+        </h2>
+      </div>
+      <p class="text-white/45 text-[14px] max-w-[38ch] leading-relaxed">
+        This grid is not hardcoded. Every item below is read live out of Firestore — the same documents your POS app writes.
+      </p>
+    </div>
+
+    <!-- controls -->
+    <div class="rv flex flex-col lg:flex-row gap-4 lg:items-center justify-between mb-9" data-d="1">
+      <div id="cats" class="flex flex-wrap gap-2 text-[13px]"></div>
+      <div class="flex gap-2.5 shrink-0">
+        <label class="glass rounded-full flex items-center gap-2.5 px-4 h-10 flex-1 lg:w-[232px]">
+          <svg class="w-4 h-4 text-white/35 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input id="q" type="search" placeholder="Search products" class="bg-transparent outline-none text-[13.5px] w-full placeholder:text-white/30" />
+        </label>
+        <select id="sort" class="glass rounded-full px-4 h-10 text-[13px] outline-none cursor-pointer appearance-none pr-9"
+          style="background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%23ffffff88' stroke-width='2'%3E%3Cpath d='m2 4 4 4 4-4'/%3E%3C/svg%3E&quot;);background-repeat:no-repeat;background-position:right 14px center">
+          <option value="feat">Featured</option>
+          <option value="lo">Price: low → high</option>
+          <option value="hi">Price: high → low</option>
+          <option value="az">Name A–Z</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="rule mb-9"></div>
+
+    <div id="grid" class="grid gap-x-6 gap-y-11 sm:gap-y-12"
+         style="grid-template-columns:repeat(auto-fill,minmax(min(100%,210px),1fr))"></div>
+
+    <p id="empty" class="hidden text-center text-white/35 py-20 text-[14px]">Nothing matches that. Try another search.</p>
+
+    <div class="rv mt-14 text-center">
+      <div class="rule mb-7"></div>
+      <p class="text-white/35 text-[13px]">
+        Prices and stock shown here were last written by the app
+        <span class="text-white/55" id="lastSync">—</span>.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ══ HOW IT WORKS ═════════════════════════════════ -->
+<section id="how" class="relative py-20 sm:py-28 border-t border-white/[.06]">
+  <div class="mx-auto max-w-[1280px] px-5 sm:px-7">
+    <div class="rv max-w-[62ch] mb-14">
+      <div class="text-[12px] uppercase tracking-[.2em] text-violet/80 mb-3">How it works</div>
+      <h2 class="font-display font-extrabold leading-[1.05]" style="font-size:clamp(2rem,4.6vw,3.1rem)">
+        Three moving parts. <span class="text-white/40">That's the whole system.</span>
+      </h2>
+    </div>
+
+    <div class="grid md:grid-cols-3 gap-y-10 gap-x-9">
+      <div class="rv lbord" style="--c:#4C8DFF" data-d="1">
+        <div class="font-display text-[13px] font-bold text-blue mb-3">01</div>
+        <h3 class="font-display font-bold text-[19px] mb-2.5">You edit in the app</h3>
+        <p class="text-white/48 text-[14.5px] leading-relaxed">
+          Open the POS APK, change a price, drop a new product in, mark something sold out. Normal till work — nothing extra to learn.
+        </p>
+      </div>
+      <div class="rv lbord" style="--c:#8A5CF6" data-d="2">
+        <div class="font-display text-[13px] font-bold text-violet mb-3">02</div>
+        <h3 class="font-display font-bold text-[19px] mb-2.5">Firestore takes the write</h3>
+        <p class="text-white/48 text-[14.5px] leading-relaxed">
+          The app writes one document to the <code class="text-white/70 text-[13px]">products</code> collection. Works offline too — it queues and flushes when signal comes back.
+        </p>
+      </div>
+      <div class="rv lbord" style="--c:#FFB020" data-d="3">
+        <div class="font-display text-[13px] font-bold text-amber mb-3">03</div>
+        <h3 class="font-display font-bold text-[19px] mb-2.5">The site redraws itself</h3>
+        <p class="text-white/48 text-[14.5px] leading-relaxed">
+          A realtime listener is already open in every visitor's browser. No refresh, no rebuild, no deploy. The shelf just changes.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ LIVE SYNC ════════════════════════════════════ -->
+<section id="sync" class="relative py-20 sm:py-28">
+  <div class="mx-auto max-w-[1280px] px-5 sm:px-7 grid lg:grid-cols-2 gap-14 items-center">
+    <div class="rv">
+      <div class="text-[12px] uppercase tracking-[.2em] text-blue/70 mb-3">Live sync</div>
+      <h2 class="font-display font-extrabold leading-[1.05] mb-6" style="font-size:clamp(2rem,4.6vw,3.1rem)">
+        One source of truth.<br><span class="gtext">Zero copy-paste.</span>
+      </h2>
+      <p class="text-white/50 text-[15.5px] leading-relaxed mb-8 max-w-[50ch]">
+        Most small shops run two realities — what the till says and what the website says. They drift by day two.
+        Here there is only one record, and the app owns it.
+      </p>
+
+      <div class="space-y-5">
+        <div class="flex gap-3.5">
+          <span class="mt-[3px] shrink-0 w-[18px] h-[18px] rounded-full grid place-items-center" style="background:linear-gradient(135deg,#4C8DFF,#8A5CF6)">
+            <svg class="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+          </span>
+          <div><div class="font-semibold text-[15px]">Sell it in store, it leaves the website</div>
+          <div class="text-white/42 text-[13.5px] mt-0.5">Stock hits zero and the item flips to sold out on its own.</div></div>
+        </div>
+        <div class="flex gap-3.5">
+          <span class="mt-[3px] shrink-0 w-[18px] h-[18px] rounded-full grid place-items-center" style="background:linear-gradient(135deg,#8A5CF6,#FFB020)">
+            <svg class="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+          </span>
+          <div><div class="font-semibold text-[15px]">Site copy lives in the app too</div>
+          <div class="text-white/42 text-[13.5px] mt-0.5">Headline, banner, store name — all editable from the phone, no code touched.</div></div>
+        </div>
+        <div class="flex gap-3.5">
+          <span class="mt-[3px] shrink-0 w-[18px] h-[18px] rounded-full grid place-items-center" style="background:linear-gradient(135deg,#FFB020,#4C8DFF)">
+            <svg class="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+          </span>
+          <div><div class="font-semibold text-[15px]">Static hosting, dynamic shop</div>
+          <div class="text-white/42 text-[13.5px] mt-0.5">Runs on GitHub Pages. No server to pay for, no backend to babysit.</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- flow diagram, glass blocks only -->
+    <div class="rv" data-d="2">
+      <div class="glass-soft sheen rounded-[30px] p-6 sm:p-8">
+        <div class="flex items-center justify-between text-[11px] text-white/40 mb-6">
+          <span class="flex items-center gap-1.5"><span class="live-dot w-1.5 h-1.5 rounded-full bg-green-400"></span>connection open</span>
+          <span class="tabular-nums" id="flowMs">0.4s round trip</span>
+        </div>
+
+        <div class="space-y-3">
+          <div class="rounded-2xl px-4 py-3.5 flex items-center gap-3.5 border border-white/[.08]" style="background:rgba(76,141,255,.08)">
+            <svg class="w-5 h-5 text-blue shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2.5"/><path d="M12 18h.01"/></svg>
+            <div><div class="text-[14px] font-semibold">POS app (APK)</div><div class="text-[11.5px] text-white/40">writes product document</div></div>
+          </div>
+
+          <div class="flex justify-center"><svg class="w-4 h-4 text-white/25" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14m0 0 5-5m-5 5-5-5"/></svg></div>
+
+          <div class="rounded-2xl px-4 py-3.5 flex items-center gap-3.5 border border-white/[.08]" style="background:rgba(138,92,246,.08)">
+            <svg class="w-5 h-5 text-violet shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15.6A4.4 4.4 0 0 0 17.3 11a6.4 6.4 0 0 0-12 1.6A3.9 3.9 0 0 0 6 20h11a4 4 0 0 0 4-4.4z"/></svg>
+            <div><div class="text-[14px] font-semibold">Cloud Firestore</div><div class="text-[11.5px] text-white/40">broadcasts the change</div></div>
+          </div>
+
+          <div class="flex justify-center"><svg class="w-4 h-4 text-white/25" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14m0 0 5-5m-5 5-5-5"/></svg></div>
+
+          <div class="rounded-2xl px-4 py-3.5 flex items-center gap-3.5 border border-white/[.08]" style="background:rgba(255,176,32,.08)">
+            <svg class="w-5 h-5 text-amber shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8m-4-4v4"/></svg>
+            <div><div class="text-[14px] font-semibold">This website</div><div class="text-[11.5px] text-white/40">repaints without reloading</div></div>
+          </div>
+        </div>
+
+        <div class="rule my-6"></div>
+        <pre class="text-[11.5px] leading-relaxed text-white/45 overflow-x-auto"><code>onSnapshot(collection(db, <span class="text-amber/80">'products'</span>), snap =&gt; {
+  render(snap.docs.map(d =&gt; d.data()));
+});</code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ WHY ══════════════════════════════════════════ -->
+<section id="why" class="relative py-20 sm:py-28 border-t border-white/[.06]">
+  <div class="mx-auto max-w-[1280px] px-5 sm:px-7">
+    <div class="rv max-w-[60ch] mb-14">
+      <div class="text-[12px] uppercase tracking-[.2em] text-amber/80 mb-3">Why shop here</div>
+      <h2 class="font-display font-extrabold leading-[1.05]" style="font-size:clamp(2rem,4.6vw,3.1rem)">
+        Built like a big store.<br><span class="text-white/40">Run like a small one.</span>
+      </h2>
+    </div>
+
+    <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-x-8 gap-y-10">
+      <div class="rv" data-d="1">
+        <svg class="w-6 h-6 text-blue mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M5 12l4-4m-4 4 4 4"/><path d="M19 5v14"/></svg>
+        <h3 class="font-display font-bold text-[17px] mb-2">Real stock, not guesses</h3>
+        <p class="text-white/45 text-[14px] leading-relaxed">If it says 3 left, there are 3 left. The number comes off the same shelf count the till uses.</p>
+      </div>
+      <div class="rv" data-d="2">
+        <svg class="w-6 h-6 text-violet mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+        <h3 class="font-display font-bold text-[17px] mb-2">Updated the second it changes</h3>
+        <p class="text-white/45 text-[14px] leading-relaxed">No nightly import, no stale catalogue. The page you're reading is already listening.</p>
+      </div>
+      <div class="rv" data-d="3">
+        <svg class="w-6 h-6 text-amber mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 6v6c0 5 3.4 9.4 8 10 4.6-.6 8-5 8-10V6z"/><path d="m9 12 2 2 4-4"/></svg>
+        <h3 class="font-display font-bold text-[17px] mb-2">Locked down by rules</h3>
+        <p class="text-white/45 text-[14px] leading-relaxed">The public reads. Only the signed-in owner writes. Enforced by Firestore, not by hope.</p>
+      </div>
+      <div class="rv" data-d="4">
+        <svg class="w-6 h-6 text-blue mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+        <h3 class="font-display font-bold text-[17px] mb-2">Costs about nothing</h3>
+        <p class="text-white/45 text-[14px] leading-relaxed">Free static hosting plus Firebase's free tier carries a small shop comfortably.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ APP / CTA ════════════════════════════════════ -->
+<section id="app" class="relative py-20 sm:py-28">
+  <div class="mx-auto max-w-[1280px] px-5 sm:px-7">
+    <div class="rv glass-soft sheen rounded-[32px] sm:rounded-[40px] px-7 sm:px-14 py-14 sm:py-20 text-center relative overflow-hidden">
+      <div class="absolute -top-28 left-1/2 -translate-x-1/2 w-[560px] h-[300px] blur-[110px] opacity-45 pointer-events-none"
+           style="background:radial-gradient(ellipse,#8A5CF6,transparent 68%)"></div>
+
+      <div class="relative">
+        <div class="inline-flex items-center gap-2 glass rounded-full px-3.5 py-1.5 text-[11.5px] text-white/60 mb-7">
+          <span class="live-dot w-1.5 h-1.5 rounded-full bg-green-400"></span> Android · free · offline-ready
+        </div>
+        <h2 class="font-display font-extrabold leading-[1.04] mb-5" style="font-size:clamp(2.1rem,5.4vw,3.6rem)">
+          Run the shop from<br><span class="gtext">your pocket.</span>
+        </h2>
+        <p class="text-white/50 text-[15.5px] max-w-[48ch] mx-auto leading-relaxed mb-9">
+          Install the POS app, sign in once, and this website becomes the mirror of your counter. Sell, restock, reprice — it all lands here.
+        </p>
+        <div class="flex flex-wrap justify-center gap-3">
+          <a id="dlBtn" href="#" class="btn-primary rounded-full px-8 py-4 text-[15px] font-semibold text-white inline-flex items-center gap-2.5">
+            <svg class="w-[17px] h-[17px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>
+            Download the APK
+          </a>
+          <a href="#shop" class="glass rounded-full px-7 py-4 text-[15px] font-medium hover:bg-white/10 transition">See it running</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ FOOTER ═══════════════════════════════════════ -->
+<footer class="relative border-t border-white/[.07] pt-14 pb-10">
+  <div class="mx-auto max-w-[1280px] px-5 sm:px-7">
+    <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-10 mb-12">
+      <div>
+        <div class="font-display font-extrabold text-[17px] mb-3" data-bind="storeName">Plodroid Store</div>
+        <p class="text-white/38 text-[13.5px] leading-relaxed max-w-[30ch]" data-bind="tagline">
+          A storefront that never disagrees with the till.
+        </p>
+      </div>
+      <div>
+        <div class="text-[12px] uppercase tracking-[.18em] text-white/35 mb-4">Shop</div>
+        <div class="flex flex-col gap-2.5 text-[13.5px] text-white/50">
+          <a href="#shop" class="hover:text-white transition">All products</a>
+          <a href="#shop" class="hover:text-white transition">New arrivals</a>
+          <a href="#shop" class="hover:text-white transition">In stock now</a>
+        </div>
+      </div>
+      <div>
+        <div class="text-[12px] uppercase tracking-[.18em] text-white/35 mb-4">System</div>
+        <div class="flex flex-col gap-2.5 text-[13.5px] text-white/50">
+          <a href="#how"  class="hover:text-white transition">How it works</a>
+          <a href="#sync" class="hover:text-white transition">Live sync</a>
+          <a href="#app"  class="hover:text-white transition">Get the app</a>
+        </div>
+      </div>
+      <div>
+        <div class="text-[12px] uppercase tracking-[.18em] text-white/35 mb-4">Contact</div>
+        <div class="flex flex-col gap-2.5 text-[13.5px] text-white/50">
+          <a href="#" data-bind-href="whatsapp" class="hover:text-white transition">WhatsApp</a>
+          <a href="https://github.com/plodroid" class="hover:text-white transition">GitHub</a>
+          <a href="https://youtube.com/@plodroid" class="hover:text-white transition">YouTube</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="rule mb-7"></div>
+    <div class="flex flex-col sm:flex-row items-center justify-between gap-4 text-[12.5px] text-white/32">
+      <span>© <span id="yr"></span> <span data-bind="storeName">Plodroid Store</span>. Built with Firebase.</span>
+      <span class="flex items-center gap-2"><span class="live-dot w-1.5 h-1.5 rounded-full bg-green-400"></span><span id="connState">connecting…</span></span>
+    </div>
+  </div>
+</footer>
+
+</main>
+
+<!-- ══ BASKET DRAWER ════════════════════════════════ -->
+<div id="scrim" class="scrim fixed inset-0 z-[60] bg-black/55 backdrop-blur-[3px]"></div>
+<aside id="drawer" class="drawer fixed top-0 right-0 bottom-0 z-[70] w-full sm:w-[400px] flex flex-col border-l border-white/10"
+       style="background:rgba(9,10,17,.84);backdrop-filter:blur(34px) saturate(170%);-webkit-backdrop-filter:blur(34px) saturate(170%)"
+       aria-label="Basket">
+  <div class="flex items-center justify-between px-6 h-[70px] border-b border-white/[.08] shrink-0">
+    <div class="font-display font-bold text-[16px]">Your basket</div>
+    <button id="closeCart" class="glass rounded-full w-8 h-8 grid place-items-center hover:bg-white/10 transition" aria-label="Close">
+      <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
+  </div>
+  <div id="cartItems" class="flex-1 overflow-y-auto px-6 py-5 space-y-5"></div>
+  <div class="px-6 py-5 border-t border-white/[.08] shrink-0">
+    <div class="flex items-center justify-between mb-4">
+      <span class="text-white/50 text-[13.5px]">Total</span>
+      <span id="cartTotal" class="font-display font-bold text-[21px] tabular-nums">0 DZD</span>
+    </div>
+    <button id="checkout" class="btn-primary w-full rounded-full py-3.5 text-[14.5px] font-semibold text-white">
+      Order on WhatsApp
+    </button>
+    <p class="text-center text-white/28 text-[11.5px] mt-3">Payment is settled in store or on delivery.</p>
+  </div>
+</aside>
+
+<div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-[80] glass rounded-full px-5 py-2.5 text-[13px] opacity-0 translate-y-3 transition-all duration-300 pointer-events-none"></div>
+
+<script src="./firebase-config.js"></script>
+<script type="module" src="./app.js"></script>
+</body>
+</html>
