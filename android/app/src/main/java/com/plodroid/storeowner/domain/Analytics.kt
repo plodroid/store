@@ -66,7 +66,7 @@ object Analytics {
             awaitingPayment = real.count { it.payment == PaymentStatus.PENDING && it.status != OrderStatus.CANCELLED },
             completed = orders.count { it.status == OrderStatus.COMPLETED },
             cancelled = orders.count { it.status == OrderStatus.CANCELLED },
-            receivedPence = real.filter(::isReceived).sumOf { it.totalPence },
+            receivedPence = real.filter { isReceived(it) }.sumOf { it.totalPence },
             openValuePence = real.filter { it.status.isOpen }.sumOf { it.totalPence },
             customers = customers,
             productsOnSale = liveProducts.count { it.onSale },
@@ -117,7 +117,7 @@ object Analytics {
                 dayStart = d,
                 realOrders = list.count { !it.isTest && it.status != OrderStatus.CANCELLED },
                 testOrders = list.count { it.isTest && it.status != OrderStatus.CANCELLED },
-                receivedPence = list.filter(::isReceived).sumOf { it.totalPence },
+                receivedPence = list.filter { isReceived(it) }.sumOf { it.totalPence },
             )
         }
     }

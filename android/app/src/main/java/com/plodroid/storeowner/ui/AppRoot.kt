@@ -205,15 +205,35 @@ private fun MainNav(vm: OwnerViewModel) {
                 composable(Routes.NOTIFICATIONS) { NotificationsScreen(vm, nav) }
                 composable(Routes.SETTINGS) { SettingsScreen(vm, nav) }
             }
-            AnimatedVisibility(
+            TabBarHost(
                 visible = route in Routes.tabs,
+                reduced = reduced,
+                route = route,
+                badges = badges,
+                onSelect = { tab(nav, it) },
                 modifier = Modifier.align(Alignment.BottomCenter),
-                enter = if (reduced) EnterTransition.None else slideInVertically(tween(260, easing = EaseOutStrong)) { it } + fadeIn(tween(160)),
-                exit = if (reduced) ExitTransition.None else slideOutVertically(tween(200)) { it } + fadeOut(tween(120)),
-            ) {
-                GlassTabBar(TABS, route, badges, onSelect = { tab(nav, it.route) })
-            }
+            )
         }
+    }
+}
+
+/** Kept outside any Column/Row so the plain (unscoped) AnimatedVisibility is used. */
+@Composable
+private fun TabBarHost(
+    visible: Boolean,
+    reduced: Boolean,
+    route: String?,
+    badges: Map<String, Int>,
+    onSelect: (String) -> Unit,
+    modifier: Modifier,
+) {
+    AnimatedVisibility(
+        visible = visible,
+        modifier = modifier,
+        enter = if (reduced) EnterTransition.None else slideInVertically(tween(260, easing = EaseOutStrong)) { it } + fadeIn(tween(160)),
+        exit = if (reduced) ExitTransition.None else slideOutVertically(tween(200)) { it } + fadeOut(tween(120)),
+    ) {
+        GlassTabBar(TABS, route, badges, onSelect = { onSelect(it.route) })
     }
 }
 
