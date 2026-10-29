@@ -44,10 +44,10 @@ const googleIn = async (p, g) => {
   await p.waitForSelector("#acctBtn:not([hidden])");
 };
 const setLocation = async p => {
-  await p.locator('#locForm [name="postcode"]').fill("LE5 4GU");
+  await p.locator('#locForm [name="postcode"]').fill("SW1A 1AA");
   await p.waitForFunction(() => document.querySelector("#locStatus").textContent.length > 0);
-  await p.locator('#locForm [name="line1"]').fill("1 Thoresby Street");
-  await p.locator('#locForm [name="city"]').fill("Leicester");
+  await p.locator('#locForm [name="line1"]').fill("10 Example Road");
+  await p.locator('#locForm [name="city"]').fill("London");
 };
 
 /* ── look & theme ─────────────────────────────────── */
@@ -196,14 +196,14 @@ await test("postcode: unknown → invalid, real → accepted; save writes the ad
   await setLocation(p);
   await p.waitForFunction(() => document.querySelector("#locStatus").classList.contains("ok"));
   await p.click("#locSave");
-  await p.waitForFunction(() => Object.values(window.__FAKE.dump().users || {}).some(u => u.address && u.address.postcode === "LE5 4GU" && u.address.verified === true));
+  await p.waitForFunction(() => Object.values(window.__FAKE.dump().users || {}).some(u => u.address && u.address.postcode === "SW1A 1AA" && u.address.verified === true));
 });
 
 await test("town that doesn't match the postcode gets a soft warning (still saveable)", async (t) => {
   const p = t.page; await signedIn(p, t);
   await p.click("#acctBtn"); await p.click("#menuAcct"); await p.click("#acctLoc");
-  await p.locator('#locForm [name="postcode"]').fill("LE5 4GU");
-  await p.locator('#locForm [name="line1"]').fill("1 Thoresby Street");
+  await p.locator('#locForm [name="postcode"]').fill("SW1A 1AA");
+  await p.locator('#locForm [name="line1"]').fill("10 Example Road");
   await p.locator('#locForm [name="city"]').fill("Manchester");
   await p.waitForFunction(() => /double-check your town/i.test(document.querySelector("#locStatus").textContent));
   assert.ok(await p.locator("#locSave").isEnabled());
@@ -241,7 +241,7 @@ await test("delivery without an address is blocked; with address succeeds", asyn
   await p.click("#coSubmit");
   await p.waitForSelector("#coDone:not([hidden])");
   const o = Object.values((await db(p)).orders)[0];
-  assert.equal(o.fulfilment, "delivery"); assert.equal(o.address.postcode, "LE5 4GU"); assert.equal(o.customer.phone, "+447123456789");
+  assert.equal(o.fulfilment, "delivery"); assert.equal(o.address.postcode, "SW1A 1AA"); assert.equal(o.customer.phone, "+447123456789");
 });
 
 await test("second order within 30s is rejected by the rate-limit rule", async (t) => {

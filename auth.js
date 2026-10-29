@@ -398,11 +398,11 @@ export function createAuth({ FS, onChange = () => {} }) {
         <button class="btn-ghost tight geo" type="button" id="locGeo">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="7.5"/></svg>
           Use my current location</button>
-        <label class="inp"><span>Postcode*</span><input name="postcode" autocomplete="postal-code" autocapitalize="characters" placeholder="LE5 4GU" maxlength="9" required value="${esc(a.postcode || "")}"></label>
+        <label class="inp"><span>Postcode*</span><input name="postcode" autocomplete="postal-code" autocapitalize="characters" placeholder="Postcode" maxlength="9" required value="${esc(a.postcode || "")}"></label>
         <p class="pc-status" id="locStatus" role="status" aria-live="polite"></p>
-        <label class="inp"><span>House number and street*</span><input name="line1" autocomplete="address-line1" placeholder="1 Thoresby Street" maxlength="120" required value="${esc(a.line1 || "")}"></label>
+        <label class="inp"><span>House number and street*</span><input name="line1" autocomplete="address-line1" placeholder="House number and street" maxlength="120" required value="${esc(a.line1 || "")}"></label>
         <label class="inp"><span>Flat, building or area <em>(optional)</em></span><input name="line2" autocomplete="address-line2" maxlength="120" value="${esc(a.line2 || "")}"></label>
-        <label class="inp"><span>Town or city*</span><input name="city" autocomplete="address-level2" placeholder="Leicester" maxlength="60" required value="${esc(a.city || "")}"></label>
+        <label class="inp"><span>Town or city*</span><input name="city" autocomplete="address-level2" maxlength="60" required value="${esc(a.city || "")}"></label>
         <label class="inp ro"><span>Country</span><input value="United Kingdom" readonly tabindex="-1"></label>
         <p class="form-error" id="locErr" role="alert" hidden></p>
         <button class="btn-primary wide" id="locSave" type="submit" disabled>Save location</button>

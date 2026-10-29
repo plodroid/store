@@ -1,10 +1,10 @@
-/* Plodroid Store — customer website.
+/* Bee Hive — customer website.
    Products, categories and site copy come live from Firestore (edited by the owner in the admin panel).
-   Customers sign in (auth.js); orders and feedback are written straight to Firestore and locked down
-   by firestore.rules, so the whole thing runs on the free Firebase plan. */
+   Customers sign in (auth.js); orders, feedback and stock alerts are written straight to Firestore and
+   locked down by firestore.rules, so the whole thing runs on the free Firebase plan. */
 
 import { $, $$, esc, store, money, pence, reduced, uid, openDialog, closeDialog, wireDialogs,
-         toast, showError, setBusy } from "./ui.js";
+         toast, showError, setBusy, priceOf, onSale, percentOff, millis } from "./ui.js";
 import { createAuth } from "./auth.js";
 import { normaliseUkPhone, showUkPhone } from "./uk.js";
 
@@ -15,6 +15,7 @@ const FB = "https://www.gstatic.com/firebasejs/10.12.2/";
 function paintTheme() {
   const dark = document.documentElement.dataset.theme === "dark";
   $("#themeBtn").setAttribute("aria-label", dark ? "Switch to light mode" : "Switch to dark mode");
+  $("#themeBtn2").textContent = dark ? "Light mode" : "Dark mode";
   document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#161616" : "#F4F3EE");
 }
 
@@ -27,7 +28,7 @@ const params = new URLSearchParams(location.search);
 const MODE = configured() ? "live" : params.has("preview") ? "preview" : "unconfigured";
 document.documentElement.dataset.mode = MODE;
 if (MODE !== "live") {
-  console.warn(`[store] Firebase isn't configured (mode: ${MODE}). Fill in firebase-config.js to go live.` +
+  console.warn(`[shop] Firebase isn't configured (mode: ${MODE}). Fill in firebase-config.js to go live.` +
     (MODE === "unconfigured" ? " Add ?preview to the URL to look around with labelled sample data." : ""));
 }
 
@@ -40,25 +41,34 @@ const PREVIEW = {
     { id: "pv-c", name: "Pantry", sortOrder: 2 },
   ],
   products: [
-    { id: "pv1", name: "Medjool Dates 500g", categoryId: "pv-a", price: 6.5, stock: 14, featured: true, description: "Soft, large and naturally sweet." },
-    { id: "pv2", name: "Deglet Nour Dates 1kg", categoryId: "pv-a", price: 5.25, stock: 3, description: "Golden, firm and lightly honeyed." },
-    { id: "pv3", name: "Sparkling Water 6 × 500ml", categoryId: "pv-b", price: 2.4, stock: 24, description: "Lightly carbonated mineral water." },
-    { id: "pv4", name: "Orange Juice 1L", categoryId: "pv-b", price: 1.85, stock: 0, description: "Pressed oranges, no added sugar." },
-    { id: "pv5", name: "Basmati Rice 2kg", categoryId: "pv-c", price: 3.9, stock: 18, description: "Long grain, aged for a fluffier cook." },
-    { id: "pv6", name: "Olive Oil 750ml", categoryId: "pv-c", price: 6.75, stock: 9, featured: true, unit: "bottle", description: "Cold pressed, fruity and peppery." },
+    { id: "pv1", name: "Medjool Dates 500g", categoryId: "pv-a", price: 6.5, salePrice: 5.2, stock: 14, featured: true, createdAt: 5, description: "Soft, large and naturally sweet." },
+    { id: "pv2", name: "Deglet Nour Dates 1kg", categoryId: "pv-a", price: 5.25, stock: 3, createdAt: 4, description: "Golden, firm and lightly honeyed." },
+    { id: "pv3", name: "Sparkling Water 6 × 500ml", categoryId: "pv-b", price: 2.4, stock: 24, createdAt: 3, description: "Lightly carbonated mineral water." },
+    { id: "pv4", name: "Orange Juice 1L", categoryId: "pv-b", price: 1.85, stock: 0, createdAt: 2, description: "Pressed oranges, no added sugar." },
+    { id: "pv5", name: "Basmati Rice 2kg", categoryId: "pv-c", price: 3.9, stock: 18, createdAt: 1, description: "Long grain, aged for a fluffier cook." },
+    { id: "pv6", name: "Olive Oil 750ml", categoryId: "pv-c", price: 6.75, stock: 9, featured: true, createdAt: 6, unit: "bottle", description: "Cold pressed, fruity and peppery." },
   ].map(p => ({ ...p, visible: true, archived: false })),
 };
 
 /* ── helpers ─────────────────────────────────────────── */
 const stockOf = p => (p.stock == null || p.stock === "") ? Infinity : Math.max(0, Number(p.stock) || 0);
 const lowAt = p => Number.isInteger(p.lowStockThreshold) ? p.lowStockThreshold : 5;
+const parseMoney = v => { const t = String(v ?? "").replace(/[£,\s]/g, ""); const n = Number(t); return t !== "" && Number.isFinite(n) && n >= 0 ? n : null; };
+const noFilters = () => ({ stock: false, sale: false, saved: false, min: "", max: "" });
+
+const HEX = `<svg class="hex" viewBox="0 0 64 64" aria-hidden="true"><path d="M32 4 57 18.5v27L32 60 7 45.5v-27z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>`;
+const ph = ch => `<span class="ph" aria-hidden="true">${HEX}<b>${esc(ch)}</b></span>`;
 
 const I = {
   plus:  `<svg class="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>`,
   check: `<svg class="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 10 17 19 7"/></svg>`,
-  grid:  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/></svg>`,
-  arrow: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>`,
+  heart: `<svg viewBox="0 0 24 24" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2z"/></svg>`,
+  bell:  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9a6 6 0 1 1 12 0c0 6 2 7.5 2 7.5H4S6 15 6 9z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>`,
+  share: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4M8 8l4-4 4 4"/><path d="M5 12v7h14v-7"/></svg>`,
+  shop:  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5 5.5 4h13L20 9.5"/><path d="M4 9.5c0 1.4 1.1 2.5 2.5 2.5S9 10.9 9 9.5c0 1.4 1.1 2.5 3 2.5s3-1.1 3-2.5c0 1.4 1.1 2.5 2.5 2.5S20 10.9 20 9.5"/><path d="M5.5 12v8h13v-8"/></svg>`,
+  truck: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h11v10H3z"/><path d="M14 9h4l3 3v4h-7"/><circle cx="7" cy="17.5" r="1.8"/><circle cx="17" cy="17.5" r="1.8"/></svg>`,
   star:  `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/></svg>`,
+  tick:  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="m8.5 12.3 2.4 2.4 4.6-5"/></svg>`,
 };
 
 /* ── state ───────────────────────────────────────────── */
@@ -67,8 +77,12 @@ const S = {
   categories: [],     // visible categories, ordered
   site: { ...DEF },
   state: MODE === "unconfigured" ? "unconfigured" : "loading",   // loading | ready | error | unconfigured
-  cat: "All", q: "", sort: "feat",
+  cat: "All", q: "", sort: "feat", f: noFilters(),
   cart: store.get("cart", {}),
+  wish: new Set(store.get("wish", [])),        // saved items: on this device, and in the account once signed in
+  recent: store.get("recent", []),             // recently viewed product ids, newest first
+  alerts: new Map(),                           // productId → alert doc id, for the signed-in customer
+  view: "shop",
   catKey: "",
 };
 let FS = null;     // { db, fs, auth, au } Firebase handles — live mode only
@@ -87,19 +101,25 @@ let SHOP = [];
 const find = id => SHOP.find(p => p.id === id);
 
 /* Pure: filter + sort. Kept separate so the self-check can exercise it. */
-function visible(list, { cat, q, sort }) {
+function visible(list, { cat, q, sort, f = noFilters(), wish = new Set() }) {
   const needle = q.trim().toLowerCase();
+  const min = parseMoney(f.min), max = parseMoney(f.max);
   const out = list.filter(p =>
     (cat === "All" || p.categoryId === cat) &&
-    (!needle || `${p.name} ${p.category ?? ""} ${p.description ?? ""}`.toLowerCase().includes(needle)));
+    (!needle || `${p.name} ${p.category ?? ""} ${p.description ?? ""}`.toLowerCase().includes(needle)) &&
+    (!f.stock || stockOf(p) > 0) && (!f.sale || onSale(p)) && (!f.saved || wish.has(p.id)) &&
+    (min == null || priceOf(p) >= min) && (max == null || priceOf(p) <= max));
+  const name = (a, b) => String(a.name).localeCompare(String(b.name));
   const by = {
-    lo: (a, b) => a.price - b.price,
-    hi: (a, b) => b.price - a.price,
-    az: (a, b) => String(a.name).localeCompare(String(b.name)),
-    feat: (a, b) => (b.featured ? 1 : 0) - (a.featured ? 1 : 0) ||
-      (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || String(a.name).localeCompare(String(b.name)),
+    lo: (a, b) => priceOf(a) - priceOf(b) || name(a, b),
+    hi: (a, b) => priceOf(b) - priceOf(a) || name(a, b),
+    az: name,
+    new: (a, b) => millis(b.createdAt) - millis(a.createdAt) || name(a, b),
+    feat: (a, b) => (stockOf(a) === 0 ? 1 : 0) - (stockOf(b) === 0 ? 1 : 0) || (b.featured ? 1 : 0) - (a.featured ? 1 : 0) ||
+      (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || name(a, b),
   }[sort];
-  return out.sort(by);
+  const gone = p => (stockOf(p) === 0 ? 1 : 0);   // sold-out items always sink to the bottom
+  return out.sort((a, b) => gone(a) - gone(b) || by(a, b));
 }
 
 /* ── data ────────────────────────────────────────────── */
@@ -132,7 +152,7 @@ async function connect() {
       first = false;
     };
     const onErr = err => {
-      console.error("[store]", err);
+      console.error("[shop]", err);
       if (S.state !== "ready") { clearTimeout(slow); S.state = "error"; render(); }
     };
 
@@ -155,15 +175,18 @@ async function connect() {
     fs.onSnapshot(fs.doc(db, PATHS.settings, PATHS.siteDoc), snap => {
       S.site = { ...DEF, ...(snap.exists() ? snap.data() : {}) };
       renderSite();
-    }, err => console.error("[store] settings", err));
+    }, err => console.error("[shop] settings", err));
   } catch (e) {
-    console.error("[store]", e);
+    console.error("[shop]", e);
     S.state = "error";
     render();
   }
 }
 
 /* ── site copy ───────────────────────────────────────── */
+const storeName = () => S.site.storeName || DEF.storeName;
+function setTitle(t) { document.title = t ? `${t} · ${storeName()}` : storeName(); }
+
 function renderSite() {
   $$("[data-bind]").forEach(el => {
     const v = S.site[el.dataset.bind];
@@ -173,12 +196,50 @@ function renderSite() {
   const c = $("#contact");
   c.hidden = !S.site.whatsapp;
   if (S.site.whatsapp) c.href = S.site.whatsapp;
-  document.title = S.site.storeName || DEF.storeName;
+  if (S.view !== "product") setTitle("");
+  renderTrust();
   syncNavHeight();
 }
 
 function syncNavHeight() {
   document.documentElement.style.setProperty("--nav-h", `${$("#nav").offsetHeight}px`);
+}
+
+/** The three short promises under the hero. They follow what the owner switched on in Settings. */
+function renderTrust() {
+  const f = fulfil();
+  const items = [
+    f.collection && [I.shop, "Pick up from the shop", S.site.collectionNote || "Free. We'll tell you when it's ready"],
+    f.delivery && [I.truck, "UK delivery", S.site.deliveryNote || (f.fee ? `From ${money(f.fee)} to your door` : "Free to your door")],
+    [I.tick, "Checked by the shop", "Every order is confirmed with live prices and stock"],
+  ].filter(Boolean);
+  $("#trustList").innerHTML = items.map(([icon, t, sub]) => `<li>${icon}<div><b>${esc(t)}</b><span>${esc(sub)}</span></div></li>`).join("");
+  $("#footerBlurb").textContent = [f.collection && "Pick-up from the shop", f.delivery && "UK delivery"].filter(Boolean).join(" · ") || "Everyday essentials, food and drinks.";
+}
+
+/* ── routing: #/ (shop) · #/p/<id> (product page) · #/saved ───────── */
+function route() {
+  const h = location.hash;
+  const m = h.match(/^#\/p\/([^/?#]+)/);
+  if (m) return { name: "product", id: decodeURIComponent(m[1]) };
+  if (h === "#/saved") return { name: "saved" };
+  return { name: "shop", anchor: h === "#shop" };
+}
+
+function showView(scroll = true) {
+  const r = route(), prev = S.view;
+  S.view = r.name;
+  $("#vShop").hidden = r.name !== "shop";
+  $("#vProduct").hidden = r.name !== "product";
+  $("#vSaved").hidden = r.name !== "saved";
+  $("#nav").classList.remove("searching");
+  $("#searchToggle").setAttribute("aria-expanded", "false");
+  if (r.name !== "product") setTitle(r.name === "saved" ? "Saved items" : "");
+  render(false);
+  if (!scroll) return;
+  if (r.name === "shop" && r.anchor) goToShop();
+  else if (r.name === "shop" && prev !== "shop" && S.y != null) scrollTo({ top: S.y, behavior: "auto" });   // "back" lands where you were
+  else scrollTo({ top: 0, behavior: "auto" });
 }
 
 /* ── categories ──────────────────────────────────────── */
@@ -194,15 +255,26 @@ function renderCats() {
       b.type = "button"; b.className = "tab"; b.dataset.c = c.id; b.textContent = c.name;
       return b;
     }));
-    $("#suggest").innerHTML = [
-      ["All", "Shop all products", I.grid],
-      ...S.categories.slice(0, 2).map(c => [c.id, `Browse ${c.name.toLowerCase()}`, I.arrow]),
-    ].map(([id, label, icon]) =>
-      `<li><button type="button" data-c="${esc(id)}">${icon}<span>${esc(label)}</span></button></li>`).join("");
   }
   $(".tabs").hidden = S.categories.length === 0;
   $$(".tab").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.c === S.cat)));
   moveIndicator();
+}
+
+/** "Shop by category" tiles beside the headline. */
+function renderHero() {
+  const list = $("#heroCats");
+  const cats = S.state === "ready" ? S.categories.slice(0, 4) : [];
+  list.hidden = !cats.length;
+  $(".hero-grid").classList.toggle("solo", !cats.length);
+  list.innerHTML = cats.map(c => {
+    const items = SHOP.filter(p => p.categoryId === c.id);
+    const withImg = items.find(p => p.image);
+    return `<li><a href="#shop" data-c="${esc(c.id)}" data-scroll>
+      <span class="hc-thumb">${withImg ? `<img src="${esc(withImg.image)}" alt="" loading="lazy" decoding="async" data-fallback="${esc(c.name[0])}">` : ph(c.name[0])}</span>
+      <span class="hc-text"><b>${esc(c.name)}</b><small>${items.length} ${items.length === 1 ? "item" : "items"}</small></span></a></li>`;
+  }).join("");
+  $$("img[data-fallback]", list).forEach(img => img.addEventListener("error", onImgError, { once: true }));
 }
 
 function moveIndicator() {
@@ -218,6 +290,7 @@ function moveIndicator() {
 
 function pickCat(c, { scroll = false } = {}) {
   S.cat = c;
+  if (S.view !== "shop") { location.hash = "#shop"; return; }
   render();
   const active = $$(".tab").find(b => b.dataset.c === c);
   active?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: reduced.matches ? "auto" : "smooth" });
@@ -226,28 +299,54 @@ function pickCat(c, { scroll = false } = {}) {
 
 const goToShop = () => $("#shop").scrollIntoView({ behavior: reduced.matches ? "auto" : "smooth" });
 
+/* ── filters ─────────────────────────────────────────── */
+function renderFilters() {
+  const f = S.f;
+  const n = [f.stock, f.sale, f.saved, parseMoney(f.min) != null, parseMoney(f.max) != null].filter(Boolean).length;
+  $("#filterN").hidden = !n;
+  $("#filterN").textContent = n;
+  $("#filterBtn").classList.toggle("on", n > 0);
+  $("#fStock").checked = f.stock; $("#fSale").checked = f.sale; $("#fSaved").checked = f.saved;
+}
+const clearFilters = () => {
+  S.f = noFilters();
+  $("#fMin").value = ""; $("#fMax").value = "";
+};
+
 /* ── catalogue ───────────────────────────────────────── */
 function media(p) {
   return p.image
     ? `<img src="${esc(p.image)}" alt="" loading="lazy" decoding="async" data-fallback="${esc((p.name || "?").trim()[0])}">`
-    : `<span class="ph" aria-hidden="true">${esc((p.name || "?").trim()[0])}</span>`;
+    : ph((p.name || "?").trim()[0]);
 }
 const per = p => p.unit && p.unit !== "each" ? `<span class="per"> / ${esc(p.unit)}</span>` : "";
+const priceHtml = p => onSale(p)
+  ? `<span class="now">${money(priceOf(p))}</span> <s class="was">${money(p.price)}</s>${per(p)}`
+  : `<span class="now">${money(p.price)}</span>${per(p)}`;
+const heartBtn = (p, cls = "heart") => {
+  const on = S.wish.has(p.id);
+  return `<button class="${cls}${on ? " on" : ""}" type="button" data-wish="${esc(p.id)}" aria-pressed="${on}" aria-label="${on ? "Remove from saved items" : "Save for later"}">${I.heart}</button>`;
+};
 
 function tile(p) {
   const max = stockOf(p), out = max === 0, low = max > 0 && max <= lowAt(p);
+  const asked = S.alerts.has(p.id);
   return `
   <article class="tile${out ? " is-out" : ""}">
-    <button class="tile-media" type="button" data-open="${esc(p.id)}" aria-label="View ${esc(p.name)}">
-      ${media(p)}${out ? `<span class="flag">Sold out</span>` : ""}
-    </button>
+    <div class="tile-media-wrap">
+      <a class="tile-media" href="#/p/${esc(p.id)}" aria-label="View ${esc(p.name)}">${media(p)}</a>
+      ${out ? `<span class="flag">Sold out</span>` : onSale(p) ? `<span class="flag sale">−${percentOff(p)}%</span>` : ""}
+      ${heartBtn(p)}
+    </div>
     <div class="tile-body">
-      <button class="tile-name" type="button" data-open="${esc(p.id)}">${esc(p.name)}</button>
+      <a class="tile-name" href="#/p/${esc(p.id)}">${esc(p.name)}</a>
       <div class="tile-meta">${esc(p.category || "")}${low ? `${p.category ? " · " : ""}<span class="low">Only ${max} left</span>` : ""}</div>
       <div class="tile-foot">
-        <span class="price">${money(p.price)}${per(p)}</span>
-        <button class="add" type="button" data-add="${esc(p.id)}" ${out ? "disabled" : ""}
-                aria-label="${out ? `${esc(p.name)} is sold out` : `Add ${esc(p.name)} to basket`}">${I.plus}${I.check}</button>
+        <span class="price">${priceHtml(p)}</span>
+        ${out
+          ? `<button class="add bell${asked ? " on" : ""}" type="button" data-notify="${esc(p.id)}" aria-pressed="${asked}" title="${asked ? "We'll email you when it's back" : "Email me when it's back"}"
+                     aria-label="${asked ? `Stop the back-in-stock alert for ${esc(p.name)}` : `Email me when ${esc(p.name)} is back in stock`}">${I.bell}</button>`
+          : `<button class="add" type="button" data-add="${esc(p.id)}" aria-label="Add ${esc(p.name)} to basket">${I.plus}${I.check}</button>`}
       </div>
     </div>
   </article>`;
@@ -263,9 +362,30 @@ const io = new IntersectionObserver(entries => {
   }
 }, { rootMargin: "0px 0px -4% 0px" });
 
+function reveal(root, animate) {
+  const tiles = $$(".tile", root);
+  if (animate && !reduced.matches) tiles.forEach(t => io.observe(t));
+  else tiles.forEach(t => t.classList.add("in"));
+  $$("img[data-fallback]", root).forEach(img => img.addEventListener("error", onImgError, { once: true }));
+}
+
 function render(animate = true) {
   SHOP = shopProducts();
   renderCats();
+  renderHero();
+  renderFilters();
+  renderRestock();
+  paintWish();
+
+  if (S.view === "product") renderProduct();
+  else if (S.view === "saved") renderSaved();
+  else renderShop(animate);
+
+  drawCart();
+  if ($("#co").open && !$("#coForm").hidden) drawCheckout();
+}
+
+function renderShop(animate) {
   const grid = $("#grid");
   const empty = (title, text, action) => {
     $("#empty").hidden = !title;
@@ -273,6 +393,7 @@ function render(animate = true) {
     $("#emptyTitle").textContent = title;
     $("#emptyText").textContent = text;
     $("#emptyAction").hidden = !action;
+    if (action) $("#emptyAction").textContent = action;
   };
 
   $("#modeNote").hidden = MODE !== "preview";
@@ -281,55 +402,288 @@ function render(animate = true) {
     grid.innerHTML = Array.from({ length: 8 }, () =>
       `<div class="tile in sk" aria-hidden="true"><div class="tile-media"></div><div class="sk-line"></div><div class="sk-line short"></div></div>`).join("");
     $("#resultCount").textContent = "";
+    $("#recentShop").hidden = true;
     empty();
     return;
   }
   if (S.state === "error" || S.state === "unconfigured") {
     grid.innerHTML = "";
     $("#resultCount").textContent = "";
+    $("#recentShop").hidden = true;
     S.state === "error"
       ? empty("We couldn't load the shop just now.", "Please check your connection and refresh the page.")
       : empty("The shop is getting ready.", "Products will appear here soon. Please check back later.");
-    drawCart();
     return;
   }
 
   const items = visible(SHOP, S);
   const cat = S.categories.find(c => c.id === S.cat);
-  $("#shopTitle").textContent = cat ? cat.name : "All products";
+  $("#shopTitle").textContent = S.q.trim() ? `Results for “${S.q.trim()}”` : cat ? cat.name : "All products";
   $("#resultCount").textContent = `${items.length} ${items.length === 1 ? "item" : "items"}`;
   grid.innerHTML = items.map(tile).join("");
 
   if (!items.length) {
-    if (S.q.trim()) empty(`No results for “${S.q.trim()}”`, "Try a different word, or browse all products.", true);
+    const filtered = S.f.stock || S.f.sale || S.f.saved || parseMoney(S.f.min) != null || parseMoney(S.f.max) != null;
+    if (S.q.trim() || filtered) empty(S.q.trim() ? `No results for “${S.q.trim()}”` : "No products match these filters", "Try a different word, or loosen the filters.", "Clear search and filters");
     else if (cat) empty("Nothing in this category yet", "Have a look at all products instead.");
     else empty("No products yet", "New products will appear here as soon as they're added.");
   } else empty();
 
-  $$("img[data-fallback]", grid).forEach(img => img.addEventListener("error", onImgError, { once: true }));
-  const tiles = $$(".tile", grid);
-  if (animate && !reduced.matches) tiles.forEach(t => io.observe(t));
-  else tiles.forEach(t => t.classList.add("in"));
+  reveal(grid, animate);
+  renderRecent();
+}
 
-  drawCart();
-  if ($("#co").open && !$("#coForm").hidden) drawCheckout();
+/* "Recently viewed" under the shop grid */
+function recentProducts(excludeId) {
+  return S.recent.map(find).filter(p => p && p.id !== excludeId);
+}
+function renderRecent() {
+  const list = recentProducts().slice(0, 4);
+  $("#recentShop").hidden = !list.length;
+  $("#recentShopList").innerHTML = list.map(tile).join("");
+  reveal($("#recentShopList"), false);
+}
+function pushRecent(id) {
+  if (S.recent[0] === id) return;
+  S.recent = [id, ...S.recent.filter(x => x !== id)].slice(0, 12);
+  store.set("recent", S.recent);
 }
 
 function onImgError(e) {
-  const ph = document.createElement("span");
-  ph.className = "ph"; ph.setAttribute("aria-hidden", "true");
-  ph.textContent = e.target.dataset.fallback;
-  e.target.replaceWith(ph);
+  const holder = e.target;
+  holder.insertAdjacentHTML("afterend", ph(holder.dataset.fallback));
+  holder.remove();
 }
 
-/* ── search (hero + toolbar share one query) ─────────── */
+/* ── product page ────────────────────────────────────── */
+function related(p) {
+  const rest = SHOP.filter(x => x.id !== p.id);
+  const score = x => (x.categoryId === p.categoryId ? 0 : 2) + (stockOf(x) === 0 ? 1 : 0);
+  return rest.sort((a, b) => score(a) - score(b) || (b.featured ? 1 : 0) - (a.featured ? 1 : 0) || String(a.name).localeCompare(String(b.name))).slice(0, 4);
+}
+
+function renderProduct() {
+  const root = $("#pp");
+  const id = route().id;
+  const back = `<nav class="crumbs" aria-label="Breadcrumb"><a href="#/">Shop</a><span aria-hidden="true">/</span>`;
+  if (S.state === "loading") {
+    root.dataset.id = "";
+    root.innerHTML = `${back}<span>…</span></nav><div class="pp sk" aria-hidden="true"><div class="pp-media"></div><div class="pp-info"><div class="sk-line"></div><div class="sk-line short"></div></div></div>`;
+    return;
+  }
+  const p = find(id);
+  if (!p) {
+    root.dataset.id = "";
+    setTitle("Product not found");
+    root.innerHTML = `${back}<span aria-current="page">Not found</span></nav>
+      <div class="empty"><p class="empty-title">${S.state === "ready" ? "This product isn't available any more" : "We couldn't load this product"}</p>
+      <p class="muted">${S.state === "ready" ? "It may have been removed or sold out for good." : "Please check your connection and try again."}</p>
+      <a class="btn-ghost" href="#/">Back to the shop</a></div>`;
+    return;
+  }
+
+  if (root.dataset.id !== id) { root.dataset.qty = "1"; root.dataset.id = id; pushRecent(id); }
+  const max = stockOf(p), out = max === 0;
+  const qty = Math.max(1, Math.min(out ? 1 : max, Number(root.dataset.qty) || 1));
+  root.dataset.qty = qty;
+  const state = max === Infinity ? "" : out ? "out" : max <= lowAt(p) ? "low" : "ok";
+  const stock = { out: "Sold out", low: `Only ${max} left`, ok: "In stock" }[state] || "";
+  const asked = S.alerts.has(p.id);
+  const f = fulfil();
+  const facts = [
+    f.collection && "Pick up from the shop once it's confirmed",
+    f.delivery && `UK delivery${f.fee ? ` from ${money(f.fee)}` : ", free"}`,
+  ].filter(Boolean);
+  const more = related(p);
+  const seen = recentProducts(p.id).slice(0, 4);
+  setTitle(p.name);
+
+  root.innerHTML = `
+    ${back}${p.category ? `<a href="#shop" data-c="${esc(p.categoryId)}" data-scroll>${esc(p.category)}</a><span aria-hidden="true">/</span>` : ""}<span aria-current="page">${esc(p.name)}</span></nav>
+    <article class="pp">
+      <div class="pp-media">${media(p)}${out ? `<span class="flag">Sold out</span>` : onSale(p) ? `<span class="flag sale">−${percentOff(p)}%</span>` : ""}</div>
+      <div class="pp-info">
+        ${p.category ? `<div class="pp-cat">${esc(p.category)}</div>` : ""}
+        <h1 class="pp-name">${esc(p.name)}</h1>
+        <div class="pp-price">${priceHtml(p)}${onSale(p) ? `<span class="save-chip">Save ${money(p.price - priceOf(p))}</span>` : ""}</div>
+        ${stock ? `<div class="pp-stock ${state}"><i></i>${stock}</div>` : ""}
+        ${p.description ? `<p class="pp-desc">${esc(p.description)}</p>` : ""}
+        <div class="pp-actions">
+          ${out
+            ? `<button class="btn-primary${asked ? " on" : ""}" type="button" data-notify="${esc(p.id)}">${I.bell}<span>${asked ? "We'll email you when it's back" : "Email me when it's back"}</span></button>`
+            : `<div class="stepper">
+                 <button class="step" type="button" data-pp-step="-1" aria-label="Decrease quantity" ${qty <= 1 ? "disabled" : ""}>−</button>
+                 <output id="ppQty">${qty}</output>
+                 <button class="step" type="button" data-pp-step="1" aria-label="Increase quantity" ${qty >= max ? "disabled" : ""}>+</button>
+               </div>
+               <button class="btn-primary" type="button" data-pp-add>Add to basket</button>`}
+        </div>
+        ${asked && out ? `<p class="hint pp-hint">Changed your mind? <button class="link" type="button" data-notify="${esc(p.id)}">Cancel the alert</button></p>` : ""}
+        <div class="pp-sub">
+          ${heartBtn(p, "pp-save").replace("</svg></button>", `</svg><span>${S.wish.has(p.id) ? "Saved" : "Save for later"}</span></button>`)}
+          <button class="pp-save" type="button" data-share>${I.share}<span>Share</span></button>
+        </div>
+        ${facts.length ? `<ul class="pp-facts">${facts.map(t => `<li>${I.tick}${esc(t)}</li>`).join("")}</ul>` : ""}
+      </div>
+    </article>
+    ${more.length ? `<section class="rail-sec"><h2>You may also like</h2><div class="grid rail" id="ppMore">${more.map(tile).join("")}</div></section>` : ""}
+    ${seen.length ? `<section class="rail-sec"><h2>Recently viewed</h2><div class="grid rail" id="ppSeen">${seen.map(tile).join("")}</div></section>` : ""}`;
+  reveal(root, false);
+}
+
+async function shareProduct() {
+  const p = find(route().id); if (!p) return;
+  const data = { title: `${p.name} · ${storeName()}`, url: location.href };
+  try {
+    if (navigator.share) { await navigator.share(data); return; }
+    await navigator.clipboard.writeText(location.href);
+    toast("Link copied");
+  } catch (e) { if (e && e.name !== "AbortError") toast("Couldn't copy the link"); }
+}
+
+/* ── saved items (wishlist) ──────────────────────────── */
+function renderSaved() {
+  const items = [...S.wish].map(find).filter(Boolean);
+  $("#savedGrid").innerHTML = items.map(tile).join("");
+  reveal($("#savedGrid"), false);
+  $("#savedCount").textContent = items.length ? `${items.length} ${items.length === 1 ? "item" : "items"}` : "";
+  $("#savedEmpty").hidden = items.length > 0 || S.state === "loading";
+}
+
+function paintWish() {
+  const n = [...S.wish].filter(id => S.state !== "ready" || find(id)).length;
+  const pip = $("#wishCount");
+  pip.hidden = !n; pip.textContent = n;
+  $("#savedLink").setAttribute("aria-label", n ? `Saved items, ${n}` : "Saved items");
+}
+
+function toggleWish(id) {
+  const had = S.wish.has(id);
+  if (had) S.wish.delete(id); else S.wish.add(id);
+  store.set("wish", [...S.wish]);
+  syncWish();
+  toast(had ? "Removed from saved items" : "Saved for later");
+  // flip every heart for this product in place; pages that list saved items redraw
+  $$(`[data-wish="${CSS.escape(id)}"]`).forEach(b => {
+    const on = S.wish.has(id);
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-pressed", String(on));
+    b.setAttribute("aria-label", on ? "Remove from saved items" : "Save for later");
+    const label = b.querySelector("span"); if (label) label.textContent = on ? "Saved" : "Save for later";
+  });
+  paintWish();
+  if (S.view === "saved" || (S.view === "shop" && S.f.saved)) render(false);
+}
+
+let wishTimer;
+function syncWish() {
+  clearTimeout(wishTimer);
+  if (!acct?.user || !acct.verified) return;
+  wishTimer = setTimeout(() => acct.saveProfile({ wishlist: [...S.wish].slice(0, 100) }).catch(e => console.warn("[wishlist]", e && e.code)), 700);
+}
+
+/* ── "tell me when it's back" ────────────────────────── */
+let alertsUnsub = null;
+function watchMyAlerts() {
+  if (alertsUnsub || !FS || !acct?.user || !acct.verified) return;
+  const { db, fs } = FS;
+  alertsUnsub = fs.onSnapshot(fs.query(fs.collection(db, "stockAlerts"), fs.where("uid", "==", acct.user.uid)), snap => {
+    S.alerts = new Map(snap.docs.map(d => [d.data().productId, d.id]));
+    render(false);
+  }, err => console.warn("[alerts]", err && err.code));
+}
+function stopMyAlerts() {
+  if (alertsUnsub) { alertsUnsub(); alertsUnsub = null; }
+  if (S.alerts.size) { S.alerts = new Map(); render(false); }
+}
+
+async function toggleAlert(id) {
+  const p = find(id); if (!p) return;
+  if (MODE !== "live" || !acct) return toast("Alerts aren't available in preview mode");
+  if (!(await acct.requireLogin("Sign in so we can email you when it's back in stock."))) return;
+  watchMyAlerts();
+  const { db, fs } = FS, me = acct.user.uid, ref = fs.doc(db, "stockAlerts", `${me}_${id}`);
+  try {
+    if (S.alerts.has(id)) { await fs.deleteDoc(ref); toast("Alert cancelled"); }
+    else {
+      await fs.setDoc(ref, { uid: me, productId: id, productName: String(p.name || "").slice(0, 120), email: acct.email, createdAt: fs.serverTimestamp() });
+      toast("Done. We'll email you when it's back");
+    }
+  } catch (e) {
+    console.warn("[alerts]", e && e.code);
+    toast("Couldn't do that. Please try again.");
+  }
+}
+
+/** A banner for products you asked about that are back on the shelf. */
+function renderRestock() {
+  const el = $("#restock");
+  const back = S.state === "ready" ? [...S.alerts.keys()].map(find).filter(p => p && stockOf(p) > 0) : [];
+  el.hidden = !back.length || S.view !== "shop";
+  if (el.hidden) return;
+  el.innerHTML = `<div class="wrap restock-in"><span>Back in stock: ${back.map(p => `<a href="#/p/${esc(p.id)}">${esc(p.name)}</a>`).join(", ")}</span>
+    <button class="link" type="button" data-restock-dismiss>Dismiss</button></div>`;
+}
+async function dismissRestock() {
+  const { db, fs } = FS;
+  const back = [...S.alerts.entries()].filter(([pid]) => { const p = find(pid); return p && stockOf(p) > 0; });
+  await Promise.all(back.map(([, docId]) => fs.deleteDoc(fs.doc(db, "stockAlerts", docId)).catch(() => {})));
+}
+
+/* ── my orders ───────────────────────────────────────── */
+const mo = $("#mo");
+let moUnsub = null;
+const ORDER_STATUS = {
+  new: "Sent to the shop", confirmed: "Confirmed", preparing: "Being prepared",
+  ready: o => o.fulfilment === "delivery" ? "Out for delivery" : "Ready to collect",
+  completed: "Completed", cancelled: "Cancelled",
+};
+const statusText = o => { const t = ORDER_STATUS[o.status]; return typeof t === "function" ? t(o) : t || o.status; };
+const STATUS_HELP = {
+  new: "The shop will check stock and confirm your order soon.",
+  confirmed: "The shop has confirmed your order and reserved your items.",
+  preparing: "The shop is getting your order ready.",
+  completed: "All done. Thank you for ordering!",
+  cancelled: "This order was cancelled.",
+};
+
+function paintOrders(list) {
+  const box = $("#moList"); if (!box) return;
+  list.sort((a, b) => (millis(b.createdAt) || Date.now()) - (millis(a.createdAt) || Date.now()));
+  if (!list.length) { box.innerHTML = `<p class="muted">You haven't placed any orders yet.</p>`; return; }
+  box.innerHTML = list.map(o => {
+    const lines = Array.isArray(o.lines) ? o.lines.map(l => ({ name: l.name, qty: l.qty })) : (o.items || []).map(i => ({ name: i.name, qty: i.qty }));
+    const total = o.total != null ? o.total : o.estTotal;
+    const help = o.status === "ready" ? (o.fulfilment === "delivery" ? "Your order is on its way." : "Your order is ready. Come and collect it.") : STATUS_HELP[o.status] || "";
+    return `<article class="mo-card">
+      <div class="mo-top"><b>${esc(o.ref)}</b><span class="mo-chip" data-st="${esc(o.status)}">${esc(statusText(o))}</span></div>
+      <p class="muted mo-meta">${new Date(millis(o.createdAt) || Date.now()).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })} · ${o.fulfilment === "delivery" ? "Delivery" : "Pick-up"}</p>
+      <ul class="mo-items">${lines.map(l => `<li><span>${esc(l.name)}</span><span>× ${l.qty}</span></li>`).join("")}</ul>
+      <div class="sum-row total"><span>${o.total != null ? "Total" : "Estimated total"}</span><span>${total != null ? money(total) : ""}</span></div>
+      ${help ? `<p class="muted mo-help">${esc(help)}</p>` : ""}
+    </article>`;
+  }).join("");
+}
+
+async function openMyOrders() {
+  if (MODE !== "live" || !acct) return toast("Orders aren't available in preview mode");
+  if (!(await acct.requireLogin("Sign in to see your orders."))) return;
+  $("#moBody").innerHTML = `<h2 id="moTitle">My orders</h2><p class="muted modal-sub">Live status from the shop.</p><div class="mo-list" id="moList"><p class="muted">Loading…</p></div>`;
+  openDialog(mo);
+  const { db, fs } = FS;
+  if (moUnsub) moUnsub();
+  moUnsub = fs.onSnapshot(fs.query(fs.collection(db, "orders"), fs.where("uid", "==", acct.user.uid)),
+    snap => paintOrders(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+    err => { console.warn("[orders]", err && err.code); const b = $("#moList"); if (b) b.innerHTML = `<p class="form-error">We couldn't load your orders right now.</p>`; });
+}
+mo.addEventListener("close", () => { if (moUnsub) { moUnsub(); moUnsub = null; } });
+
+/* ── search (one box in the header) ──────────────────── */
 let qTimer;
-function setQuery(v, from) {
+function setQuery(v) {
   S.q = v;
-  for (const el of [$("#q"), $("#heroQ")]) if (el !== from) el.value = v;
-  $("#heroSearch").classList.toggle("has-text", !!v.trim());
   clearTimeout(qTimer);
-  qTimer = setTimeout(render, 120);
+  qTimer = setTimeout(() => render(false), 120);
 }
 
 /* ── basket ──────────────────────────────────────────── */
@@ -338,7 +692,7 @@ const saveCart = () => store.set("cart", S.cart);
 function addToCart(id, n = 1, btn) {
   const p = find(id); if (!p) return false;
   const have = S.cart[id] || 0, max = stockOf(p);
-  if (have >= max) { toast(max === 0 ? "This item is sold out" : "That's all we have of this item"); return false; }
+  if (have >= max) { toast(max === 0 ? "This item is sold out" : `That's all we have: only ${max} available`); return false; }
   S.cart[id] = Math.min(max, have + n);
   saveCart();
   drawCart(true);
@@ -354,7 +708,7 @@ function addToCart(id, n = 1, btn) {
 function cartLines() {
   return Object.entries(S.cart).map(([id, qty]) => ({ p: find(id), qty })).filter(l => l.p);
 }
-const subtotalOf = lines => lines.reduce((t, l) => t + pence(l.p.price) * l.qty, 0) / 100;
+const subtotalOf = lines => lines.reduce((t, l) => t + pence(priceOf(l.p)) * l.qty, 0) / 100;
 
 function drawCart(bump = false) {
   // keep the basket honest against live stock (only once real data is in)
@@ -380,22 +734,23 @@ function drawCart(bump = false) {
   $("#checkout").disabled = !lines.length;
   $("#cartItems").innerHTML = lines.length ? lines.map(({ p, qty }) => `
     <div class="line">
-      <div class="line-thumb">${media(p)}</div>
+      <a class="line-thumb" href="#/p/${esc(p.id)}" data-close-cart aria-label="View ${esc(p.name)}">${media(p)}</a>
       <div class="line-main">
         <div class="line-name">${esc(p.name)}</div>
-        <div class="line-unit">${money(p.price)} each</div>
+        <div class="line-unit">${money(priceOf(p))} each${onSale(p) ? ` <s class="was">${money(p.price)}</s>` : ""}</div>
         <div class="stepper">
           <button class="step" type="button" data-id="${esc(p.id)}" data-step="-1" aria-label="Remove one ${esc(p.name)}">−</button>
           <output>${qty}</output>
           <button class="step" type="button" data-id="${esc(p.id)}" data-step="1" aria-label="Add one ${esc(p.name)}" ${qty >= stockOf(p) ? "disabled" : ""}>+</button>
         </div>
+        ${qty >= stockOf(p) ? `<div class="line-cap">Only ${stockOf(p)} available</div>` : ""}
       </div>
       <div class="line-end">
-        <div class="line-total">${money(pence(p.price) * qty / 100)}</div>
+        <div class="line-total">${money(pence(priceOf(p)) * qty / 100)}</div>
         <button class="line-remove" type="button" data-remove="${esc(p.id)}">Remove</button>
       </div>
     </div>`).join("")
-    : `<p class="drawer-empty">Your basket is empty.</p>`;
+    : `<div class="drawer-empty"><p>Your basket is empty.</p><button class="btn-ghost" type="button" data-close-cart>Start shopping</button></div>`;
 }
 
 function stepCart(id, step) {
@@ -417,51 +772,6 @@ function openCart(open) {
   if (open) setTimeout(() => $("#closeCart").focus({ preventScroll: true }), 60);
   else $("#cartBtn").focus({ preventScroll: true });
 }
-
-/* ── product dialog ──────────────────────────────────── */
-const pd = $("#pd");
-
-function openProduct(id) {
-  const p = find(id); if (!p) return;
-  const max = stockOf(p);
-  const stock = max === Infinity ? "" : max === 0 ? "Sold out" : max <= lowAt(p) ? `Only ${max} left` : "In stock";
-  pd.dataset.id = id;
-  pd.dataset.qty = "1";
-  $("#pdBody").innerHTML = `
-    <div class="pd-media">${media(p)}</div>
-    <div class="pd-info">
-      ${p.category ? `<div class="pd-cat">${esc(p.category)}</div>` : ""}
-      <h2 class="pd-name" id="pdName">${esc(p.name)}</h2>
-      <div class="pd-price">${money(p.price)}${per(p)}</div>
-      ${stock ? `<div class="pd-stock">${stock}</div>` : ""}
-      ${p.description ? `<p class="pd-desc">${esc(p.description)}</p>` : ""}
-      <div class="pd-actions">
-        <div class="stepper">
-          <button class="step" type="button" data-pd-step="-1" aria-label="Decrease quantity" disabled>−</button>
-          <output id="pdQty">1</output>
-          <button class="step" type="button" data-pd-step="1" aria-label="Increase quantity" ${max <= 1 ? "disabled" : ""}>+</button>
-        </div>
-        <button class="btn-primary" type="button" data-pd-add ${max === 0 ? "disabled" : ""}>${max === 0 ? "Sold out" : "Add to basket"}</button>
-      </div>
-    </div>`;
-  $$("img[data-fallback]", pd).forEach(img => img.addEventListener("error", onImgError, { once: true }));
-  openDialog(pd);
-}
-
-pd.addEventListener("click", e => {
-  const step = e.target.closest("[data-pd-step]");
-  if (step) {
-    const p = find(pd.dataset.id); if (!p) return;
-    const max = stockOf(p);
-    const q = Math.max(1, Math.min(max, +pd.dataset.qty + +step.dataset.pdStep));
-    pd.dataset.qty = q;
-    $("#pdQty").textContent = q;
-    $('[data-pd-step="-1"]', pd).disabled = q <= 1;
-    $('[data-pd-step="1"]', pd).disabled = q >= max;
-    return;
-  }
-  if (e.target.closest("[data-pd-add]") && addToCart(pd.dataset.id, +pd.dataset.qty)) closeDialog(pd);
-});
 
 /* ── checkout ────────────────────────────────────────── */
 const co = $("#co");
@@ -499,7 +809,8 @@ function openCheckout() {
   $("#coChoices").innerHTML = opts.length
     ? opts.map(([v, label, fee], i) => `
         <label><input type="radio" name="how" value="${v}" ${keep === v || (!keep && i === 0) ? "checked" : ""}>
-        <span>${label}</span><span class="fee">${fee}</span></label>`).join("")
+        <span>${label}</span><span class="fee">${fee}</span></label>`).join("") +
+      (f.delivery ? "" : `<label class="is-off"><input type="radio" disabled><span>Delivery (UK)</span><span class="fee">Not available yet</span></label>`)
     : `<p class="muted">Online ordering is paused right now. Please check back soon.</p>`;
 
   // fill in what we already know about the customer
@@ -518,7 +829,7 @@ function drawCheckout() {
   const fee = how === "delivery" ? f.fee : 0;
   const sub = subtotalOf(lines);
   $("#coItems").innerHTML = lines.map(l =>
-    `<div class="sum-row"><span>${esc(l.p.name)} × ${l.qty}</span><span>${money(pence(l.p.price) * l.qty / 100)}</span></div>`).join("");
+    `<div class="sum-row"><span>${esc(l.p.name)} × ${l.qty}</span><span>${money(pence(priceOf(l.p)) * l.qty / 100)}</span></div>`).join("");
   $("#coSum").innerHTML = `
     <div class="sum-row"><span>Subtotal</span><span>${money(sub)}</span></div>
     ${how === "delivery" ? `<div class="sum-row"><span>Delivery</span><span>${fee ? money(fee) : "Free"}</span></div>` : ""}
@@ -587,7 +898,7 @@ function requestIdFor(payload) {
 const REF_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";      // no 0/O/1/I, so refs are easy to read out
 const makeRef = () => {
   const b = crypto.getRandomValues(new Uint8Array(6));
-  return "PS-" + [...b].map(x => REF_ALPHABET[x % REF_ALPHABET.length]).join("");
+  return "BH-" + [...b].map(x => REF_ALPHABET[x % REF_ALPHABET.length]).join("");
 };
 
 /** Writes the order + the rate-limit stamp in one batch. Prices are NOT sent: the owner re-prices on confirm. */
@@ -644,12 +955,12 @@ async function submitCheckout(e) {
     const fee = payload.fulfilment === "delivery" ? fulfil().fee : 0;
     const done = {
       ref, fulfilment: payload.fulfilment, deliveryFee: fee, total: payload.estTotal,
-      items: lines.map(l => ({ name: l.p.name, qty: l.qty, lineTotal: pence(l.p.price) * l.qty / 100 })),
+      items: lines.map(l => ({ name: l.p.name, qty: l.qty, lineTotal: pence(priceOf(l.p)) * l.qty / 100 })),
     };
     S.cart = {}; saveCart(); drawCart(true);
     showOrderDone(done);
   } catch (err) {
-    console.error("[store] order", err);
+    console.error("[shop] order", err);
     const code = err && err.code;
     if (code === "permission-denied") {
       setCheckoutNote(!acct.verified
@@ -715,7 +1026,7 @@ async function submitFeedback(e) {
   const msgEl = fbForm.elements.message;
   if (payload.message.length < 10) { msgEl.setAttribute("aria-invalid", "true"); showError("#fbError", "Please write at least 10 characters."); msgEl.focus(); return; }
   msgEl.setAttribute("aria-invalid", "false");
-  if (payload.orderRef && !/^PS-[A-Z0-9]{6}$/.test(payload.orderRef)) { showError("#fbError", "Order references look like PS-ABC234."); fbForm.elements.orderRef.focus(); return; }
+  if (payload.orderRef && !/^(BH|PS)-[A-Z0-9]{6}$/.test(payload.orderRef)) { showError("#fbError", "Order references look like BH-ABC234."); fbForm.elements.orderRef.focus(); return; }
   showError("#fbError", "");
 
   const btn = $("#fbSubmit");
@@ -737,7 +1048,7 @@ async function submitFeedback(e) {
     $("#fbDone").hidden = false;
     $("#fbDone .btn-primary").focus({ preventScroll: true });
   } catch (err) {
-    console.error("[store] feedback", err);
+    console.error("[shop] feedback", err);
     const code = err && err.code;
     showError("#fbError",
       code === "permission-denied" ? (acct.verified ? "Please wait a minute before sending another message." : "Please verify your email first, then try again.")
@@ -752,8 +1063,25 @@ async function submitFeedback(e) {
 /* ── wiring ──────────────────────────────────────────── */
 /** Called whenever the customer signs in or out (or their profile changes). */
 let adminMod = null;
+let wasSigned = false;
 function onAccountChange(a) {
   if ($("#co").open && !coForm.hidden) { $("#coEmail").textContent = a.email || "Sign in to order"; drawCheckout(); }
+  const signed = !!a.user && a.verified;
+  if (signed) {
+    wasSigned = true;
+    // saved items follow the account: merge what's on this device with what's saved online
+    const online = Array.isArray(a.profile.wishlist) ? a.profile.wishlist.filter(x => typeof x === "string") : [];
+    const merged = new Set([...online, ...S.wish]);
+    if (merged.size !== S.wish.size) { S.wish = merged; store.set("wish", [...S.wish]); }
+    if (merged.size !== online.length) syncWish();
+    paintWish();
+    watchMyAlerts();
+  } else if (wasSigned) {            // signed out: don't leave this customer's saved items on a shared device
+    wasSigned = false;
+    S.wish = new Set(); store.set("wish", []);
+    stopMyAlerts();
+    render(false);
+  }
   // the owner gets the admin panel (loaded only for them) and live alerts
   if (a.isOwner && !adminMod) {
     adminMod = import("./admin.js").then(m => { m.watchAlerts({ FS, acct: a, getSite: () => S.site }); return m; })
@@ -768,7 +1096,8 @@ function init() {
   wireDialogs();
   $("#yr").textContent = new Date().getFullYear();
   renderSite();
-  render();
+  showView(false);
+  addEventListener("hashchange", () => { if (S.view === "shop") S.y = scrollY; showView(true); });
 
   // nav gains its glass once the page moves
   const nav = $("#nav");
@@ -788,45 +1117,80 @@ function init() {
   addEventListener("offline", net);
   net();
 
-  // categories
-  $("#catList").addEventListener("click", e => {
-    const b = e.target.closest("[data-c]"); if (b) pickCat(b.dataset.c);
-  });
-  $("#suggest").addEventListener("click", e => {
-    const b = e.target.closest("[data-c]"); if (b) pickCat(b.dataset.c, { scroll: true });
+  // categories (tabs, hero tiles, breadcrumb links)
+  document.addEventListener("click", e => {
+    const b = e.target.closest("main [data-c]"); if (!b) return;
+    e.preventDefault();
+    pickCat(b.dataset.c, { scroll: b.hasAttribute("data-scroll") });
   });
 
   // light / dark (light is the default; the choice is remembered on this device)
-  $("#themeBtn").addEventListener("click", () => {
+  const flipTheme = () => {
     const dark = document.documentElement.dataset.theme !== "dark";
     if (dark) document.documentElement.dataset.theme = "dark"; else delete document.documentElement.dataset.theme;
     try { localStorage.setItem("theme", dark ? "dark" : "light"); } catch {}
     paintTheme();
-  });
+  };
+  $("#themeBtn").addEventListener("click", flipTheme);
+  $("#themeBtn2").addEventListener("click", flipTheme);
   paintTheme();
 
-  // search
-  $("#q").addEventListener("input", e => setQuery(e.target.value, e.target));
-  $("#heroQ").addEventListener("input", e => setQuery(e.target.value, e.target));
-  $("#heroSearch").addEventListener("submit", e => {
+  // search: one box in the header (an icon on phones opens it)
+  const q = $("#q");
+  q.addEventListener("input", e => {
+    if (S.view !== "shop") location.hash = "#shop";
+    setQuery(e.target.value);
+  });
+  $("#navSearch").addEventListener("submit", e => {
     e.preventDefault();
-    clearTimeout(qTimer); render();
-    $("#heroQ").blur();
-    goToShop();
+    clearTimeout(qTimer);
+    if (S.view !== "shop") { location.hash = "#shop"; return; }
+    render(false); q.blur(); goToShop();
   });
-  $("#navSearch").addEventListener("click", () => {
-    goToShop();
-    setTimeout(() => $("#q").focus({ preventScroll: true }), reduced.matches ? 0 : 450);
+  $("#searchToggle").addEventListener("click", () => {
+    const open = !nav.classList.contains("searching");
+    nav.classList.toggle("searching", open);
+    $("#searchToggle").setAttribute("aria-expanded", String(open));
+    syncNavHeight();
+    if (open) q.focus();
   });
-  $("#emptyAction").addEventListener("click", () => { setQuery(""); clearTimeout(qTimer); render(); $("#q").focus(); });
-  $("#sort").addEventListener("change", e => { S.sort = e.target.value; render(); });
+  $("#emptyAction").addEventListener("click", () => { q.value = ""; S.q = ""; clearFilters(); clearTimeout(qTimer); render(false); });
 
-  // catalogue
-  $("#grid").addEventListener("click", e => {
-    const add = e.target.closest("[data-add]");
-    if (add) return addToCart(add.dataset.add, 1, add);
-    const open = e.target.closest("[data-open]");
-    if (open) openProduct(open.dataset.open);
+  // sorting + filters
+  $("#sort").addEventListener("change", e => { S.sort = e.target.value; render(false); });
+  $("#filterBtn").addEventListener("click", () => {
+    const open = $("#filters").hidden;
+    $("#filters").hidden = !open;
+    $("#filterBtn").setAttribute("aria-expanded", String(open));
+  });
+  const readFilters = () => {
+    S.f = { stock: $("#fStock").checked, sale: $("#fSale").checked, saved: $("#fSaved").checked, min: $("#fMin").value, max: $("#fMax").value };
+    render(false);
+  };
+  let fTimer;
+  for (const id of ["fStock", "fSale", "fSaved"]) $("#" + id).addEventListener("change", readFilters);
+  for (const id of ["fMin", "fMax"]) $("#" + id).addEventListener("input", () => { clearTimeout(fTimer); fTimer = setTimeout(readFilters, 200); });
+  $("#fClear").addEventListener("click", () => { clearFilters(); render(false); });
+
+  // product tiles + product page (hearts, bells, add buttons live in several lists)
+  document.addEventListener("click", e => {
+    const heart = e.target.closest("[data-wish]"); if (heart) { e.preventDefault(); return toggleWish(heart.dataset.wish); }
+    const bell = e.target.closest("[data-notify]"); if (bell) { e.preventDefault(); return void toggleAlert(bell.dataset.notify); }
+    const add = e.target.closest("[data-add]"); if (add) return void addToCart(add.dataset.add, 1, add);
+    if (e.target.closest("[data-share]")) return void shareProduct();
+    if (e.target.closest("[data-restock-dismiss]")) return void dismissRestock();
+    const step = e.target.closest("[data-pp-step]");
+    if (step) {
+      const root = $("#pp"), p = find(root.dataset.id); if (!p) return;
+      const qty = Math.max(1, Math.min(stockOf(p), Number(root.dataset.qty) + Number(step.dataset.ppStep)));
+      root.dataset.qty = qty; $("#ppQty").textContent = qty;
+      $('[data-pp-step="-1"]', root).disabled = qty <= 1;
+      $('[data-pp-step="1"]', root).disabled = qty >= stockOf(p);
+      return;
+    }
+    if (e.target.closest("[data-pp-add]")) {
+      const root = $("#pp"); addToCart(root.dataset.id, Number(root.dataset.qty) || 1, e.target.closest("[data-pp-add]"));
+    }
   });
 
   // basket
@@ -835,6 +1199,7 @@ function init() {
   $("#scrim").addEventListener("click", () => openCart(false));
   $("#checkout").addEventListener("click", startCheckout);
   $("#cartItems").addEventListener("click", e => {
+    if (e.target.closest("[data-close-cart]")) { openCart(false); return; }
     const b = e.target.closest("[data-step]"); if (b) return stepCart(b.dataset.id, +b.dataset.step);
     const r = e.target.closest("[data-remove]");
     if (r) { delete S.cart[r.dataset.remove]; saveCart(); drawCart(true); }
@@ -842,6 +1207,12 @@ function init() {
   addEventListener("keydown", e => {
     if (e.key === "Escape" && $("#drawer").classList.contains("open")) openCart(false);
   });
+
+  // account menu extras
+  const menuDone = () => { $("#menu").hidden = true; $("#acctBtn").setAttribute("aria-expanded", "false"); };
+  $("#menuOrders").addEventListener("click", () => { menuDone(); openMyOrders(); });
+  $("#menuSaved").addEventListener("click", () => { menuDone(); location.hash = "#/saved"; });
+  $("#footOrders").addEventListener("click", openMyOrders);
 
   // checkout
   coForm.addEventListener("change", e => { if (e.target.name === "how") drawCheckout(); });
@@ -857,6 +1228,10 @@ function init() {
     const ref = e.currentTarget.dataset.ref || "";
     closeDialog(co);
     setTimeout(() => openFeedback(ref), reduced.matches ? 0 : 220);
+  });
+  $("#coOrders").addEventListener("click", () => {
+    closeDialog(co);
+    setTimeout(openMyOrders, reduced.matches ? 0 : 220);
   });
 
   // sign-in only exists once Firebase is connected
@@ -895,8 +1270,12 @@ if (params.has("selftest")) {
   ok(stockOf({}) === Infinity && stockOf({ stock: -2 }) === 0 && stockOf({ stock: "3" }) === 3, "stock parsing");
   const dates = visible(list, { cat: "pv-a", q: "", sort: "lo" });
   ok(dates.length === 2 && dates.every(p => p.categoryId === "pv-a"), "category filter");
-  ok(dates.every((p, i) => !i || dates[i - 1].price <= p.price), "price sort ascending");
+  ok(dates.every((p, i) => !i || priceOf(dates[i - 1]) <= priceOf(p)), "price sort ascending (uses the sale price)");
   ok(visible(list, { cat: "All", q: "  JUICE ", sort: "feat" }).map(p => p.id).join() === "pv4", "search is trimmed + case-insensitive");
   ok(visible(list, { cat: "All", q: "", sort: "feat" })[0].featured === true, "featured first");
+  ok(visible(list, { cat: "All", q: "", sort: "feat" }).at(-1).id === "pv4", "sold out goes last");
+  ok(visible(list, { cat: "All", q: "", sort: "lo", f: { ...noFilters(), sale: true } }).map(p => p.id).join() === "pv1", "sale filter");
+  ok(visible(list, { cat: "All", q: "", sort: "lo", f: { ...noFilters(), stock: true } }).every(p => p.stock > 0), "in-stock filter");
+  ok(visible(list, { cat: "All", q: "", sort: "lo", f: { ...noFilters(), min: "2", max: "4" } }).map(p => p.id).join() === "pv3,pv5", "price range");
   console.log("selftest done");
 }

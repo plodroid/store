@@ -12,7 +12,7 @@ const PEM = privateKey.export({ type: "pkcs8", format: "pem" });
 const signed = buf => [...buf].map(b => (b > 127 ? b - 256 : b));    // Apps Script returns signed bytes
 const bytes = x => (typeof x === "string" ? Buffer.from(x, "utf8") : Buffer.from(x.map(b => b & 255)));
 
-function world(props = {}) {
+function world(props = {}, lookup = null) {
   const clock = { now: 1_800_000_000_000 };
   const mails = [];
   const store = new Map();
@@ -42,6 +42,11 @@ function world(props = {}) {
       getKeys: () => Object.keys(P), deleteProperty: k => { delete P[k]; } }) },
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
     MailApp: { sendEmail: m => mails.push(m), getRemainingDailyQuota: () => 100 },
+    // stand-in for Google's token lookup: `lookup` maps an idToken to the account it belongs to
+    UrlFetchApp: { fetch: (url, opts) => {
+      const u = lookup && lookup[JSON.parse(opts.payload).idToken];
+      return { getResponseCode: () => (u ? 200 : 400), getContentText: () => JSON.stringify({ users: u ? [u] : [] }) };
+    } },
     ContentService: { MimeType: { JSON: "json" }, createTextOutput: s => ({ s, setMimeType() { return this; } }) },
     Logger: { log() {} },
   });
@@ -58,7 +63,7 @@ test("send emails a 4-digit code and never returns it", () => {
   assert.deepEqual(r, { ok: true });
   assert.equal(w.mails.length, 1);
   assert.equal(w.mails[0].to, "gina@example.com");
-  assert.match(w.mails[0].subject, /^\d{4} is your Plodroid Store sign-in code$/);
+  assert.match(w.mails[0].subject, /^\d{4} is your Bee Hive sign-in code$/);
   assert.match(w.mails[0].htmlBody, /\d{4}/);
 });
 
@@ -186,4 +191,52 @@ test("a send failure leaves no usable code behind", () => {
   vm.runInContext("MailApp.sendEmail = () => { throw new Error('quota') }", w.ctx);
   assert.equal(w.call({ a: "send", email: "a@b.co" }).error, "send_failed");
   assert.equal(w.call({ a: "verify", email: "a@b.co", code: "1234" }).error, "expired");
+});
+
+test("Gmail aliases are the same person: owner can't sneak in, limits and uid are shared", () => {
+  const w = world();
+  assert.equal(w.call({ a: "send", email: "housikiki+shop@gmail.com" }).error, "use_google");
+  assert.equal(w.call({ a: "send", email: "h.ousikiki@googlemail.com" }).error, "use_google");
+  const uid = e => { w.call({ a: "send", email: e }); w.clock.now += 31e3;
+    const t = w.call({ a: "verify", email: e, code: w.codeOf(w.mails.length - 1) }).token; return JSON.parse(Buffer.from(t.split(".")[1], "base64url")); };
+  const a = uid("jo.smith@gmail.com"), b = uid("josmith+beehive@gmail.com");
+  assert.equal(a.uid, b.uid);
+  assert.equal(b.claims.mail, "josmith+beehive@gmail.com");
+  assert.notEqual(uid("someone@example.com").uid, a.uid);
+});
+
+const OWNER = { email: "housikiki@gmail.com", emailVerified: true, providerUserInfo: [{ providerId: "google.com" }] };
+const NOTIFY = (over = {}) => ({ a: "notify", idToken: "tok-owner", product: "Ajwa Dates <250g>", link: "https://plodroid.github.io/store/#/p/p1", emails: ["a@b.co", "A@B.co", "c@d.co", "bad"], ...over });
+
+test("notify: the verified owner can email waiting customers (deduped, escaped, counted)", () => {
+  const w = world({}, { "tok-owner": OWNER });
+  const r = w.call(NOTIFY());
+  assert.deepEqual(r, { ok: true, sent: 2, sentTo: ["a@b.co", "c@d.co"] });
+  assert.equal(w.mails.length, 2);
+  assert.match(w.mails[0].subject, /back in stock at Bee Hive$/);
+  assert.ok(w.mails[0].htmlBody.includes("Ajwa Dates &lt;250g&gt;") && !w.mails[0].htmlBody.includes("<250g>"));
+  assert.ok(w.mails[0].body.includes("https://plodroid.github.io/store/#/p/p1"));
+});
+
+test("notify: nobody else can use it", () => {
+  const cases = {
+    "tok-code": { email: "housikiki@gmail.com", emailVerified: true, providerUserInfo: [{ providerId: "custom" }] },
+    "tok-other": { email: "x@y.co", emailVerified: true, providerUserInfo: [{ providerId: "google.com" }] },
+    "tok-unverified": { email: "housikiki@gmail.com", emailVerified: false, providerUserInfo: [{ providerId: "google.com" }] },
+  };
+  const w = world({}, { ...cases, "tok-owner": OWNER });
+  for (const t of Object.keys(cases)) assert.equal(w.call(NOTIFY({ idToken: t })).error, "not_owner", t);
+  assert.equal(w.call(NOTIFY({ idToken: "forged" })).error, "not_owner");
+  assert.equal(w.mails.length, 0);
+});
+
+test("notify: refuses other links, empty lists, and respects the daily cap", () => {
+  const w = world({}, { "tok-owner": OWNER });
+  assert.equal(w.call(NOTIFY({ link: "https://evil.example/x" })).error, "bad_request");
+  assert.equal(w.call(NOTIFY({ emails: [] })).error, "bad_request");
+  assert.equal(w.call(NOTIFY({ product: "" })).error, "bad_request");
+  vm.runInContext("SETTINGS.SENDS_PER_DAY = 1", w.ctx);
+  const r = w.call(NOTIFY());
+  assert.equal(r.sent, 1); assert.deepEqual(r.sentTo, ["a@b.co"]);
+  assert.equal(w.call(NOTIFY()).error, "busy");
 });

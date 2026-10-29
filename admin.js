@@ -3,7 +3,7 @@
    Free-plan design: orders arrive as requests, and "Confirm" re-prices and re-checks stock in a
    transaction (so customers can never choose their own price). */
 
-import { $, $$, esc, money, openDialog, closeDialog, showError, setBusy, toast, millis, timeAgo, store } from "./ui.js";
+import { $, $$, esc, money, openDialog, closeDialog, showError, setBusy, toast, millis, timeAgo, store, priceOf, onSale } from "./ui.js";
 import { lookupPostcode } from "./uk.js";
 
 const css = document.createElement("link");
@@ -12,8 +12,8 @@ document.head.append(css);
 
 let X = null;                 // { FS, acct, getSite }
 const A = {
-  products: [], categories: [], orders: [], feedback: [],
-  loaded: { products: false, categories: false, orders: false, feedback: false },
+  products: [], categories: [], orders: [], feedback: [], alerts: [],
+  loaded: { products: false, categories: false, orders: false, feedback: false, alerts: false },
   errors: {}, tab: "home", open: false, started: false, unsubs: [],
   pf: "all", pq: "", of: "active", ff: "inbox",
 };
@@ -24,6 +24,7 @@ const parsePrice = v => { const n = Number(String(v).replace(/[£,\s]/g, "")); r
 const parseCount = v => /^\d{1,7}$/.test(String(v).trim()) ? Number(v) : null;
 const catName = id => A.categories.find(c => c.id === id)?.name || "";
 const lowAt = p => Number.isInteger(p.lowStockThreshold) ? p.lowStockThreshold : 5;
+const waiting = id => A.alerts.filter(a => a.productId === id);
 const stockState = p => p.stock <= 0 ? "out" : p.stock <= lowAt(p) ? "low" : "ok";
 const created = o => millis(o.createdAt) || Date.now();       // a just-sent order has no server time yet
 const KIND = { feedback: "Feedback", bug: "Problem", question: "Question" };
@@ -58,6 +59,7 @@ export function watchAlerts(ctx) {
   };
   sub("products", fs.collection(d, "products"));
   sub("categories", fs.collection(d, "categories"));
+  sub("alerts", fs.collection(d, "stockAlerts"));
   sub("orders", fs.query(fs.collection(d, "orders"), fs.orderBy("createdAt", "desc"), fs.limit(300)),
     o => alertMe("New order " + (o.ref || ""), `${(o.items || []).reduce((n, i) => n + (i.qty || 0), 0)} items · ${o.fulfilment === "delivery" ? "Delivery" : "Pick-up"}`));
   sub("feedback", fs.query(fs.collection(d, "feedback"), fs.orderBy("createdAt", "desc"), fs.limit(200)),
@@ -68,7 +70,7 @@ export function watchAlerts(ctx) {
 export function stopAlerts() {
   A.unsubs.forEach(u => { try { u(); } catch {} });
   A.unsubs = []; A.started = false;
-  for (const k of ["products", "categories", "orders", "feedback"]) { A[k] = []; A.loaded[k] = false; }
+  for (const k of ["products", "categories", "orders", "feedback", "alerts"]) { A[k] = []; A.loaded[k] = false; }
   A.errors = {};
   if (A.open) close();
   paintDot();
@@ -187,6 +189,7 @@ function homeView() {
     ...A.orders.filter(o => o.status === "new").slice(0, 5).map(o => `<button class="adm-row" data-act="open-order" data-id="${esc(o.id)}"><span class="chip new">New</span><span class="adm-grow"><b>${esc(o.ref)}</b> · ${esc(o.customer?.name || "Customer")}</span><span class="muted">${timeAgo(created(o))}</span></button>`),
     ...A.feedback.filter(f => !f.read && !f.archived).slice(0, 3).map(f => `<button class="adm-row" data-act="tab" data-tab="feedback"><span class="chip ${f.kind === "bug" ? "bad" : "info"}">${KIND[f.kind] || "Feedback"}</span><span class="adm-grow adm-clip">${esc(f.message)}</span><span class="muted">${timeAgo(millis(f.createdAt))}</span></button>`),
     ...out.slice(0, 4).map(p => `<button class="adm-row" data-act="edit-product" data-id="${esc(p.id)}"><span class="chip bad">Out of stock</span><span class="adm-grow">${esc(p.name)}</span></button>`),
+    ...sellable.filter(p => p.stock > 0 && waiting(p.id).length).slice(0, 4).map(p => `<button class="adm-row" data-act="notify-stock" data-id="${esc(p.id)}"><span class="chip info">Back in stock</span><span class="adm-grow">${esc(p.name)}</span><span class="muted">email ${waiting(p.id).length} waiting</span></button>`),
     ...low.slice(0, 4).map(p => `<button class="adm-row" data-act="edit-product" data-id="${esc(p.id)}"><span class="chip warn">Low</span><span class="adm-grow">${esc(p.name)}</span><span class="muted">${p.stock} left</span></button>`),
   ];
 
@@ -194,7 +197,7 @@ function homeView() {
     <div class="stats">
       <button class="stat ${a.newOrders ? "hot" : ""}" data-act="go-orders" data-f="new"><span>New orders</span><b>${a.newOrders}</b></button>
       <button class="stat" data-act="go-orders" data-f="active"><span>In progress</span><b>${open}</b></button>
-      <div class="stat"><span>Orders · 7 days</span><b>${since(7).length}</b></div>
+      <div class="stat"><span>Orders this week</span><b>${since(7).length}</b></div>
       <div class="stat"><span>Order value · 30 days</span><b>${money(since(30).reduce((t, o) => t + orderValue(o), 0))}</b><small>test checkout, no payments taken</small></div>
       <button class="stat ${a.unread ? "hot" : ""}" data-act="tab" data-tab="feedback"><span>Unread messages</span><b>${a.unread}</b></button>
       <button class="stat" data-act="tab" data-tab="products"><span>Low or out of stock</span><b>${low.length + out.length}</b></button>
@@ -234,13 +237,17 @@ function productRow(p) {
     <button class="pthumb" type="button" data-act="edit-product" data-id="${esc(p.id)}" aria-label="Edit ${esc(p.name)}">${thumb}</button>
     <div class="pmain">
       <button class="pname" type="button" data-act="edit-product" data-id="${esc(p.id)}">${esc(p.name)}</button>
-      <div class="muted pmeta">${money(p.price)}${p.unit && p.unit !== "each" ? ` / ${esc(p.unit)}` : ""}${catName(p.categoryId) ? ` · ${esc(catName(p.categoryId))}` : ""}${p.archived ? " · archived" : !p.visible ? " · hidden" : ""}</div>
+      <div class="muted pmeta">${onSale(p) ? `<s>${money(p.price)}</s> <b class="sale-now">${money(priceOf(p))}</b>` : money(p.price)}${p.unit && p.unit !== "each" ? ` / ${esc(p.unit)}` : ""}${catName(p.categoryId) ? ` · ${esc(catName(p.categoryId))}` : ""}${p.archived ? " · archived" : !p.visible ? " · hidden" : ""}</div>
+      ${waiting(p.id).length ? (p.stock > 0
+        ? `<button class="pwait ready" type="button" data-act="notify-stock" data-id="${esc(p.id)}">Back in stock: email ${waiting(p.id).length} waiting</button>`
+        : `<span class="pwait">${waiting(p.id).length} waiting for it to come back</span>`) : ""}
     </div>
     <div class="pstock ${st}">
       <button type="button" data-act="stock" data-id="${esc(p.id)}" data-d="-1" aria-label="One less ${esc(p.name)}" ${p.stock <= 0 ? "disabled" : ""}>−</button>
       <output>${p.stock}</output>
       <button type="button" data-act="stock" data-id="${esc(p.id)}" data-d="1" aria-label="One more ${esc(p.name)}">+</button>
     </div>
+    <button class="sale-btn${onSale(p) ? " on" : ""}" type="button" data-act="sale" data-id="${esc(p.id)}" aria-label="${onSale(p) ? "Change or end the sale on" : "Put on sale:"} ${esc(p.name)}" ${p.archived ? "disabled" : ""}>${onSale(p) ? "On sale" : "Sale"}</button>
     <label class="switch" title="${p.visible ? "Shown in the shop" : "Hidden from the shop"}"><input type="checkbox" data-act="toggle-visible" data-id="${esc(p.id)}" ${p.visible ? "checked" : ""} ${p.archived ? "disabled" : ""} aria-label="Show ${esc(p.name)} in the shop"><span></span></label>
   </div>`;
 }
@@ -273,11 +280,15 @@ function productDialog(id) {
       <label class="inp"><span>Name*</span><input name="name" maxlength="120" required value="${esc(p?.name || "")}"></label>
       <div class="row2">
         <label class="inp"><span>Price (£)*</span><input name="price" inputmode="decimal" placeholder="2.50" required value="${p ? esc(String(p.price)) : ""}"></label>
-        <label class="inp"><span>Stock*</span><input name="stock" inputmode="numeric" placeholder="0" required value="${p ? esc(String(p.stock)) : ""}"></label>
+        <label class="inp"><span>Sale price (£) <em>(optional)</em></span><input name="salePrice" inputmode="decimal" placeholder="Leave empty for no sale" value="${onSale(p || {}) ? esc(String(p.salePrice)) : ""}"></label>
       </div>
       <div class="row2">
+        <label class="inp"><span>Stock*</span><input name="stock" inputmode="numeric" placeholder="0" required value="${p ? esc(String(p.stock)) : ""}"></label>
         <label class="inp"><span>Category</span><select name="categoryId"><option value="">No category</option>${opt}</select></label>
+      </div>
+      <div class="row2">
         <label class="inp"><span>Sold by <em>(optional)</em></span><input name="unit" maxlength="30" placeholder="each, kg, bottle…" value="${esc(p?.unit || "")}"></label>
+        <label class="inp"><span>Low-stock alert at <em>(optional)</em></span><input name="low" inputmode="numeric" placeholder="5" value="${Number.isInteger(p?.lowStockThreshold) ? p.lowStockThreshold : ""}"></label>
       </div>
       <label class="inp"><span>Description <em>(optional)</em></span><textarea name="description" rows="3" maxlength="2000">${esc(p?.description || "")}</textarea></label>
       <div class="form-section"><h3>Photo</h3>
@@ -289,12 +300,9 @@ function productDialog(id) {
           </div></div>
         <label class="inp"><span>…or paste an image link <em>(optional)</em></span><input name="imageUrl" placeholder="https://" maxlength="2000" value="${p?.image && !p.image.startsWith("data:") ? esc(p.image) : ""}"></label>
       </div>
-      <div class="row2">
-        <label class="inp"><span>Low-stock alert at <em>(optional)</em></span><input name="low" inputmode="numeric" placeholder="5" value="${Number.isInteger(p?.lowStockThreshold) ? p.lowStockThreshold : ""}"></label>
-        <div class="inp"><span>Options</span>
-          <label class="check"><input type="checkbox" name="visible" ${p ? (p.visible ? "checked" : "") : "checked"}><span>Show in the shop</span></label>
-          <label class="check"><input type="checkbox" name="featured" ${p?.featured ? "checked" : ""}><span>Feature at the top</span></label>
-        </div>
+      <div class="inp"><span>Options</span>
+        <label class="check"><input type="checkbox" name="visible" ${p ? (p.visible ? "checked" : "") : "checked"}><span>Show in the shop</span></label>
+        <label class="check"><input type="checkbox" name="featured" ${p?.featured ? "checked" : ""}><span>Feature at the top</span></label>
       </div>
       <p class="form-error" id="prodErr" role="alert" hidden></p>
       <button class="btn-primary wide" id="prodSave" type="submit">${p ? "Save changes" : "Add product"}</button>
@@ -313,6 +321,8 @@ async function saveProduct(form) {
   if (!v("name")) return bad("name", "Please give the product a name.");
   if (price === null) return bad("price", "Enter a price like 2.50.");
   if (stock === null) return bad("stock", "Stock must be a whole number, 0 or more.");
+  const sale = v("salePrice") ? parsePrice(v("salePrice")) : null;
+  if (v("salePrice") && (sale === null || sale >= price)) return bad("salePrice", "The sale price must be lower than the normal price.");
   const low = v("low") ? parseCount(v("low")) : null;
   if (v("low") && low === null) return bad("low", "Low-stock alert must be a whole number.");
   if (v("imageUrl") && !/^https:\/\//i.test(v("imageUrl"))) return bad("imageUrl", "Image links must start with https://");
@@ -320,6 +330,7 @@ async function saveProduct(form) {
 
   const { fs } = X.FS;
   const doc = { name: v("name"), price, stock, visible: form.elements.visible.checked, archived: draft.id ? !!A.products.find(x => x.id === draft.id)?.archived : false, updatedAt: fs.serverTimestamp() };
+  if (sale !== null) doc.salePrice = sale;
   if (v("categoryId")) doc.categoryId = v("categoryId");
   if (v("unit")) doc.unit = v("unit");
   if (v("description")) doc.description = v("description");
@@ -343,6 +354,65 @@ async function saveProduct(form) {
   } finally { setBusy(dlg, btn, false); }
 }
 
+/* ── sale prices ── */
+function saleDialog(id) {
+  const p = A.products.find(x => x.id === id); if (!p) return;
+  const on = onSale(p);
+  $("#admDlgBody").innerHTML = `
+    <h2>${on ? "Change the sale" : "Put on sale"}</h2>
+    <p class="muted modal-sub">${esc(p.name)} · normal price ${money(p.price)}</p>
+    <form id="saleForm" data-id="${esc(id)}" novalidate>
+      <label class="inp"><span>Sale price (£)</span><input name="sale" inputmode="decimal" placeholder="${(Math.round(p.price * 80) / 100).toFixed(2)}" value="${on ? esc(String(p.salePrice)) : ""}"></label>
+      <div class="fchips">${[10, 20, 30, 50].map(n => `<button type="button" class="fchip" data-act="sale-pct" data-pct="${n}">${n}% off</button>`).join("")}</div>
+      <p class="hint">Customers see the normal price crossed out and a sale badge. It applies the moment you save.</p>
+      <p class="form-error" id="saleErr" role="alert" hidden></p>
+      <button class="btn-primary wide" id="saleSave" type="submit">${on ? "Save sale price" : "Start the sale"}</button>
+      ${on ? `<button class="btn-quiet" type="button" data-act="sale-off" data-id="${esc(id)}">End the sale</button>` : ""}
+    </form>`;
+  openDialog($("#admDlg"));
+}
+async function saveSale(form) {
+  const p = A.products.find(x => x.id === form.dataset.id), err = $("#saleErr");
+  const sale = parsePrice(form.elements.sale.value);
+  if (!p) return;
+  if (sale === null || sale >= p.price) { form.elements.sale.setAttribute("aria-invalid", "true"); return showError(err, `Enter a price lower than ${money(p.price)}.`); }
+  const { fs } = X.FS, btn = $("#saleSave"), dlg = $("#admDlg");
+  setBusy(dlg, btn, true);
+  try { await fs.updateDoc(fs.doc(db(), "products", p.id), { salePrice: sale, updatedAt: fs.serverTimestamp() }); closeDialog(dlg); toast("Sale started"); }
+  catch (e) { console.error("[admin] sale", e); showError(err, "Couldn't save that. Please try again."); }
+  finally { setBusy(dlg, btn, false); }
+}
+async function endSale(id) {
+  const { fs } = X.FS;
+  try { await fs.updateDoc(fs.doc(db(), "products", id), { salePrice: null, updatedAt: fs.serverTimestamp() }); closeDialog($("#admDlg")); toast("Sale ended"); }
+  catch (e) { console.error("[admin] sale", e); toast("Couldn't end the sale."); }
+}
+
+/* ── "back in stock" emails ── */
+const MAIL_ERR = {
+  not_owner: "Only the shop owner can send these.", busy: "The daily email limit is used up. Try again tomorrow.",
+  bad_request: "That request wasn't valid.", server: "The email service had a problem. Try again in a minute.",
+};
+async function notifyWaiting(id) {
+  const p = A.products.find(x => x.id === id), list = waiting(id);
+  if (!p || !list.length) return;
+  if (p.stock <= 0) return toast("Add some stock first, then email the waiting customers.");
+  const url = String(window.STORE_AUTH_URL || "");
+  if (!/^https:\/\/script\.google\.com\//.test(url)) return toast("The email service isn't set up yet.");
+  if (!(await confirmBox({ title: `Email ${list.length} customer${list.length === 1 ? "" : "s"}?`, text: `They asked to hear when “${p.name}” is back. This sends one short email each.`, ok: "Send emails" }))) return;
+  const { fs } = X.FS;
+  try {
+    const idToken = await X.FS.auth.currentUser.getIdToken(true);
+    const res = await fetch(url, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ a: "notify", idToken, product: p.name, link: location.origin + location.pathname + "#/p/" + id, emails: list.map(a => a.email) }) });
+    const data = await res.json();
+    if (!data.ok) return toast(MAIL_ERR[data.error] || "Couldn't send the emails.");
+    const done = new Set(data.sentTo || []);
+    await Promise.all(list.filter(a => done.has(a.email)).map(a => fs.deleteDoc(fs.doc(db(), "stockAlerts", a.id)).catch(() => {})));
+    toast(`Emailed ${data.sent} customer${data.sent === 1 ? "" : "s"}${data.sent < list.length ? `. ${list.length - data.sent} left for tomorrow.` : ""}`, 3500);
+  } catch (e) { console.error("[admin] notify", e); toast("Couldn't reach the email service."); }
+}
+
 const orderUses = id => A.orders.filter(o => (o.items || []).some(i => i.productId === id)).length;
 
 /* ═════════ CATEGORIES ═════════ */
@@ -357,6 +427,7 @@ function categoriesView() {
       return `<div class="prow">
         <div class="pmain"><button class="pname" type="button" data-act="edit-cat" data-id="${esc(c.id)}">${esc(c.name)}</button>
           <div class="muted pmeta">${n} product${n === 1 ? "" : "s"}${c.visible ? "" : " · hidden"}</div></div>
+        <button class="btn-quiet sm" type="button" data-act="edit-cat" data-id="${esc(c.id)}">Edit</button>
         <div class="reorder"><button type="button" data-act="cat-move" data-id="${esc(c.id)}" data-d="-1" aria-label="Move ${esc(c.name)} up" ${i === 0 ? "disabled" : ""}>${ICON.up}</button>
           <button type="button" data-act="cat-move" data-id="${esc(c.id)}" data-d="1" aria-label="Move ${esc(c.name)} down" ${i === list.length - 1 ? "disabled" : ""}>${ICON.down}</button></div>
         <label class="switch"><input type="checkbox" data-act="cat-visible" data-id="${esc(c.id)}" ${c.visible ? "checked" : ""} aria-label="Show ${esc(c.name)} in the shop"><span></span></label>
@@ -453,7 +524,7 @@ function orderDialog(id) {
   const locked = Array.isArray(o.lines);
   const lines = locked ? o.lines : (o.items || []).map(i => {
     const p = prod(i.productId);
-    return { productId: i.productId, name: p?.name || i.name || "Unknown product", qty: i.qty, unitPrice: p ? p.price : null, stock: p ? p.stock : null, gone: !p || p.archived || !p.visible };
+    return { productId: i.productId, name: p?.name || i.name || "Unknown product", qty: i.qty, unitPrice: p ? priceOf(p) : null, stock: p ? p.stock : null, gone: !p || p.archived || !p.visible };
   });
   const sub = lines.reduce((t, l) => t + (l.unitPrice != null ? Math.round(l.unitPrice * 100) * l.qty : 0), 0) / 100;
   const site = X.getSite() || {};
@@ -531,7 +602,8 @@ async function confirmOrder(o) {
       const p = s.data();
       if (p.archived || !p.visible) throw Object.assign(new Error("hidden"), { userMessage: `“${p.name}” isn't for sale right now.` });
       if (p.stock < i.qty) throw Object.assign(new Error("stock"), { userMessage: `Only ${p.stock} of “${p.name}” in stock (the customer wants ${i.qty}).` });
-      lines.push({ productId: s.id, name: p.name, unit: p.unit || null, unitPrice: p.price, qty: i.qty, lineTotal: Math.round(p.price * 100) * i.qty / 100, _s: s, _p: p });
+      const now = priceOf(p);
+      lines.push({ productId: s.id, name: p.name, unit: p.unit || null, unitPrice: now, qty: i.qty, lineTotal: Math.round(now * 100) * i.qty / 100, _s: s, _p: p });
     });
     // all reads done; now write
     for (const l of lines) tx.update(l._s.ref, { stock: l._p.stock - l.qty, updatedAt: fs.serverTimestamp() });
@@ -681,6 +753,10 @@ async function onClick(e) {
     case "ffilter": A.ff = t.dataset.f; return paint();
     case "new-product": return productDialog(null);
     case "edit-product": return productDialog(id);
+    case "sale": return saleDialog(id);
+    case "sale-pct": { const f = $("#saleForm"), p = A.products.find(x => x.id === f.dataset.id); if (p) f.elements.sale.value = (Math.round(p.price * (1 - Number(t.dataset.pct) / 100) * 100) / 100).toFixed(2); return; }
+    case "sale-off": return endSale(id);
+    case "notify-stock": return notifyWaiting(id);
     case "new-cat": return catDialog(null);
     case "edit-cat": return catDialog(id);
     case "open-order": return orderDialog(id);
@@ -748,6 +824,7 @@ document.addEventListener("submit", e => {
   if (f.id === "prodForm") { e.preventDefault(); saveProduct(f); }
   else if (f.id === "catForm") { e.preventDefault(); saveCategory(f); }
   else if (f.id === "setForm") { e.preventDefault(); saveSettings(f); }
+  else if (f.id === "saleForm") { e.preventDefault(); saveSale(f); }
 });
 document.addEventListener("click", e => {          // buttons inside #admDlg (dialog is outside #admin)
   const dlg = e.target.closest("#admDlg");

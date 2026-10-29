@@ -1,6 +1,8 @@
-# Plodroid Store
+# Bee Hive
 
 A small shop website (https://plodroid.github.io/store/) on **GitHub Pages + Firebase's free Spark plan**. No card details, no billing, all orders are test orders.
+
+**Shop features:** product pages (big photo, "You may also like", recently viewed), sale prices (owner taps **Sale** on a product), saved items (wishlist, synced to the account), "email me when it's back" on sold-out items (owner taps the **Back in stock** button to email the people waiting), filters and price sorting, My orders.
 
 **Sign-in:** a random 4-digit code is emailed to the customer (sent by a free Google Apps Script from your Gmail), or "Continue with Google". **Owner:** `housikiki@gmail.com`, signing in with Google, gets a **Manage** button.
 
@@ -117,7 +119,7 @@ Editing `Code.gs` does nothing until you redeploy: **Deploy → Manage deploymen
 | `firebase-config.js` | public web config + the Apps Script URL (safe to commit; the rules are the security) |
 | `firestore.rules` | security rules |
 | `apps-script/Code.gs` | the free email-code service (lives in your Google account, not on the website) |
-| `test/` | `node --test test/*.test.mjs` (unit + Apps Script logic) and `node test/e2e/flows.mjs`, `node test/e2e/admin.mjs` (browser tests against a fake Firebase; needs Playwright) |
+| `test/` | `node --test test/*.test.mjs` (unit + Apps Script logic) and `node test/e2e/flows.mjs`, `node test/e2e/admin.mjs`, `node test/e2e/features.mjs` (browser tests against a fake Firebase; needs Playwright) |
 | `functions/`, `android/`, `.github/workflows/android-apk.yml` | **legacy** Blaze-plan backend and owner Android app. Not used by the website. |
 
 ## Developing

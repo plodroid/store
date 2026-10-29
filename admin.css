@@ -125,3 +125,13 @@ button.stat:active { transform: scale(.98); }
 .fb p { margin: 10px 0 12px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
 .fb-act { display: flex; gap: 6px; flex-wrap: wrap; }
 .stars-ro { color: var(--star); letter-spacing: 1px; font-size: 13px; } .stars-ro i { font-style: normal; color: var(--star-off); }
+
+/* sale + waiting */
+.sale-btn { flex: none; height: 32px; padding: 0 12px; border-radius: 999px; font-size: 13px; color: var(--muted); border: 1px solid var(--line-2); background: var(--surface); transition: background-color .2s ease, color .2s ease; }
+.sale-btn.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.sale-btn:disabled { opacity: .4; }
+@media (hover: hover) { .sale-btn:not(:disabled):hover { background: var(--fill-2); } }
+.pmeta s { color: var(--faint); } .sale-now { font-weight: 600; color: var(--accent); }
+.pwait { display: block; margin-top: 3px; font-size: 12.5px; color: var(--muted); text-align: left; }
+.pwait.ready { color: var(--blue); font-weight: 500; text-decoration: underline; text-underline-offset: 2px; }
+@media (max-width: 520px) { .sale-btn { margin-left: 8px; } }

@@ -4,7 +4,7 @@
 // Official GOV.UK postcode pattern (spaces optional, case-insensitive).
 const POSTCODE_RE = /^(GIR ?0AA|[A-PR-UWYZ]([0-9]{1,2}|([A-HK-Y][0-9]([0-9ABEHMNPRV-Y])?)|[0-9][A-HJKPS-UW]) ?[0-9][ABD-HJLNP-UW-Z]{2})$/i;
 
-/** "le54gu" → "LE5 4GU". Returns "" when it isn't shaped like a UK postcode. */
+/** Lower-case, no space → tidy "XX1 1XX" form. Returns "" when it isn't shaped like a UK postcode. */
 export function normalisePostcode(raw) {
   const s = String(raw ?? "").toUpperCase().replace(/\s+/g, "");
   if (!POSTCODE_RE.test(s)) return "";
@@ -84,7 +84,7 @@ export function townMatches(town, info) {
 }
 
 export const REASONS = {
-  format: "That doesn't look like a UK postcode. It should look like LE5 4GU.",
+  format: "That doesn't look like a UK postcode. Please check it and try again.",
   unknown: "We couldn't find that postcode. Please check it and try again.",
   network: "We couldn't check the postcode right now. Check your connection and try again.",
 };

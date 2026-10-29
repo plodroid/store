@@ -15,6 +15,10 @@ export const store = {
 const gbp = new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" });
 export const money = v => gbp.format(Number(v) || 0);
 export const pence = v => Math.round((Number(v) || 0) * 100);
+/** The price a customer pays: the sale price when one is set and lower, else the normal price. */
+export const priceOf = p => (typeof p.salePrice === "number" && p.salePrice >= 0 && p.salePrice < p.price) ? p.salePrice : Number(p.price) || 0;
+export const onSale = p => priceOf(p) < (Number(p.price) || 0);
+export const percentOff = p => onSale(p) ? Math.max(1, Math.round((1 - priceOf(p) / p.price) * 100)) : 0;
 export const reduced = matchMedia("(prefers-reduced-motion: reduce)");
 export const uid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`);
 

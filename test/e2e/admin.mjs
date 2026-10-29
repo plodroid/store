@@ -3,7 +3,7 @@ import { serve, launch, closeAll, SEED } from "./harness.mjs";
 const { srv, url } = await serve();
 const results = [];
 const T = { __ts: 1700000100000 };
-const ORDER = (over = {}) => ({ uid: "cust1", ref: "PS-ABC123", requestId: "abc12345", status: "new", paymentStatus: "mock", isTest: true, fulfilment: "collection",
+const ORDER = (over = {}) => ({ uid: "cust1", ref: "BH-ABC123", requestId: "abc12345", status: "new", paymentStatus: "mock", isTest: true, fulfilment: "collection",
   items: [{ productId: "p1", qty: 2, name: "Medjool Dates 500g" }], customer: { name: "Gina Test", phone: "", email: "gina@example.com" }, note: "", estTotal: 13, createdAt: T, updatedAt: T, ...over });
 const FB = (over = {}) => ({ uid: "cust1", kind: "bug", message: "The basket count looks wrong.", name: "Gina", read: false, archived: false, createdAt: T, ...over });
 const seedWith = (extra) => ({ ...SEED, ...extra });
@@ -108,7 +108,7 @@ await test("order: not enough stock blocks confirm; stock untouched", async ({ p
 await test("order: delivery order shows address + advance statuses to completed", async ({ page: p }) => {
   await openAdmin(p); await tab(p, "orders");
   await p.click('[data-act="open-order"]');
-  assert.match(await p.locator("#admDlg").innerText(), /Thoresby/);
+  assert.match(await p.locator("#admDlg").innerText(), /Example Road/);
   await p.click("#ordMain");
   await p.waitForFunction(() => window.__FAKE.dump().orders.o_abc12345.status === "confirmed");
   for (const s of ["preparing", "ready", "completed"]) {
@@ -117,7 +117,7 @@ await test("order: delivery order shows address + advance statuses to completed"
     await p.waitForFunction(st => window.__FAKE.dump().orders.o_abc12345.status === st, s);
   }
 }, { orders: { o_abc12345: ORDER({ fulfilment: "delivery", customer: { name: "Gina", phone: "+447123456789", email: "g@e.com" },
-  address: { line1: "1 Thoresby Street", line2: "", city: "Leicester", postcode: "LE5 4GU", lat: 52.63, lng: -1.09, verified: true } }) } });
+  address: { line1: "10 Example Road", line2: "", city: "London", postcode: "SW1A 1AA", lat: 52.63, lng: -1.09, verified: true } }) } });
 
 await test("feedback: shows, mark read, archive", async ({ page: p }) => {
   await openAdmin(p); await tab(p, "feedback");
@@ -136,7 +136,7 @@ await test("settings: save delivery fee", async ({ page: p }) => {
 
 await test("alert: new order while panel is closed lights the dot + toast", async ({ page: p }) => {
   await p.waitForTimeout(400);
-  await p.evaluate(o => window.__FAKE.inject("orders", "o_new99999", o), ORDER({ requestId: "new99999", ref: "PS-NEW999" }));
+  await p.evaluate(o => window.__FAKE.inject("orders", "o_new99999", o), ORDER({ requestId: "new99999", ref: "BH-NEW999" }));
   await p.waitForFunction(() => !document.querySelector("#manageDot").hidden || document.querySelector("#manageDot").offsetParent !== null);
   await p.waitForFunction(() => /order/i.test(document.querySelector("#toast").textContent));
 });

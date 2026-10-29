@@ -1,5 +1,5 @@
 /* ──────────────────────────────────────────────────────────────
-   STORE CONFIG — the only website file you need to edit.
+   SHOP CONFIG — the only website file you need to edit.
 
    Firebase console → Project settings → Your apps → Web app (</>)
    → copy the firebaseConfig values over the placeholders below.
@@ -37,9 +37,9 @@ window.STORE_PATHS = {
 
 /* Used until settings/site loads. The owner app edits these live. */
 window.STORE_DEFAULTS = {
-  storeName:    "Plodroid Store",
+  storeName:    "Bee Hive",
   heroTitle:    "Everyday essentials,\nall in one place.",
-  heroSubtitle: "Explore food, drinks, groceries and more.",
+  heroSubtitle: "Food, drinks, groceries and more. Order online, then pick up from the shop.",
   announcement: "",
   whatsapp:     "",
   collection:   true,    // customers can collect

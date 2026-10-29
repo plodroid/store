@@ -3,11 +3,21 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Plodroid Store</title>
-<meta name="description" content="Everyday essentials, all in one place. Food, drinks, groceries and more.">
+<title>Bee Hive</title>
+<meta name="description" content="Bee Hive: everyday essentials, food, drinks and groceries. Order online and pick up from the shop.">
 <meta name="theme-color" content="#F4F3EE">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Bee Hive">
+<meta property="og:title" content="Bee Hive">
+<meta property="og:description" content="Everyday essentials, food, drinks and groceries. Order online and pick up from the shop.">
+<meta property="og:image" content="https://plodroid.github.io/store/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./icon-192.png">
 <script>try{var t=localStorage.getItem("theme");if(t==="dark"){document.documentElement.dataset.theme="dark";document.querySelector('meta[name="theme-color"]').content="#161616"}}catch(e){}</script>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%231A6CE0'/%3E%3Cg fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 12h12l-1 11H11z'/%3E%3Cpath d='M13 12a3 3 0 0 1 6 0'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="icon" type="image/svg+xml" href="./icon.svg">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -25,17 +35,32 @@
   <div class="netbar" id="netbar" role="status" hidden>You're offline. Prices and stock may have changed, and orders can't be sent until you're back online.</div>
   <div class="wrap nav-inner">
 
-    <a class="brand" href="#top" data-bind="storeName">Plodroid Store</a>
+    <a class="brand" href="#/" aria-label="Bee Hive, home">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 2.5 27.7 9.25v13.5L16 29.5 4.3 22.75V9.25z" fill="currentColor"/><path d="M16 9.2 21.6 12.4v6.4L16 22 10.4 18.8v-6.4z" fill="none" stroke="var(--bg)" stroke-width="1.8" stroke-linejoin="round"/></svg>
+      <span data-bind="storeName">Bee Hive</span>
+    </a>
 
     <!-- only the shop owner ever sees this -->
-    <button class="nav-pill manage" id="manageBtn" type="button" hidden>
+    <button class="nav-pill manage" id="manageBtn" type="button" hidden aria-label="Manage shop">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
       <span>Manage shop</span><span class="alert-dot" id="manageDot" hidden></span>
     </button>
 
+    <form class="nav-search" id="navSearch" role="search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="q" type="search" placeholder="Search products" autocomplete="off" enterkeyhint="search" aria-label="Search products">
+    </form>
+
     <span class="nav-gap"></span>
 
-    <a href="#shop" class="nav-link nav-first">Shop</a>
+    <button class="icon-btn search-toggle" id="searchToggle" type="button" aria-label="Search products" aria-expanded="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    </button>
+
+    <a class="icon-btn heart-link" id="savedLink" href="#/saved" aria-label="Saved items">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2z"/></svg>
+      <span class="pip" id="wishCount" hidden>0</span>
+    </a>
 
     <button class="theme-btn" id="themeBtn" type="button" aria-label="Switch to dark mode">
       <svg class="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>
@@ -47,10 +72,6 @@
       <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="8.6" r="4"/><path d="M4 21v-1.2C4 16.6 7.6 14.6 12 14.6s8 2 8 5.2V21z"/></svg>
     </button>
 
-    <button class="icon-btn" id="navSearch" type="button" aria-label="Search products">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-    </button>
-
     <button class="cart-btn" id="cartBtn" type="button" aria-label="Open basket">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8h14l-1.2 12H6.2z"/><path d="M9 8a3 3 0 0 1 6 0"/></svg>
       <span class="count" id="cartCount">0</span>
@@ -60,79 +81,136 @@
 
 <div class="menu" id="menu" role="menu" hidden>
   <p class="menu-email" id="menuEmail"></p>
+  <button type="button" role="menuitem" id="menuOrders">My orders</button>
+  <button type="button" role="menuitem" id="menuSaved">Saved items</button>
   <button type="button" role="menuitem" id="menuAcct">Account &amp; location</button>
   <button type="button" role="menuitem" id="menuOut">Sign out</button>
 </div>
 
 <main id="top">
 
-  <section class="hero" aria-labelledby="heroTitle">
-    <div class="hero-inner">
-      <h1 class="hero-title enter" id="heroTitle" style="--i:0" data-bind="heroTitle">Everyday essentials,<br>all in one place.</h1>
-      <p class="hero-sub enter" style="--i:1" data-bind="heroSubtitle">Explore food, drinks, groceries and more.</p>
-
-      <form class="ask enter" style="--i:2" id="heroSearch" role="search">
-        <svg class="ask-lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-        <input id="heroQ" type="search" placeholder="Search products" autocomplete="off" enterkeyhint="search" aria-label="Search products">
-        <button class="ask-go" type="submit" aria-label="Show results">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
-        </button>
-      </form>
-
-      <ul class="suggest enter" style="--i:3" id="suggest" aria-label="Start browsing"></ul>
-    </div>
-  </section>
-
-  <section id="shop" class="shop" aria-labelledby="shopTitle">
-    <div class="toolbar">
-      <div class="wrap">
-        <div class="toolbar-inner">
-          <div class="tabs" aria-label="Categories">
-            <div class="tab-list" id="catList"><span class="tab-ind" id="tabInd" aria-hidden="true"></span></div>
+  <!-- ═════ shop ═════ -->
+  <div id="vShop">
+    <section class="hero" aria-labelledby="heroTitle">
+      <div class="wrap hero-grid">
+        <div class="hero-copy">
+          <h1 class="hero-title" id="heroTitle" data-bind="heroTitle">Everyday essentials,<br>all in one place.</h1>
+          <p class="hero-sub" data-bind="heroSubtitle">Food, drinks, groceries and more. Order online, then pick up from the shop.</p>
+          <div class="hero-cta">
+            <button class="btn-primary" type="button" data-c="All" data-scroll>Shop all products</button>
           </div>
-          <div class="tools">
-            <label class="field">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-              <input id="q" type="search" placeholder="Search" autocomplete="off" enterkeyhint="search" aria-label="Search products">
-            </label>
-            <label class="select">
-              <select id="sort" aria-label="Sort products">
-                <option value="feat">Featured</option>
-                <option value="lo">Price: low to high</option>
-                <option value="hi">Price: high to low</option>
-                <option value="az">Name: A to Z</option>
-              </select>
-            </label>
+        </div>
+        <ul class="hero-cats" id="heroCats" aria-label="Shop by category"></ul>
+      </div>
+    </section>
+
+    <section class="trust" aria-label="How ordering works">
+      <div class="wrap"><ul id="trustList"></ul></div>
+    </section>
+
+    <div class="restock" id="restock" role="status" hidden></div>
+
+    <section id="shop" class="shop" aria-labelledby="shopTitle">
+      <div class="toolbar">
+        <div class="wrap">
+          <div class="toolbar-inner">
+            <div class="tabs" aria-label="Categories">
+              <div class="tab-list" id="catList"><span class="tab-ind" id="tabInd" aria-hidden="true"></span></div>
+            </div>
+            <div class="tools">
+              <button class="filter-btn" id="filterBtn" type="button" aria-expanded="false" aria-controls="filters">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>
+                <span>Filters</span><b class="filter-n" id="filterN" hidden>0</b>
+              </button>
+              <label class="select">
+                <select id="sort" aria-label="Sort products">
+                  <option value="feat">Featured</option>
+                  <option value="new">Newest</option>
+                  <option value="lo">Price: low to high</option>
+                  <option value="hi">Price: high to low</option>
+                  <option value="az">Name: A to Z</option>
+                </select>
+              </label>
+            </div>
+          </div>
+          <div class="filters" id="filters" hidden>
+            <label class="check"><input type="checkbox" id="fStock"><span>In stock only</span></label>
+            <label class="check"><input type="checkbox" id="fSale"><span>On sale</span></label>
+            <label class="check"><input type="checkbox" id="fSaved"><span>Saved items</span></label>
+            <div class="price-range">
+              <label><span>Min £</span><input id="fMin" inputmode="decimal" placeholder="0" maxlength="7" aria-label="Minimum price"></label>
+              <label><span>Max £</span><input id="fMax" inputmode="decimal" placeholder="Any" maxlength="7" aria-label="Maximum price"></label>
+            </div>
+            <button class="link" id="fClear" type="button">Clear filters</button>
           </div>
         </div>
       </div>
-    </div>
 
+      <div class="wrap">
+        <div class="shop-head">
+          <h2 id="shopTitle">All products</h2>
+          <span class="muted" id="resultCount"></span>
+        </div>
+        <p class="note" id="modeNote" hidden>Preview mode: sample products and prices. Ordering and feedback are switched off.</p>
+
+        <div class="grid" id="grid" aria-live="polite"></div>
+
+        <div class="empty" id="empty" hidden>
+          <p class="empty-title" id="emptyTitle"></p>
+          <p class="muted" id="emptyText"></p>
+          <button class="btn-ghost" id="emptyAction" type="button" hidden>Clear search</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="rail-sec" id="recentShop" aria-labelledby="recentShopT" hidden>
+      <div class="wrap"><h2 id="recentShopT">Recently viewed</h2><div class="grid rail" id="recentShopList"></div></div>
+    </section>
+  </div>
+
+  <!-- ═════ product page ═════ -->
+  <div id="vProduct" hidden><div class="wrap" id="pp"></div></div>
+
+  <!-- ═════ saved items ═════ -->
+  <div id="vSaved" hidden>
     <div class="wrap">
-      <div class="shop-head">
-        <h2 id="shopTitle">All products</h2>
-        <span class="muted" id="resultCount"></span>
-      </div>
-      <p class="note" id="modeNote" hidden>Preview mode: sample products and prices. Ordering and feedback are switched off.</p>
-
-      <div class="grid" id="grid" aria-live="polite"></div>
-
-      <div class="empty" id="empty" hidden>
-        <p class="empty-title" id="emptyTitle"></p>
-        <p class="muted" id="emptyText"></p>
-        <button class="btn-ghost" id="emptyAction" type="button" hidden>Clear search</button>
+      <nav class="crumbs" aria-label="Breadcrumb"><a href="#/">Shop</a><span aria-hidden="true">/</span><span aria-current="page">Saved items</span></nav>
+      <div class="shop-head"><h1 class="page-title">Saved items</h1><span class="muted" id="savedCount"></span></div>
+      <div class="grid" id="savedGrid"></div>
+      <div class="empty" id="savedEmpty" hidden>
+        <p class="empty-title">Nothing saved yet</p>
+        <p class="muted">Tap the heart on any product to keep it here for later.</p>
+        <a class="btn-ghost" href="#/">Browse products</a>
       </div>
     </div>
-  </section>
+  </div>
 </main>
 
 <footer class="footer">
-  <div class="wrap footer-inner">
-    <span>© <span id="yr"></span> <span data-bind="storeName">Plodroid Store</span></span>
-    <span class="footer-links">
+  <div class="wrap footer-grid">
+    <div class="footer-brand">
+      <a class="brand" href="#/" aria-label="Bee Hive, home">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 2.5 27.7 9.25v13.5L16 29.5 4.3 22.75V9.25z" fill="currentColor"/><path d="M16 9.2 21.6 12.4v6.4L16 22 10.4 18.8v-6.4z" fill="none" stroke="var(--bg)" stroke-width="1.8" stroke-linejoin="round"/></svg>
+        <span data-bind="storeName">Bee Hive</span>
+      </a>
+      <p class="muted" id="footerBlurb">Everyday essentials, food and drinks.</p>
+    </div>
+    <div class="footer-col">
+      <h3>Shop</h3>
+      <a class="footer-link" href="#/">All products</a>
+      <a class="footer-link" href="#/saved">Saved items</a>
+      <button class="footer-link" id="footOrders" type="button">My orders</button>
+    </div>
+    <div class="footer-col">
+      <h3>Help</h3>
       <button class="footer-link" id="openFeedback" type="button">Send feedback</button>
       <a id="contact" class="footer-link" href="#" target="_blank" rel="noopener" hidden>Contact us on WhatsApp</a>
-    </span>
+      <span class="footer-note" id="footerHow"></span>
+    </div>
+  </div>
+  <div class="wrap footer-base">
+    <span>© <span id="yr"></span> <span data-bind="storeName">Bee Hive</span></span>
+    <button class="footer-link theme-link" id="themeBtn2" type="button">Dark mode</button>
   </div>
 </footer>
 
@@ -152,14 +230,13 @@
   </div>
 </aside>
 
-<!-- product details -->
-<dialog class="pd" id="pd" aria-labelledby="pdName">
+<!-- my orders -->
+<dialog class="pd modal" id="mo" aria-labelledby="moTitle">
   <button class="icon-btn pd-close" type="button" data-close aria-label="Close">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
   </button>
-  <div class="pd-body" id="pdBody"></div>
+  <div class="modal-body" id="moBody"></div>
 </dialog>
-
 
 <!-- checkout -->
 <dialog class="pd modal" id="co" aria-labelledby="coTitle">
@@ -226,6 +303,7 @@
     <p class="muted done-text">The shop will confirm your order shortly. Keep your order reference handy.</p>
     <div class="done-actions">
       <button class="btn-primary" type="button" data-close>Done</button>
+      <button class="btn-ghost" type="button" id="coOrders">View my orders</button>
       <button class="btn-ghost" type="button" id="coFeedback">Leave feedback</button>
     </div>
   </div>
@@ -267,7 +345,7 @@
     </label>
     <div class="row2">
       <label class="inp"><span>Name <em>(optional)</em></span><input name="name" autocomplete="name" maxlength="60"></label>
-      <label class="inp"><span>Order reference <em>(optional)</em></span><input name="orderRef" placeholder="PS-XXXXXX" maxlength="9" autocapitalize="characters"></label>
+      <label class="inp"><span>Order reference <em>(optional)</em></span><input name="orderRef" placeholder="BH-XXXXXX" maxlength="9" autocapitalize="characters"></label>
     </div>
 
     <label class="hp" aria-hidden="true">Website<input name="website" tabindex="-1" autocomplete="off"></label>

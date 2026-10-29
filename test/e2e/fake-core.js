@@ -116,13 +116,15 @@
     if (c === "owners") return w.uid === id;
     if (c === "users") return w.uid === id;
     if (c === "orders") return w.owner || (w.uid && d && d.uid === w.uid);
+    if (c === "stockAlerts") return w.owner || (w.uid && d && d.uid === w.uid);
     if (c === "feedback" || c === "productPrivate") return w.owner;
     if (c === "settings" && id === "owner") return w.owner;
     return true;
   }
   function runQuery(q) {
     const w = who();
-    if (["orders", "feedback"].includes(q.col) && !w.owner) throw err("permission-denied", "query on " + q.col);
+    if (["orders", "stockAlerts"].includes(q.col) && !w.owner && !(w.uid && q.where.some(x => x.f === "uid" && x.v === w.uid))) throw err("permission-denied", "query on " + q.col);
+    if (q.col === "feedback" && !w.owner) throw err("permission-denied", "query on " + q.col);
     if (q.col === "products" && !w.owner && !(q.where.some(x => x.f === "visible" && x.v === true) && q.where.some(x => x.f === "archived" && x.v === false))) throw err("permission-denied", "unfiltered products query");
     if (q.col === "categories" && !w.owner && !q.where.some(x => x.f === "visible" && x.v === true)) throw err("permission-denied", "unfiltered categories query");
     let rows = Object.entries(db()[q.col] || {}).map(([id, d]) => ({ id, d }));
@@ -159,7 +161,8 @@
     if (c === "users") {
       if (w.uid !== id) deny("users: not yours");
       if (op === "delete") deny("users: no delete");
-      if (!hasOnly(raw, ["name", "phone", "address", "lastOrderAt", "lastFeedbackAt", "updatedAt"])) deny("users: keys " + Object.keys(raw));
+      if (!hasOnly(raw, ["name", "phone", "address", "wishlist", "lastOrderAt", "lastFeedbackAt", "updatedAt"])) deny("users: keys " + Object.keys(raw));
+      if ("wishlist" in raw && !(Array.isArray(raw.wishlist) && raw.wishlist.length <= 100)) deny("users: wishlist");
       if (!optStr(raw, "name", 80) || !optStr(raw, "phone", 20) || ("address" in raw && !validAddress(raw.address))) deny("users: values");
       if (!isSV(raw.updatedAt)) deny("users: updatedAt");
       if (!throttle(before, raw, "lastOrderAt", 30, t) || !throttle(before, raw, "lastFeedbackAt", 60, t)) deny("users: throttled");
@@ -173,7 +176,7 @@
         if (!hasAll(d, ["uid", "ref", "requestId", "status", "paymentStatus", "isTest", "fulfilment", "items", "customer", "note", "createdAt", "updatedAt"])) deny("orders: missing keys");
         if (d.uid !== w.uid) deny("orders: uid");
         if (!/^[A-Za-z0-9-]{8,64}$/.test(d.requestId) || id !== "o_" + d.requestId) deny("orders: id");
-        if (!/^PS-[A-Z0-9]{6}$/.test(d.ref)) deny("orders: ref");
+        if (!/^BH-[A-Z0-9]{6}$/.test(d.ref)) deny("orders: ref");
         if (d.status !== "new" || d.paymentStatus !== "mock" || d.isTest !== true) deny("orders: status");
         if (!["collection", "delivery"].includes(d.fulfilment)) deny("orders: fulfilment");
         if (!Array.isArray(d.items) || d.items.length < 1 || d.items.length > 50) deny("orders: items");
@@ -223,13 +226,28 @@
       }
       return;
     }
+    if (c === "stockAlerts") {
+      if (op === "delete") { if (!(w.owner || (w.uid && before && before.uid === w.uid))) deny("stockAlerts: delete"); return; }
+      if (op === "update") deny("stockAlerts: no update");
+      const d = raw, u = auth.currentUser;
+      if (!w.verified) deny("stockAlerts: not verified");
+      if (!hasOnly(d, ["uid", "productId", "productName", "email", "createdAt"]) || !hasAll(d, ["uid", "productId", "productName", "email", "createdAt"])) deny("stockAlerts: keys " + Object.keys(d));
+      if (d.uid !== w.uid || id !== w.uid + "_" + d.productId) deny("stockAlerts: id/uid");
+      if (!(afterDb.products || {})[d.productId]) deny("stockAlerts: product");
+      if (!isStr(d.productName, 120)) deny("stockAlerts: name");
+      const a = u._a, mail = (a.claims && a.claims.mail) || u.email || "";
+      if (!isStr(d.email, 120) || d.email !== mail) deny("stockAlerts: email");
+      if (!isSV(d.createdAt)) deny("stockAlerts: createdAt");
+      return;
+    }
     // owner-managed collections
     if (!w.owner) deny(c + ": owner only");
     if (c === "products" && op !== "delete") {
       const d = raw;
-      if (!hasOnly(d, ["name", "price", "stock", "categoryId", "image", "imagePath", "description", "unit", "visible", "archived", "featured", "sortOrder", "lowStockThreshold", "createdAt", "updatedAt"])) deny("products: keys " + Object.keys(d));
+      if (!hasOnly(d, ["name", "price", "stock", "categoryId", "image", "imagePath", "description", "unit", "visible", "archived", "featured", "sortOrder", "lowStockThreshold", "salePrice", "createdAt", "updatedAt"])) deny("products: keys " + Object.keys(d));
       if (!hasAll(d, ["name", "price", "stock", "visible", "archived", "updatedAt"])) deny("products: missing");
       if (!isStr(d.name, 120) || !d.name.length || !isNum(d.price) || d.price < 0 || !Number.isInteger(d.stock) || d.stock < 0 || typeof d.visible !== "boolean" || typeof d.archived !== "boolean") deny("products: values");
+      if ("salePrice" in d && d.salePrice != null && !(isNum(d.salePrice) && d.salePrice >= 0 && d.salePrice < d.price)) deny("products: salePrice");
       if (!optStr(d, "image", 60000) || !optStr(d, "description", 2000) || !optStr(d, "unit", 30)) deny("products: strings");
       if (!isSV(d.updatedAt)) deny("products: updatedAt");
       if (op === "create" ? !isSV(d.createdAt) : key(enc(d.createdAt, t)) !== key(before.createdAt)) deny("products: createdAt");

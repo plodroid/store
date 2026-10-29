@@ -1,0 +1,15 @@
+{
+  "name": "Bee Hive",
+  "short_name": "Bee Hive",
+  "description": "Everyday essentials, food, drinks and groceries. Order online and pick up from the shop.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F4F3EE",
+  "theme_color": "#F4F3EE",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

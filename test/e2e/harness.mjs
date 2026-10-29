@@ -21,7 +21,6 @@ export function serve() {
 }
 
 const PC = {
-  "LE54GU": { postcode: "LE5 4GU", admin_district: "Leicester", post_town: "Leicester", latitude: 52.63, longitude: -1.09, country: "England" },
   "SW1A1AA": { postcode: "SW1A 1AA", admin_district: "Westminster", post_town: "London", latitude: 51.5, longitude: -0.14, country: "England" },
   "EH11YZ": { postcode: "EH1 1YZ", admin_district: "City of Edinburgh", post_town: "Edinburgh", latitude: 55.95, longitude: -3.19, country: "Scotland" },
 };
@@ -34,7 +33,7 @@ export const SEED = {
     p2: { name: "Sparkling Water", price: 2.4, stock: 3, categoryId: "c2", visible: true, archived: false, updatedAt: T0, createdAt: T0 },
     p3: { name: "Sold Out Juice", price: 1.85, stock: 0, categoryId: "c2", visible: true, archived: false, updatedAt: T0, createdAt: T0 },
   },
-  settings: { site: { storeName: "Test Store", collection: true, delivery: true, deliveryFee: 2.5, updatedAt: T0 } },
+  settings: { site: { storeName: "Bee Hive", collection: true, delivery: true, deliveryFee: 2.5, updatedAt: T0 } },
 };
 export const ACCOUNTS = {};
 
@@ -49,13 +48,14 @@ export async function launch(base, { seed = SEED, accounts = {}, viewport, maile
   const mail = { codes: {}, sent: [], tries: {}, calls: [] };
   const CONFIG = fs.readFileSync(path.join(ROOT, "firebase-config.js"), "utf8");
   await ctx.route("**/firebase-config.js", r => r.fulfill({ contentType: "text/javascript",
-    body: mailer ? CONFIG.replace("PASTE_APPS_SCRIPT_URL", "https://script.google.com/macros/s/TEST/exec") : CONFIG }));
+    body: mailer ? CONFIG : CONFIG.replace(/window\.STORE_AUTH_URL\s*=\s*"[^"]*"/, 'window.STORE_AUTH_URL = "PASTE_APPS_SCRIPT_URL"') }));
   await ctx.route("https://script.google.com/**", r => {
     const h = { "access-control-allow-origin": "*" };
     const b = JSON.parse(r.request().postData() || "{}");
     mail.calls.push(b);
     const reply = j => r.fulfill({ status: 200, headers: h, json: j });
     if (["housikiki@gmail.com"].includes(b.email)) return reply({ ok: false, error: "use_google" });
+    if (b.a === "notify") return reply({ ok: true, sent: (b.emails || []).length, sentTo: b.emails || [] });
     if (b.a === "send") {
       mail.codes[b.email] = String(Math.floor(Math.random() * 10000)).padStart(4, "0"); mail.tries[b.email] = 0; mail.sent.push(b.email);
       return reply({ ok: true });
@@ -78,7 +78,7 @@ export async function launch(base, { seed = SEED, accounts = {}, viewport, maile
       const hit = PC[decodeURIComponent(u.pathname.split("/").pop()).replace(/\s/g, "").toUpperCase()];
       return r.fulfill(hit ? { status: 200, headers: h, json: { status: 200, result: hit } } : { status: 404, headers: h, json: { status: 404, error: "Postcode not found" } });
     }
-    return r.fulfill({ status: 200, headers: h, json: { status: 200, result: [PC.LE54GU] } });
+    return r.fulfill({ status: 200, headers: h, json: { status: 200, result: [PC.SW1A1AA] } });
   });
   await ctx.addInitScript(({ code, seed, accounts }) => {
     eval(code);

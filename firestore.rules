@@ -1,6 +1,6 @@
 rules_version = '2';
 
-// Plodroid Store — Firestore security rules (free "Spark" plan edition: no Cloud Functions).
+// Bee Hive — Firestore security rules (free "Spark" plan edition: no Cloud Functions).
 //
 // Who can do what:
 //   • Anyone:           read visible products, visible categories and public site settings.
@@ -71,8 +71,9 @@ service cloud.firestore {
             && (a.get('verified', null) == null || a.get('verified', null) is bool));
     }
     function validProfile(d) {
-      return d.keys().hasOnly(['name', 'phone', 'address', 'lastOrderAt', 'lastFeedbackAt', 'updatedAt'])
+      return d.keys().hasOnly(['name', 'phone', 'address', 'wishlist', 'lastOrderAt', 'lastFeedbackAt', 'updatedAt'])
         && optStr(d, 'name', 80) && optStr(d, 'phone', 20)
+        && (!('wishlist' in d) || (d.wishlist is list && d.wishlist.size() <= 100))
         && (!('address' in d) || validAddress(d.address))
         && d.updatedAt == request.time;
     }
@@ -87,11 +88,12 @@ service cloud.firestore {
     // ── products (public catalogue) ──────────────────────────
     function validProduct(d) {
       return d.keys().hasOnly(['name', 'price', 'stock', 'categoryId', 'image', 'imagePath', 'description',
-                               'unit', 'visible', 'archived', 'featured', 'sortOrder', 'lowStockThreshold',
+                               'unit', 'visible', 'archived', 'featured', 'sortOrder', 'lowStockThreshold', 'salePrice',
                                'createdAt', 'updatedAt'])
         && d.keys().hasAll(['name', 'price', 'stock', 'visible', 'archived', 'updatedAt'])
         && d.name is string && d.name.size() >= 1 && d.name.size() <= 120
         && d.price is number && d.price >= 0 && d.price <= 100000
+        && (!('salePrice' in d) || d.salePrice == null || (d.salePrice is number && d.salePrice >= 0 && d.salePrice < d.price))
         && d.stock is int && d.stock >= 0 && d.stock <= 1000000
         && d.visible is bool && d.archived is bool
         && optStr(d, 'categoryId', 64) && optStr(d, 'image', 60000) && optStr(d, 'imagePath', 300)
@@ -168,7 +170,7 @@ service cloud.firestore {
         && d.uid == request.auth.uid
         && d.requestId is string && d.requestId.matches('^[A-Za-z0-9-]{8,64}$')
         && id == 'o_' + d.requestId                                          // same request = same order (no duplicates)
-        && d.ref is string && d.ref.matches('^PS-[A-Z0-9]{6}$')
+        && d.ref is string && d.ref.matches('^BH-[A-Z0-9]{6}$')
         && d.status == 'new' && d.paymentStatus == 'mock' && d.isTest == true
         && d.fulfilment in ['collection', 'delivery']
         && d.items is list && d.items.size() >= 1 && d.items.size() <= 50
@@ -199,6 +201,22 @@ service cloud.firestore {
         && request.resource.data.updatedAt == request.time;
       // Only cancelled test orders can be cleared away; real order history is kept.
       allow delete: if isOwner() && resource.data.isTest == true && resource.data.status == 'cancelled';
+    }
+
+    // ── "tell me when it's back" requests (one per customer per product) ──
+    match /stockAlerts/{id} {
+      allow read, delete: if isOwner() || (signedIn() && resource.data.uid == request.auth.uid);
+      allow create: if verified()
+        && request.resource.data.keys().hasOnly(['uid', 'productId', 'productName', 'email', 'createdAt'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.productId is string && request.resource.data.productId.size() >= 1 && request.resource.data.productId.size() <= 64
+        && id == request.auth.uid + '_' + request.resource.data.productId
+        && exists(/databases/$(database)/documents/products/$(request.resource.data.productId))
+        && request.resource.data.productName is string && request.resource.data.productName.size() <= 120
+        && request.resource.data.email is string && request.resource.data.email.size() <= 120
+        && request.resource.data.email == request.auth.token.get('email', request.auth.token.get('mail', ''))
+        && request.resource.data.createdAt == request.time;
+      allow update: if false;
     }
 
     // ── feedback, bug reports and questions ──────────────────
