@@ -25,7 +25,7 @@ window.FUNCTIONS_REGION = "europe-west2";
 /* Email-code sign-in: the web-app URL of the Apps Script in apps-script/Code.gs (README step 5).
    Public by design: it only ever emails a code to the address typed in. Leave the placeholder and
    customers can still use "Continue with Google". */
-window.STORE_AUTH_URL = "PASTE_APPS_SCRIPT_URL";
+window.STORE_AUTH_URL = "https://script.google.com/macros/s/AKfycbz5X6rKkjzrKq5wBIhFFWkgBVKXi3fb26h7McPT90VnUQd6bSEiP3Bodh6-TEPfe1cL/exec";
 
 /* Firestore paths shared with the owner app. */
 window.STORE_PATHS = {
