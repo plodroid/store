@@ -36,14 +36,38 @@ export const SEED = {
   },
   settings: { site: { storeName: "Test Store", collection: true, delivery: true, deliveryFee: 2.5, updatedAt: T0 } },
 };
-export const ACCOUNTS = { "owner@shop.com": { uid: "owner1", password: "password1", verified: true, displayName: "The Owner" } };
+export const ACCOUNTS = {};
 
-export async function launch(base, { seed = SEED, accounts = ACCOUNTS, viewport } = {}) {
+export async function launch(base, { seed = SEED, accounts = {}, viewport, mailer = true } = {}) {
   const browser = globalThis.__browser || (globalThis.__browser = await chromium.launch());
   const ctx = await browser.newContext({ viewport: viewport || { width: 1280, height: 900 }, serviceWorkers: "block" });
   await ctx.route("https://www.gstatic.com/firebasejs/10.12.2/*", r => {
     const name = r.request().url().split("/").pop();
     r.fulfill({ status: MODULES[name] ? 200 : 404, contentType: "text/javascript", headers: { "access-control-allow-origin": "*" }, body: MODULES[name] || "" });
+  });
+  // stand-in for the Apps Script mailer: same replies as apps-script/Code.gs, codes kept here so tests can "read the email"
+  const mail = { codes: {}, sent: [], tries: {}, calls: [] };
+  const CONFIG = fs.readFileSync(path.join(ROOT, "firebase-config.js"), "utf8");
+  await ctx.route("**/firebase-config.js", r => r.fulfill({ contentType: "text/javascript",
+    body: mailer ? CONFIG.replace("PASTE_APPS_SCRIPT_URL", "https://script.google.com/macros/s/TEST/exec") : CONFIG }));
+  await ctx.route("https://script.google.com/**", r => {
+    const h = { "access-control-allow-origin": "*" };
+    const b = JSON.parse(r.request().postData() || "{}");
+    mail.calls.push(b);
+    const reply = j => r.fulfill({ status: 200, headers: h, json: j });
+    if (["housikiki@gmail.com"].includes(b.email)) return reply({ ok: false, error: "use_google" });
+    if (b.a === "send") {
+      mail.codes[b.email] = String(Math.floor(Math.random() * 10000)).padStart(4, "0"); mail.tries[b.email] = 0; mail.sent.push(b.email);
+      return reply({ ok: true });
+    }
+    const code = mail.codes[b.email];
+    if (!code) return reply({ ok: false, error: "expired" });
+    if (b.code !== code) {
+      if (++mail.tries[b.email] >= 3) { delete mail.codes[b.email]; return reply({ ok: false, error: "expired" }); }
+      return reply({ ok: false, error: "bad_code", left: 3 - mail.tries[b.email] });
+    }
+    delete mail.codes[b.email];
+    return reply({ ok: true, token: JSON.stringify({ mail: b.email, uid: "e_" + b.email }) });
   });
   const pcCalls = [];
   await ctx.route("https://api.postcodes.io/**", r => {
@@ -64,6 +88,6 @@ export async function launch(base, { seed = SEED, accounts = ACCOUNTS, viewport 
   const errors = [];
   page.on("pageerror", e => errors.push("pageerror: " + e.message));
   page.on("console", m => { if (m.type() === "error") errors.push("console: " + m.text()); });
-  return { ctx, page, errors, pcCalls, close: () => ctx.close() };
+  return { ctx, page, errors, pcCalls, mail, close: () => ctx.close() };
 }
 export const closeAll = async () => { if (globalThis.__browser) await globalThis.__browser.close(); };

@@ -11,13 +11,11 @@ const seedWith = (extra) => ({ ...SEED, ...extra });
 async function test(name, fn, extra = {}, vp) {
   const t = await launch(url, { seed: seedWith(extra), viewport: vp });
   try {
+    t.page.setDefaultTimeout(8000);
     await t.page.goto(url + "/index.html");
     await t.page.waitForSelector("[data-add]", { timeout: 8000 });
-    await t.page.click("#signInBtn");
-    const f = t.page.locator('form[data-form="in"]');
-    await f.locator('[name="email"]').fill("owner@shop.com");
-    await f.locator('input[type="password"]').first().fill("password1");
-    await f.locator('button[type="submit"]').click();
+    await t.page.evaluate(() => { window.__FAKE.nextGoogle = { email: "housikiki@gmail.com", name: "Owner", uid: "g_owner" }; });
+    await t.page.click("#signInBtn"); await t.page.click("[data-google]");
     await t.page.waitForSelector("#manageBtn:not([hidden])");
     await fn(t);
     const bad = t.errors.filter(e => !/ERR_TUNNEL|Failed to load resource/.test(e));

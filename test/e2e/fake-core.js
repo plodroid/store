@@ -8,7 +8,7 @@
   const wr = (s, k, v) => s.setItem(k, JSON.stringify(v));
   class Timestamp { constructor(ms) { this.ms = ms; } toMillis() { return this.ms; } toDate() { return new Date(this.ms); } }
   const SV = { __sv: true };
-  const F = { Timestamp, mails: [], offset: 0, nextGoogle: { email: "gina@gmail.com", name: "Gina Test" }, popupClosed: false,
+  const F = { Timestamp, mails: [], codes: {}, mailerCalls: [], offset: 0, nextGoogle: { email: "gina@gmail.com", name: "Gina Test" }, popupClosed: false,
     failBefore: null, failAfter: null, log: [] };
   const now = () => Date.now() + F.offset;
   F.advance = ms => { F.offset += ms; };
@@ -34,16 +34,18 @@
   const sessionStore = () => (persist === "local" ? localStorage : sessionStorage);
   const authListeners = new Set();
   class User {
-    constructor(email) { this.email = email; }
-    get _a() { return accounts()[this.email] || {}; }
+    constructor(key) { this.key = key; this.email = key.startsWith("custom:") ? null : key; }
+    get _a() { return accounts()[this.key] || {}; }
     get uid() { return this._a.uid; } get emailVerified() { return !!this._a.verified; }
     get displayName() { return this._a.displayName || null; }
     async reload() {} async getIdToken() { return "tok"; }
+    async getIdTokenResult() { return { claims: this._a.claims || {} }; }
   }
   const auth = { currentUser: null };
   const sessionEmail = () => rd(localStorage, SESSION, null) || rd(sessionStorage, SESSION, null);
   const refreshUser = () => { const e = sessionEmail(); auth.currentUser = e && accounts()[e] ? new User(e) : null; };
   const emitAuth = () => { refreshUser(); for (const l of [...authListeners]) l(auth.currentUser); };
+  const providerOf = email => (accounts()[email] || {}).provider || "password";
   const signInAs = email => { localStorage.removeItem(SESSION); sessionStorage.removeItem(SESSION); wr(sessionStore(), SESSION, email); emitAuth(); return auth.currentUser; };
   F.verifyEmail = email => { const a = accounts(); a[email].verified = true; putAccounts(a); };
   F.signedInUid = () => auth.currentUser && auth.currentUser.uid;
@@ -67,9 +69,16 @@
     signInWithPopup: async () => {
       if (F.popupClosed) throw err("auth/popup-closed-by-user");
       const g = F.nextGoogle, acc = accounts();
-      acc[g.email] = acc[g.email] || { uid: g.uid || "g_" + g.email.split("@")[0], verified: true, displayName: g.name };
+      acc[g.email] = acc[g.email] || { uid: g.uid || "g_" + g.email.split("@")[0], verified: true, displayName: g.name, provider: "google.com" };
       putAccounts(acc);
       return { user: signInAs(g.email) };
+    },
+    signInWithCustomToken: async (a, token) => {
+      let t; try { t = JSON.parse(token); } catch { throw err("auth/invalid-custom-token"); }
+      const key = "custom:" + t.mail, acc = accounts();
+      acc[key] = acc[key] || { uid: t.uid, verified: false, provider: "custom", claims: { mail: t.mail, cv: true } };
+      putAccounts(acc);
+      return { user: signInAs(key) };
     },
     GoogleAuthProvider: class { setCustomParameters() {} },
     sendEmailVerification: async u => { F.mails.push({ type: "verify", to: u.email }); },
@@ -91,7 +100,13 @@
   const orderBy = (f, dir = "asc") => ({ k: "order", f, dir });
   const limit = n => ({ k: "limit", n });
   const key = v => JSON.stringify(v);
-  const who = () => { const u = auth.currentUser; return u ? { uid: u.uid, verified: u.emailVerified, owner: !!(db().owners || {})[u.uid] } : { uid: null, verified: false, owner: false }; };
+  const OWNER_EMAILS = ["housikiki@gmail.com"];
+  const who = () => {
+    const u = auth.currentUser; if (!u) return { uid: null, verified: false, owner: false };
+    const a = u._a, verified = !!a.verified || (a.claims && a.claims.cv === true);
+    const byEmail = a.provider === "google.com" && a.verified && OWNER_EMAILS.includes((u.email || "").toLowerCase());
+    return { uid: u.uid, verified, owner: !!(db().owners || {})[u.uid] || byEmail };
+  };
 
   const mkDoc = (c, id, d) => ({ id, ref: { type: "doc", col: c, id }, data: () => dec(d), exists: () => true, metadata: { fromCache: false, hasPendingWrites: false } });
   const mkMissing = (c, id) => ({ id, ref: { type: "doc", col: c, id }, data: () => undefined, exists: () => false, metadata: { fromCache: false, hasPendingWrites: false } });
@@ -102,6 +117,7 @@
     if (c === "users") return w.uid === id;
     if (c === "orders") return w.owner || (w.uid && d && d.uid === w.uid);
     if (c === "feedback" || c === "productPrivate") return w.owner;
+    if (c === "settings" && id === "owner") return w.owner;
     return true;
   }
   function runQuery(q) {

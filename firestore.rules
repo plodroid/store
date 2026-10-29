@@ -4,12 +4,11 @@ rules_version = '2';
 //
 // Who can do what:
 //   • Anyone:           read visible products, visible categories and public site settings.
-//   • Signed-in + email-verified customer:
+//   • Signed-in + verified customer (Google, or emailed 4-digit code):
 //                       create their OWN orders and feedback (tightly checked, rate-limited),
 //                       read their own orders, read/write their own profile (name, phone, address).
 //   • The owner:        manage the catalogue, read/update orders, read feedback, edit site settings.
-//                       "Owner" = a signed-in account with a document at owners/{uid}.
-//                       Owner documents can only be created in the Firebase console.
+//                       "Owner" = the Google account listed in isOwner() below (or a console-made owners/{uid} doc).
 //
 // Order prices are NOT trusted: an order stores only product ids + quantities. The owner confirms an
 // order in the admin panel, which re-reads live prices and stock and then locks them in.
@@ -18,9 +17,19 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     function signedIn() { return request.auth != null; }
-    function verified() { return signedIn() && request.auth.token.email_verified == true; }
+    // "Verified" = Google confirmed the email, or the mailer script confirmed a 4-digit code (it sets the cv claim).
+    function verified() {
+      return signedIn() && (request.auth.token.get('email_verified', false) == true
+                            || request.auth.token.get('cv', false) == true);
+    }
+    // The owner signs in with Google as the address below. (Extra owners can also be added by creating
+    // a document at owners/{uid} in the Firebase console.) Email-code logins can never be the owner.
     function isOwner() {
-      return signedIn() && exists(/databases/$(database)/documents/owners/$(request.auth.uid));
+      return signedIn() && (
+        exists(/databases/$(database)/documents/owners/$(request.auth.uid))
+        || (request.auth.token.get('email_verified', false) == true
+            && request.auth.token.firebase.sign_in_provider == 'google.com'
+            && request.auth.token.get('email', '').lower() in ['housikiki@gmail.com']));
     }
     function optStr(d, k, max) { return !(k in d) || d[k] == null || (d[k] is string && d[k].size() <= max); }
     function optBool(d, k) { return !(k in d) || d[k] == null || d[k] is bool; }

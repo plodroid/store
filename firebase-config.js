@@ -22,6 +22,11 @@ window.FIREBASE_CONFIG = {
 /* Must match the region in functions/index.js */
 window.FUNCTIONS_REGION = "europe-west2";
 
+/* Email-code sign-in: the web-app URL of the Apps Script in apps-script/Code.gs (README step 5).
+   Public by design: it only ever emails a code to the address typed in. Leave the placeholder and
+   customers can still use "Continue with Google". */
+window.STORE_AUTH_URL = "PASTE_APPS_SCRIPT_URL";
+
 /* Firestore paths shared with the owner app. */
 window.STORE_PATHS = {
   products:   "products",

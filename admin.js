@@ -14,7 +14,7 @@ let X = null;                 // { FS, acct, getSite }
 const A = {
   products: [], categories: [], orders: [], feedback: [],
   loaded: { products: false, categories: false, orders: false, feedback: false },
-  errors: {}, tab: "home", open: false, started: false,
+  errors: {}, tab: "home", open: false, started: false, unsubs: [],
   pf: "all", pq: "", of: "active", ff: "inbox",
 };
 
@@ -43,7 +43,7 @@ export function watchAlerts(ctx) {
   const { fs } = X.FS, d = db();
   const sub = (key, q, onAdd) => {
     let first = true;
-    fs.onSnapshot(q, snap => {
+    A.unsubs.push(fs.onSnapshot(q, snap => {
       A[key] = snap.docs.map(x => ({ id: x.id, ...x.data() }));
       A.loaded[key] = true; delete A.errors[key];
       if (!first && onAdd) snap.docChanges().forEach(ch => { if (ch.type === "added" && !ch.doc.metadata.hasPendingWrites) onAdd({ id: ch.doc.id, ...ch.doc.data() }); });
@@ -54,7 +54,7 @@ export function watchAlerts(ctx) {
       A.errors[key] = err && err.code === "permission-denied" ? "The database rules don't allow this yet." : "Couldn't load this right now.";
       A.loaded[key] = true;
       if (A.open) paint();
-    });
+    }));
   };
   sub("products", fs.collection(d, "products"));
   sub("categories", fs.collection(d, "categories"));
@@ -62,6 +62,16 @@ export function watchAlerts(ctx) {
     o => alertMe("New order " + (o.ref || ""), `${(o.items || []).reduce((n, i) => n + (i.qty || 0), 0)} items · ${o.fulfilment === "delivery" ? "Delivery" : "Pick-up"}`));
   sub("feedback", fs.query(fs.collection(d, "feedback"), fs.orderBy("createdAt", "desc"), fs.limit(200)),
     f => alertMe(f.kind === "bug" ? "New problem report" : f.kind === "question" ? "New question" : "New feedback", (f.message || "").slice(0, 80)));
+}
+
+/** Owner signed out (or someone else signed in): stop listening and drop the shop data from memory. */
+export function stopAlerts() {
+  A.unsubs.forEach(u => { try { u(); } catch {} });
+  A.unsubs = []; A.started = false;
+  for (const k of ["products", "categories", "orders", "feedback"]) { A[k] = []; A.loaded[k] = false; }
+  A.errors = {};
+  if (A.open) close();
+  paintDot();
 }
 
 const attention = () => ({
@@ -594,7 +604,7 @@ function settingsView() {
       <p class="hint">Alerts only work while the website is open in a tab. Phone and WhatsApp alerts for a closed browser need a small always-on server, which isn't part of the free setup yet.</p>
     </section>
     <section class="adm-card"><h3>Your account</h3>
-      <p class="muted">Signed in as ${esc(X.acct.user?.email || "")}</p>
+      <p class="muted">Signed in as ${esc(X.acct.email || "")}</p>
       <button class="btn-quiet danger" type="button" data-act="signout">Sign out</button>
     </section>`;
 }

@@ -1,55 +1,82 @@
-/* Customer accounts: sign in / sign up / forgot password / email verification,
-   the account page and the UK location picker.
+/* Customer accounts: sign in with an emailed 4-digit code (or Google), the account page and the UK location picker.
 
-   Free-plan note: Firebase can only send a verification LINK (not a 4-digit code) without a server,
-   so "verified" here means the customer clicked the link in the email Firebase sent them. */
+How the code login works: the browser asks a tiny Google Apps Script (see apps-script/Code.gs and the README)
+to email a random 4-digit code. The script remembers only a hash of the code, checks it, and hands back a
+Firebase sign-in token. Firebase itself can't email codes on the free plan, so the script does that part. */
 
 import { $, $$, esc, openDialog, closeDialog, showError, setBusy, toast } from "./ui.js";
 import { normalisePostcode, normaliseUkPhone, showUkPhone, lookupPostcode, nearestPostcode, townMatches, REASONS } from "./uk.js";
 
-const EYE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>`;
-const EYE_OFF = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"/><path d="M10.6 5.1A10.6 10.6 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 4.1M6.5 6.6A16.6 16.6 0 0 0 2 12s3.6 7 10 7a10 10 0 0 0 4.4-1"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>`;
 const GOOGLE = `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.4h6.5a5.6 5.6 0 0 1-2.4 3.7v3h3.9c2.3-2.1 3.5-5.2 3.5-8.8z"/><path fill="#34A853" d="M12 24c3.2 0 6-1.1 7.9-2.9l-3.9-3c-1.1.7-2.5 1.2-4 1.2-3.1 0-5.7-2.1-6.6-4.9H1.4v3.1A12 12 0 0 0 12 24z"/><path fill="#FBBC05" d="M5.4 14.3a7.2 7.2 0 0 1 0-4.6V6.6H1.4a12 12 0 0 0 0 10.8z"/><path fill="#EA4335" d="M12 4.8c1.8 0 3.3.6 4.6 1.8l3.4-3.4A12 12 0 0 0 1.4 6.6l4 3.1C6.3 6.9 8.9 4.8 12 4.8z"/></svg>`;
-const APPLE = `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M16.4 12.6c0-2.4 2-3.5 2.1-3.6a4.5 4.5 0 0 0-3.5-1.9c-1.5-.1-2.9.9-3.6.9s-1.9-.9-3.1-.9a4.6 4.6 0 0 0-3.9 2.4c-1.7 2.9-.4 7.2 1.2 9.5.8 1.2 1.8 2.5 3 2.4 1.2 0 1.7-.8 3.1-.8s1.9.8 3.1.7c1.3 0 2.1-1.2 2.9-2.3a10 10 0 0 0 1.3-2.7 4.2 4.2 0 0 1-2.6-3.7zM14.1 5.6A4.3 4.3 0 0 0 15.1 2.5a4.4 4.4 0 0 0-2.9 1.5 4.1 4.1 0 0 0-1 3 3.6 3.6 0 0 0 2.9-1.4z"/></svg>`;
+
+const MAIL_URL = () => String(window.STORE_AUTH_URL || "");
+const mailerReady = () => /^https:\/\/script\.google\.com\//.test(MAIL_URL());
 
 const MESSAGES = {
-  "auth/email-already-in-use": "An account with that email already exists. Try signing in instead.",
-  "auth/invalid-email": "That email address doesn't look right.",
-  "auth/weak-password": "Please choose a stronger password (at least 8 characters).",
-  "auth/invalid-credential": "That email or password isn't right.",
-  "auth/wrong-password": "That email or password isn't right.",
-  "auth/user-not-found": "That email or password isn't right.",
-  "auth/too-many-requests": "Too many attempts. Please wait a few minutes and try again.",
   "auth/network-request-failed": "We couldn't reach the server. Check your connection and try again.",
+  "auth/too-many-requests": "Too many attempts. Please wait a few minutes and try again.",
   "auth/popup-blocked": "Your browser blocked the sign-in window. Allow pop-ups for this site and try again.",
   "auth/operation-not-allowed": "This way of signing in isn't switched on yet. The shop owner needs to enable it.",
   "auth/unauthorized-domain": "This website address isn't approved for sign-in yet. The shop owner needs to add it in Firebase.",
   "auth/user-disabled": "This account has been disabled.",
+  "store/not-configured": "Email codes aren't set up yet. You can still continue with Google.",
+  "store/bad-reply": "Something went wrong on our side. Please try again in a moment.",
+};
+const CODE_ERRORS = {
+  bad_email: () => "Please enter a valid email address.",
+  wait: d => `Please wait ${d.wait || 30} seconds before asking for another code.`,
+  limit: () => "Too many codes requested for this email. Please try again in an hour.",
+  busy: () => "We can't send more codes today. Please continue with Google or try again tomorrow.",
+  use_google: () => "This account signs in with Google. Tap \"Continue with Google\" instead.",
+  send_failed: () => "We couldn't send the email just now. Please try again in a minute.",
+  bad_code: d => d.left ? `That code isn't right. ${d.left} ${d.left === 1 ? "try" : "tries"} left.` : "That code isn't right.",
+  expired: () => "That code has expired or was used up. Tap \"Resend code\" to get a new one.",
+  locked: () => "Too many wrong codes. Please try again in an hour.",
 };
 const SILENT = new Set(["auth/popup-closed-by-user", "auth/cancelled-popup-request"]);
 const errText = e => MESSAGES[e && e.code] || "Something went wrong. Please try again in a moment.";
 
+/** One call to the mailer script. Resolves to its JSON reply; throws {code} only when it can't be reached. */
+async function mailer(body) {
+  if (!mailerReady()) throw Object.assign(new Error("not configured"), { code: "store/not-configured" });
+  let res;
+  try {
+    // text/plain keeps this a "simple" request, so the browser doesn't need a CORS preflight
+    res = await fetch(MAIL_URL(), { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(body) });
+  } catch { throw Object.assign(new Error("network"), { code: "auth/network-request-failed" }); }
+  let data = null;
+  try { data = await res.json(); } catch {}
+  if (!data || typeof data !== "object") throw Object.assign(new Error("bad reply"), { code: "store/bad-reply" });
+  return data;
+}
+
 export function createAuth({ FS, onChange = () => {} }) {
   const { db, fs, auth, au } = FS;
-  const st = { user: null, profile: {}, owner: false, ready: false };
+  const st = { user: null, email: "", verified: false, profile: {}, owner: false, ready: false };
   let pending = null;            // { resolve } while requireLogin() is waiting
   let markReady; const readyP = new Promise(r => (markReady = r));   // first auth answer from Firebase
-  let view = "in", reason = "";
+  let view = "in", reason = "", pendingEmail = "";
   let cooldownTimer = null;
 
   const dlg = $("#au"), acct = $("#acct"), loc = $("#loc");
 
-  /* ── profile + owner flag ─────────────────────────── */
+  /* ── who is this, are they verified, are they the owner ── */
   async function loadProfile(user) {
-    st.profile = {}; st.owner = false;
+    st.profile = {}; st.owner = false; st.email = ""; st.verified = false;
     if (!user) return;
+    try {
+      const tok = await user.getIdTokenResult();
+      st.email = user.email || tok.claims.mail || "";
+      st.verified = user.emailVerified === true || tok.claims.cv === true;   // cv = "code verified" claim set by the mailer script
+    } catch (e) { console.warn("[auth] token", e && e.code); }
+    if (!st.verified) return;
     try {
       const snap = await fs.getDoc(fs.doc(db, "users", user.uid));
       st.profile = snap.exists() ? snap.data() : {};
     } catch (e) { console.warn("[auth] profile", e && e.code); }
-    try {
-      st.owner = (await fs.getDoc(fs.doc(db, "owners", user.uid))).exists();
-    } catch (e) { console.warn("[auth] owner check", e && e.code); }
+    // The owner is whoever the security rules say can read settings/owner; the rules decide, not this file.
+    try { await fs.getDoc(fs.doc(db, "settings", "owner")); st.owner = true; }
+    catch (e) { st.owner = false; if (!e || e.code !== "permission-denied") console.warn("[auth] owner check", e && e.code); }
     if (!Object.keys(st.profile).length && user.displayName) saveProfile({ name: user.displayName }).catch(() => {});
   }
 
@@ -63,6 +90,7 @@ export function createAuth({ FS, onChange = () => {} }) {
   au.onAuthStateChanged(auth, async user => {
     st.user = user;
     await loadProfile(user);
+    if (user && !st.verified) { await au.signOut(auth); return; }    // old unverified password accounts: signed out
     st.ready = true;
     markReady();
     paintNav();
@@ -70,12 +98,10 @@ export function createAuth({ FS, onChange = () => {} }) {
   });
 
   /* ── nav ──────────────────────────────────────────── */
-  const initial = () => ((st.profile.name || st.user?.displayName || st.user?.email || "?").trim()[0] || "?").toUpperCase();
   function paintNav() {
-    const signed = !!st.user;
+    const signed = !!st.user && st.verified;
     $("#signInBtn").hidden = signed;
     $("#acctBtn").hidden = !signed;
-    $("#acctBtn").textContent = signed ? initial() : "";
     $("#manageBtn").hidden = !st.owner;
     if (!signed) closeMenu();
   }
@@ -85,10 +111,10 @@ export function createAuth({ FS, onChange = () => {} }) {
     const open = menu.hidden;
     menu.hidden = !open;
     $("#acctBtn").setAttribute("aria-expanded", String(open));
-    $("#menuEmail").textContent = st.user?.email || "";
+    $("#menuEmail").textContent = st.email;
     if (open) $("#menuAcct").focus({ preventScroll: true });
   }
-  $("#signInBtn").addEventListener("click", () => openAuth("in"));
+  $("#signInBtn").addEventListener("click", () => openAuth());
   $("#acctBtn").addEventListener("click", toggleMenu);
   $("#menuAcct").addEventListener("click", () => { closeMenu(); openAccount(); });
   $("#menuOut").addEventListener("click", async () => { closeMenu(); await signOut(); });
@@ -100,104 +126,86 @@ export function createAuth({ FS, onChange = () => {} }) {
     toast("Signed out");
   }
 
-  /* ── auth dialog ──────────────────────────────────── */
-  const pw = (name, label, ac) => `
-    <label class="inp pw"><span>${label}</span>
-      <input name="${name}" type="password" autocomplete="${ac}" placeholder="••••••••" required minlength="8" maxlength="128">
-      <button class="eye" type="button" aria-label="Show password" aria-pressed="false">${EYE}</button>
-    </label>`;
+  /* ── sign-in dialog ───────────────────────────────── */
   const social = () => `
-    <div class="or"><span>Or continue with</span></div>
-    <div class="social">
-      <button class="soc" type="button" data-google>${GOOGLE}<span>Google</span></button>
-      <button class="soc" type="button" disabled title="Apple sign-in needs an Apple Developer account. Coming soon.">${APPLE}<span>Apple</span><small>soon</small></button>
-    </div>`;
+    <div class="or"><span>or</span></div>
+    <div class="social"><button class="soc" type="button" data-google>${GOOGLE}<span>Continue with Google</span></button></div>`;
 
   const VIEWS = {
     in: () => `
       <form class="auth-form" data-form="in" novalidate>
-        <h2 id="auTitle">Welcome back!</h2>
-        <p class="auth-sub">${esc(reason || "Sign in to order, save your address and follow your orders.")}</p>
-        <label class="inp"><span>Email address*</span><input name="email" type="email" autocomplete="email" placeholder="example@gmail.com" required maxlength="120"></label>
-        ${pw("password", "Password*", "current-password")}
-        <div class="auth-row">
-          <label class="check"><input type="checkbox" name="remember" checked><span>Remember me</span></label>
-          <button class="link" type="button" data-go="forgot">Forgot password?</button>
-        </div>
+        <h2 id="auTitle">Sign in</h2>
+        <p class="auth-sub">${esc(reason || "Enter your email and we'll send you a 4-digit code. No password needed.")}</p>
+        <label class="inp"><span>Email address</span><input name="email" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com" required maxlength="120" value="${esc(pendingEmail)}"></label>
         <p class="form-error" role="alert" hidden></p>
-        <button class="btn-grad" type="submit">Sign in</button>
+        <button class="btn-grad" type="submit">Send code</button>
         ${social()}
-        <p class="auth-switch">Don't have an account? <button class="link strong" type="button" data-go="up">Sign up</button></p>
       </form>`,
-    up: () => `
-      <form class="auth-form" data-form="up" novalidate>
-        <h2 id="auTitle">Create your account</h2>
-        <p class="auth-sub">${esc(reason || "Create an account to order from the shop and save your details.")}</p>
-        <label class="inp"><span>Full name*</span><input name="name" autocomplete="name" placeholder="Alex Smith" required minlength="2" maxlength="80"></label>
-        <label class="inp"><span>Email address*</span><input name="email" type="email" autocomplete="email" placeholder="example@gmail.com" required maxlength="120"></label>
-        ${pw("password", "Password*", "new-password")}
-        <p class="auth-hint">At least 8 characters.</p>
+    code: () => `
+      <form class="auth-form" data-form="code" novalidate>
+        <h2 id="auTitle">Enter your code</h2>
+        <p class="auth-sub">We sent a 4-digit code to <strong>${esc(pendingEmail)}</strong>. It expires in 10 minutes. Check your spam folder if it doesn't arrive.</p>
+        <div class="otp" id="otp">${[0, 1, 2, 3].map(i => `<input inputmode="numeric" autocomplete="${i ? "off" : "one-time-code"}" aria-label="Digit ${i + 1} of 4">`).join("")}</div>
         <p class="form-error" role="alert" hidden></p>
-        <button class="btn-grad" type="submit">Register</button>
-        ${social()}
-        <p class="auth-switch">Already have an account? <button class="link strong" type="button" data-go="in">Sign in</button></p>
+        <button class="btn-grad" type="submit">Verify and sign in</button>
+        <button class="btn-quiet" type="button" data-resend>Resend code</button>
+        <p class="auth-switch"><button class="link" type="button" data-go="in">Use a different email</button></p>
       </form>`,
-    forgot: () => `
-      <form class="auth-form" data-form="forgot" novalidate>
-        <h2 id="auTitle">Forgot password?</h2>
-        <p class="auth-sub">Enter your email and we'll send you a link to choose a new one.</p>
-        <label class="inp"><span>Email address*</span><input name="email" type="email" autocomplete="email" placeholder="example@gmail.com" required maxlength="120"></label>
-        <p class="form-error" role="alert" hidden></p>
-        <p class="form-ok" role="status" hidden></p>
-        <button class="btn-grad" type="submit">Send link</button>
-        <p class="auth-switch">Remembered it? <button class="link strong" type="button" data-go="in">Sign in</button></p>
-      </form>`,
-    verify: () => `
-      <div class="auth-form" data-form="verify">
-        <h2 id="auTitle">Check your email</h2>
-        <p class="auth-sub">We sent a verification link to <strong>${esc(st.user?.email || "")}</strong>. Open it, then come back here. It can take a minute, and it may land in spam.</p>
-        <p class="form-error" role="alert" hidden></p>
-        <button class="btn-grad" type="button" data-check>I've verified, continue</button>
-        <button class="btn-quiet" type="button" data-resend>Resend email</button>
-        <p class="auth-switch"><button class="link" type="button" data-other>Use a different account</button></p>
-      </div>`,
   };
 
   function go(next) {
     view = next;
     $("#auView").innerHTML = VIEWS[next]();
-    $("#auBack").hidden = next === "in" || next === "up" || next === "verify";
-    dlg.dataset.view = next;
+    clearInterval(cooldownTimer);
+    if (next === "code") startCooldown();
     $("#auView input")?.focus({ preventScroll: true });
-    if (next === "verify") startCooldown();
   }
 
-  function openAuth(start = "in", why = "") {
+  function openAuth(why = "") {
     reason = why;
-    go(st.user && !st.user.emailVerified ? "verify" : start);
+    pendingEmail = "";
+    go("in");
     openDialog(dlg);
   }
 
-  $("#auBack").addEventListener("click", () => go("in"));
-
-  dlg.addEventListener("click", async e => {
+  dlg.addEventListener("click", e => {
     const goBtn = e.target.closest("[data-go]");
     if (goBtn) return go(goBtn.dataset.go);
-
-    const eye = e.target.closest(".eye");
-    if (eye) {
-      const input = eye.parentElement.querySelector("input");
-      const show = input.type === "password";
-      input.type = show ? "text" : "password";
-      eye.innerHTML = show ? EYE_OFF : EYE;
-      eye.setAttribute("aria-pressed", String(show));
-      eye.setAttribute("aria-label", show ? "Hide password" : "Show password");
-      return;
-    }
     if (e.target.closest("[data-google]")) return withBusy(e.target.closest("button"), googleSignIn);
-    if (e.target.closest("[data-check]")) return withBusy(e.target.closest("button"), checkVerified);
     if (e.target.closest("[data-resend]")) return resend(e.target.closest("button"));
-    if (e.target.closest("[data-other]")) { await signOut(); go("in"); }
+  });
+
+  /* the four code boxes: type, paste, or let the phone autofill; backspace walks back */
+  const boxes = () => $$("#otp input");
+  const readCode = () => boxes().map(b => b.value).join("");
+  function fillFrom(i, digits) {
+    const bs = boxes();
+    digits.split("").slice(0, 4 - i).forEach((d, k) => { bs[i + k].value = d; });
+    const next = Math.min(i + digits.length, 3);
+    bs[next].focus();
+    if (readCode().length === 4) $("#auView form").requestSubmit();
+  }
+  dlg.addEventListener("input", e => {
+    const bs = boxes(), i = bs.indexOf(e.target);
+    if (i < 0) return;
+    const digits = e.target.value.replace(/\D/g, "");
+    e.target.value = "";
+    $("#otp").classList.remove("bad");
+    if (digits) fillFrom(i, digits);
+  });
+  dlg.addEventListener("keydown", e => {
+    const bs = boxes(), i = bs.indexOf(e.target);
+    if (i < 0) return;
+    if (e.key === "Backspace" && !e.target.value && i > 0) { bs[i - 1].value = ""; bs[i - 1].focus(); e.preventDefault(); }
+    if (e.key === "ArrowLeft" && i > 0) bs[i - 1].focus();
+    if (e.key === "ArrowRight" && i < 3) bs[i + 1].focus();
+  });
+  dlg.addEventListener("paste", e => {
+    const bs = boxes(), i = bs.indexOf(e.target);
+    if (i < 0) return;
+    e.preventDefault();
+    const digits = (e.clipboardData?.getData("text") || "").replace(/\D/g, "");
+    if (digits) fillFrom(0, digits);
   });
 
   dlg.addEventListener("submit", async e => {
@@ -207,48 +215,47 @@ export function createAuth({ FS, onChange = () => {} }) {
     const btn = form.querySelector(".btn-grad");
     const err = form.querySelector(".form-error");
     showError(err, "");
-    const v = n => (form.elements[n]?.value || "").trim();
-    const bad = (el, msg) => { el.setAttribute("aria-invalid", "true"); showError(err, msg); el.focus(); };
-    for (const el of form.elements) el.removeAttribute?.("aria-invalid");
+    const fail = d => showError(err, (CODE_ERRORS[d.error] || (() => "Something went wrong. Please try again."))(d));
 
-    if (kind !== "verify") {
-      const email = v("email");
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return bad(form.elements.email, "Please enter a valid email address.");
-      if (kind !== "forgot" && (form.elements.password.value.length < 8)) return bad(form.elements.password, "Your password needs at least 8 characters.");
-      if (kind === "up" && v("name").length < 2) return bad(form.elements.name, "Please enter your full name.");
+    if (kind === "in") {
+      const email = form.elements.email.value.trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 120) {
+        form.elements.email.setAttribute("aria-invalid", "true");
+        return showError(err, "Please enter a valid email address.");
+      }
+      setBusy(dlg, btn, true);
+      try {
+        const r = await mailer({ a: "send", email });
+        if (!r.ok) return fail(r);
+        pendingEmail = email;
+        go("code");
+      } catch (e2) { console.warn("[auth]", e2 && (e2.code || e2.message)); showError(err, errText(e2)); }
+      finally { setBusy(dlg, btn, false); }
     }
 
-    setBusy(dlg, btn, true);
-    try {
-      if (kind === "in") {
-        await persistence(form.elements.remember.checked);
-        const { user } = await au.signInWithEmailAndPassword(auth, v("email"), form.elements.password.value);
+    if (kind === "code") {
+      const code = readCode();
+      if (code.length < 4) return showError(err, "Please enter all 4 digits.");
+      setBusy(dlg, btn, true);
+      try {
+        const r = await mailer({ a: "verify", email: pendingEmail, code });
+        if (!r.ok || !r.token) {
+          fail(r);
+          $("#otp").classList.add("bad");
+          boxes().forEach(b => { b.value = ""; });
+          boxes()[0].focus();
+          return;
+        }
+        await persistence();
+        const { user } = await au.signInWithCustomToken(auth, r.token);
         await afterSignIn(user);
-      } else if (kind === "up") {
-        await persistence(true);
-        const { user } = await au.createUserWithEmailAndPassword(auth, v("email"), form.elements.password.value);
-        await au.updateProfile(user, { displayName: v("name") });
-        st.user = user;
-        await saveProfile({ name: v("name") }).catch(() => {});
-        await au.sendEmailVerification(user).catch(e => console.warn("[auth] verification email", e && e.code));
-        go("verify");
-      } else if (kind === "forgot") {
-        try { await au.sendPasswordResetEmail(auth, v("email")); }
-        catch (e2) { if (e2.code !== "auth/user-not-found") throw e2; }
-        const ok = form.querySelector(".form-ok");
-        ok.textContent = "If there's an account for that email, a reset link is on its way. Check your spam folder too.";
-        ok.hidden = false;
-      }
-    } catch (e2) {
-      console.warn("[auth]", e2 && e2.code);
-      if (!SILENT.has(e2 && e2.code)) showError(err, errText(e2));
-    } finally {
-      setBusy(dlg, btn, false);
+      } catch (e2) { console.warn("[auth]", e2 && (e2.code || e2.message)); showError(err, errText(e2)); }
+      finally { setBusy(dlg, btn, false); }
     }
   });
 
-  async function persistence(remember) {
-    try { await au.setPersistence(auth, remember ? au.browserLocalPersistence : au.browserSessionPersistence); } catch {}
+  async function persistence() {
+    try { await au.setPersistence(auth, au.browserLocalPersistence); } catch {}
   }
 
   async function withBusy(btn, fn) {
@@ -261,7 +268,7 @@ export function createAuth({ FS, onChange = () => {} }) {
   }
 
   async function googleSignIn() {
-    await persistence(true);
+    await persistence();
     const provider = new au.GoogleAuthProvider();
     provider.setCustomParameters({ prompt: "select_account" });
     const { user } = await au.signInWithPopup(auth, provider);
@@ -272,27 +279,17 @@ export function createAuth({ FS, onChange = () => {} }) {
     st.user = user;
     await loadProfile(user);
     paintNav();
-    if (user.emailVerified) return finish(true);
-    go("verify");                                       // they can press "Resend email" if the first one got lost
-  }
-
-  async function checkVerified() {
-    const user = auth.currentUser;
-    if (!user) return go("in");
-    await user.reload();
-    await user.getIdToken(true);                       // refresh so rules see email_verified = true
-    if (user.emailVerified) { st.user = user; await loadProfile(user); paintNav(); onChange(api); return finish(true); }
-    showError($("#auView .form-error"), "Not verified yet. Open the link in the email we sent, then tap this again.");
+    onChange(api);
+    finish(true);
   }
 
   function startCooldown(secs = 30) {
-    clearInterval(cooldownTimer);
     const btn = $("#auView [data-resend]");
     if (!btn) return;
     let left = secs;
     const tick = () => {
       btn.disabled = left > 0;
-      btn.textContent = left > 0 ? `Resend email (${left}s)` : "Resend email";
+      btn.textContent = left > 0 ? `Resend code (${left}s)` : "Resend code";
       if (left-- <= 0) clearInterval(cooldownTimer);
     };
     tick();
@@ -300,13 +297,16 @@ export function createAuth({ FS, onChange = () => {} }) {
   }
 
   async function resend(btn) {
+    const err = $("#auView .form-error");
+    showError(err, "");
     try {
-      await au.sendEmailVerification(auth.currentUser);
-      toast("Verification email sent");
+      const r = await mailer({ a: "send", email: pendingEmail });
+      if (!r.ok) return showError(err, (CODE_ERRORS[r.error] || (() => "Something went wrong. Please try again."))(r));
+      toast("New code sent");
+      boxes().forEach(b => { b.value = ""; });
+      boxes()[0]?.focus();
       startCooldown();
-    } catch (e) {
-      showError($("#auView .form-error"), e.code === "auth/too-many-requests" ? errText(e) : "We couldn't send that just now. Please try again in a minute.");
-    }
+    } catch (e) { showError(err, errText(e)); }
   }
 
   function finish(ok) {
@@ -316,13 +316,13 @@ export function createAuth({ FS, onChange = () => {} }) {
   }
   dlg.addEventListener("close", () => { clearInterval(cooldownTimer); if (pending) { const p = pending; pending = null; p.resolve(false); } });
 
-  /** Resolves true once the customer is signed in AND email-verified; false if they close the dialog. */
+  /** Resolves true once the customer is signed in and verified; false if they close the dialog. */
   async function requireLogin(why = "") {
-    await readyP;                                       // a saved login may still be loading
-    if (st.user && st.user.emailVerified) return true;
+    await readyP;                                   // a saved login may still be loading
+    if (st.user && st.verified) return true;
     return new Promise(resolve => {
       pending = { resolve };
-      openAuth("in", why);
+      openAuth(why);
     });
   }
 
@@ -341,7 +341,7 @@ export function createAuth({ FS, onChange = () => {} }) {
           <label class="inp"><span>Full name</span><input name="name" autocomplete="name" maxlength="80" value="${esc(p.name || st.user.displayName || "")}"></label>
           <label class="inp"><span>Mobile number <em>(UK)</em></span><input name="phone" type="tel" autocomplete="tel" inputmode="tel" maxlength="20" placeholder="07123 456789" value="${esc(showUkPhone(p.phone || ""))}"></label>
           <div class="inp"><span>Email</span>
-            <div class="static">${esc(st.user.email || "")} <span class="badge ${st.user.emailVerified ? "ok" : "warn"}">${st.user.emailVerified ? "Verified" : "Not verified"}</span></div>
+            <div class="static">${esc(st.email)} <span class="badge ok">Verified</span></div>
           </div>
         </div>
         <div class="form-section">
@@ -508,7 +508,8 @@ export function createAuth({ FS, onChange = () => {} }) {
     get profile() { return st.profile; },
     get isOwner() { return st.owner; },
     get ready() { return st.ready; },
-    get verified() { return !!(st.user && st.user.emailVerified); },
+    get email() { return st.email; },
+    get verified() { return st.verified; },
     requireLogin, openAccount, openLocation, openAuth, saveProfile, signOut,
   };
   return api;

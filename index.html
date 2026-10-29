@@ -5,8 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Plodroid Store</title>
 <meta name="description" content="Everyday essentials, all in one place. Food, drinks, groceries and more.">
-<meta name="theme-color" content="#171717">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%23202020'/%3E%3Cg fill='none' stroke='%238AB4F8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 12h12l-1 11H11z'/%3E%3Cpath d='M13 12a3 3 0 0 1 6 0'/%3E%3C/g%3E%3C/svg%3E">
+<meta name="theme-color" content="#F4F3EE">
+<script>try{var t=localStorage.getItem("theme");if(t==="dark"){document.documentElement.dataset.theme="dark";document.querySelector('meta[name="theme-color"]').content="#161616"}}catch(e){}</script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%231A6CE0'/%3E%3Cg fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 12h12l-1 11H11z'/%3E%3Cpath d='M13 12a3 3 0 0 1 6 0'/%3E%3C/g%3E%3C/svg%3E">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -24,16 +25,27 @@
   <div class="netbar" id="netbar" role="status" hidden>You're offline. Prices and stock may have changed, and orders can't be sent until you're back online.</div>
   <div class="wrap nav-inner">
 
+    <a class="brand" href="#top" data-bind="storeName">Plodroid Store</a>
+
     <!-- only the shop owner ever sees this -->
     <button class="nav-pill manage" id="manageBtn" type="button" hidden>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
       <span>Manage shop</span><span class="alert-dot" id="manageDot" hidden></span>
     </button>
 
+    <span class="nav-gap"></span>
+
     <a href="#shop" class="nav-link nav-first">Shop</a>
 
-    <button class="nav-pill" id="signInBtn" type="button">Sign in</button>
-    <button class="avatar" id="acctBtn" type="button" aria-label="Your account" aria-haspopup="menu" aria-expanded="false" hidden></button>
+    <button class="theme-btn" id="themeBtn" type="button" aria-label="Switch to dark mode">
+      <svg class="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>
+      <svg class="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6"/></svg>
+    </button>
+
+    <button class="nav-pill primary" id="signInBtn" type="button">Sign in</button>
+    <button class="avatar" id="acctBtn" type="button" aria-label="Your account" aria-haspopup="menu" aria-expanded="false" hidden>
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="8.6" r="4"/><path d="M4 21v-1.2C4 16.6 7.6 14.6 12 14.6s8 2 8 5.2V21z"/></svg>
+    </button>
 
     <button class="icon-btn" id="navSearch" type="button" aria-label="Search products">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
@@ -55,7 +67,6 @@
 <main id="top">
 
   <section class="hero" aria-labelledby="heroTitle">
-    <div class="hero-glow" aria-hidden="true"></div>
     <div class="hero-inner">
       <h1 class="hero-title enter" id="heroTitle" style="--i:0" data-bind="heroTitle">Everyday essentials,<br>all in one place.</h1>
       <p class="hero-sub enter" style="--i:1" data-bind="heroSubtitle">Explore food, drinks, groceries and more.</p>
@@ -274,15 +285,11 @@
   </div>
 </dialog>
 
-<!-- sign in / sign up / forgot password / email check -->
-<dialog class="pd modal auth" id="au" aria-labelledby="auTitle" data-view="in">
+<!-- sign in: email + 4-digit code, or Google -->
+<dialog class="pd modal auth" id="au" aria-labelledby="auTitle">
   <button class="icon-btn pd-close" type="button" data-close aria-label="Close">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
   </button>
-  <button class="icon-btn pd-back" type="button" id="auBack" aria-label="Back" hidden>
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="m11 6-6 6 6 6"/></svg>
-  </button>
-  <div class="auth-hero" aria-hidden="true"><div class="orb"></div></div>
   <div class="modal-body auth-body" id="auView"></div>
 </dialog>
 

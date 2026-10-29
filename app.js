@@ -12,6 +12,12 @@ const DEF = window.STORE_DEFAULTS;
 const PATHS = window.STORE_PATHS;
 const FB = "https://www.gstatic.com/firebasejs/10.12.2/";
 
+function paintTheme() {
+  const dark = document.documentElement.dataset.theme === "dark";
+  $("#themeBtn").setAttribute("aria-label", dark ? "Switch to light mode" : "Switch to dark mode");
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#161616" : "#F4F3EE");
+}
+
 /* ── mode ────────────────────────────────────────────── */
 function configured() {
   const c = window.FIREBASE_CONFIG || {};
@@ -500,7 +506,7 @@ function openCheckout() {
   const p = acct ? acct.profile : {};
   if (!coForm.elements.name.value) coForm.elements.name.value = p.name || acct?.user?.displayName || "";
   if (!coForm.elements.phone.value) coForm.elements.phone.value = showUkPhone(p.phone || "");
-  $("#coEmail").textContent = acct?.user?.email || "Sign in to order";
+  $("#coEmail").textContent = acct?.email || "Sign in to order";
   drawCheckout();
   openDialog(co);
 }
@@ -544,7 +550,7 @@ function checkoutPayload() {
   const a = acct?.profile.address;
   return {
     items: lines.map(l => ({ productId: l.p.id, qty: l.qty, name: String(l.p.name || "").slice(0, 120) })),
-    customer: { name: v("name"), phone: normaliseUkPhone(v("phone")), rawPhone: v("phone"), email: acct?.user?.email || "" },
+    customer: { name: v("name"), phone: normaliseUkPhone(v("phone")), rawPhone: v("phone"), email: acct?.email || "" },
     fulfilment: how,
     address: how === "delivery" && a
       ? { line1: a.line1 || "", line2: a.line2 || "", city: a.city || "", postcode: a.postcode || "",
@@ -747,11 +753,14 @@ async function submitFeedback(e) {
 /** Called whenever the customer signs in or out (or their profile changes). */
 let adminMod = null;
 function onAccountChange(a) {
-  if ($("#co").open && !coForm.hidden) { $("#coEmail").textContent = a.user?.email || "Sign in to order"; drawCheckout(); }
+  if ($("#co").open && !coForm.hidden) { $("#coEmail").textContent = a.email || "Sign in to order"; drawCheckout(); }
   // the owner gets the admin panel (loaded only for them) and live alerts
   if (a.isOwner && !adminMod) {
     adminMod = import("./admin.js").then(m => { m.watchAlerts({ FS, acct: a, getSite: () => S.site }); return m; })
       .catch(err => { console.error("[admin]", err); adminMod = null; });
+  } else if (!a.isOwner && adminMod) {
+    const p = adminMod; adminMod = null;
+    p.then(m => m && m.stopAlerts()).catch(() => {});
   }
 }
 
@@ -786,6 +795,15 @@ function init() {
   $("#suggest").addEventListener("click", e => {
     const b = e.target.closest("[data-c]"); if (b) pickCat(b.dataset.c, { scroll: true });
   });
+
+  // light / dark (light is the default; the choice is remembered on this device)
+  $("#themeBtn").addEventListener("click", () => {
+    const dark = document.documentElement.dataset.theme !== "dark";
+    if (dark) document.documentElement.dataset.theme = "dark"; else delete document.documentElement.dataset.theme;
+    try { localStorage.setItem("theme", dark ? "dark" : "light"); } catch {}
+    paintTheme();
+  });
+  paintTheme();
 
   // search
   $("#q").addEventListener("input", e => setQuery(e.target.value, e.target));
