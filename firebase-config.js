@@ -11,12 +11,12 @@
    ────────────────────────────────────────────────────────────── */
 
 window.FIREBASE_CONFIG = {
-  apiKey:            "PASTE_API_KEY",
-  authDomain:        "PASTE_PROJECT.firebaseapp.com",
-  projectId:         "PASTE_PROJECT_ID",
-  storageBucket:     "PASTE_PROJECT.firebasestorage.app",
-  messagingSenderId: "PASTE_SENDER_ID",
-  appId:             "PASTE_APP_ID",
+  apiKey:            "AIzaSyAyEC7cTlTsNibzK7zVFm3NTds1ezcJDa0",
+  authDomain:        "asimsstore.firebaseapp.com",
+  projectId:         "asimsstore",
+  storageBucket:     "asimsstore.firebasestorage.app",
+  messagingSenderId: "696286412872",
+  appId:             "1:696286412872:web:f6ef9d5a8bd27cfb1cd87d",
 };
 
 /* Must match the region in functions/index.js */
