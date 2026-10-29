@@ -47,7 +47,7 @@ export async function launch(base, { seed = SEED, accounts = {}, viewport, maile
   // stand-in for the Apps Script mailer: same replies as apps-script/Code.gs, codes kept here so tests can "read the email"
   const mail = { codes: {}, sent: [], tries: {}, calls: [] };
   const CONFIG = fs.readFileSync(path.join(ROOT, "firebase-config.js"), "utf8");
-  await ctx.route("**/firebase-config.js", r => r.fulfill({ contentType: "text/javascript",
+  await ctx.route("**/firebase-config.js*", r => r.fulfill({ contentType: "text/javascript",
     body: mailer ? CONFIG : CONFIG.replace(/window\.STORE_AUTH_URL\s*=\s*"[^"]*"/, 'window.STORE_AUTH_URL = "PASTE_APPS_SCRIPT_URL"') }));
   await ctx.route("https://script.google.com/**", r => {
     const h = { "access-control-allow-origin": "*" };
