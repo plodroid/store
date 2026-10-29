@@ -1,6 +1,12 @@
 /* Plodroid Store — customer website.
-   Products, categories and site copy come live from Firestore (written by the owner app).
-   Orders and feedback go through Cloud Functions, which check prices and stock. */
+   Products, categories and site copy come live from Firestore (edited by the owner in the admin panel).
+   Customers sign in (auth.js); orders and feedback are written straight to Firestore and locked down
+   by firestore.rules, so the whole thing runs on the free Firebase plan. */
+
+import { $, $$, esc, store, money, pence, reduced, uid, openDialog, closeDialog, wireDialogs,
+         toast, showError, setBusy } from "./ui.js";
+import { createAuth } from "./auth.js";
+import { normaliseUkPhone, showUkPhone } from "./uk.js";
 
 const DEF = window.STORE_DEFAULTS;
 const PATHS = window.STORE_PATHS;
@@ -38,23 +44,8 @@ const PREVIEW = {
 };
 
 /* ── helpers ─────────────────────────────────────────── */
-const $  = (s, r = document) => r.querySelector(s);
-const $$ = (s, r = document) => [...r.querySelectorAll(s)];
-const esc = s => String(s ?? "").replace(/[&<>"']/g, c =>
-  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const store = {
-  get(k, f) { try { return JSON.parse(localStorage.getItem(k)) ?? f; } catch { return f; } },
-  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
-  sget(k) { try { return JSON.parse(sessionStorage.getItem(k)); } catch { return null; } },
-  sset(k, v) { try { v == null ? sessionStorage.removeItem(k) : sessionStorage.setItem(k, JSON.stringify(v)); } catch {} },
-};
-const gbp = new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" });
-const money = v => gbp.format(Number(v) || 0);
-const pence = v => Math.round((Number(v) || 0) * 100);
 const stockOf = p => (p.stock == null || p.stock === "") ? Infinity : Math.max(0, Number(p.stock) || 0);
 const lowAt = p => Number.isInteger(p.lowStockThreshold) ? p.lowStockThreshold : 5;
-const reduced = matchMedia("(prefers-reduced-motion: reduce)");
-const uid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`);
 
 const I = {
   plus:  `<svg class="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>`,
@@ -74,7 +65,8 @@ const S = {
   cart: store.get("cart", {}),
   catKey: "",
 };
-let backend = null;   // { placeOrder(payload), submitFeedback(payload) } — live mode only
+let FS = null;     // { db, fs, auth, au } Firebase handles — live mode only
+let acct = null;   // customer account helper from auth.js
 
 const catMap = () => new Map(S.categories.map(c => [c.id, c]));
 
@@ -114,16 +106,13 @@ async function connect() {
   }
 
   try {
-    const [{ initializeApp }, fs, fn] = await Promise.all([
-      import(FB + "firebase-app.js"), import(FB + "firebase-firestore.js"), import(FB + "firebase-functions.js"),
+    const [{ initializeApp }, fs, au] = await Promise.all([
+      import(FB + "firebase-app.js"), import(FB + "firebase-firestore.js"), import(FB + "firebase-auth.js"),
     ]);
     const app = initializeApp(window.FIREBASE_CONFIG);
     const db = fs.getFirestore(app);
-    const functions = fn.getFunctions(app, window.FUNCTIONS_REGION || "europe-west2");
-    backend = {
-      placeOrder: fn.httpsCallable(functions, "placeOrder", { timeout: 30000 }),
-      submitFeedback: fn.httpsCallable(functions, "submitFeedback", { timeout: 20000 }),
-    };
+    FS = { db, fs, auth: au.getAuth(app), au };
+    acct = createAuth({ FS, onChange: onAccountChange });
 
     // If nothing arrives from the server in time, say so instead of showing an empty shop.
     const slow = setTimeout(() => { if (S.state === "loading") { S.state = "error"; render(); } }, 15000);
@@ -423,23 +412,6 @@ function openCart(open) {
   else $("#cartBtn").focus({ preventScroll: true });
 }
 
-/* ── dialogs (shared open/close animation) ───────────── */
-function openDialog(d) {
-  if (!d.open) d.showModal();
-  requestAnimationFrame(() => d.classList.add("open"));
-}
-function closeDialog(d) {
-  if (!d.open) return;
-  d.classList.remove("open");
-  setTimeout(() => d.close(), reduced.matches ? 0 : 200);
-}
-for (const d of $$("dialog")) {
-  d.addEventListener("cancel", e => { e.preventDefault(); if (!d.dataset.busy) closeDialog(d); });
-  d.addEventListener("click", e => {
-    if ((e.target === d || e.target.closest("[data-close]")) && !d.dataset.busy) closeDialog(d);
-  });
-}
-
 /* ── product dialog ──────────────────────────────────── */
 const pd = $("#pd");
 
@@ -494,17 +466,28 @@ const fulfil = () => {
   return { collection: s.collection !== false, delivery: s.delivery === true, fee: Number.isFinite(fee) && fee > 0 ? fee : 0 };
 };
 const chosen = () => coForm.querySelector('input[name="how"]:checked')?.value || null;
+const addrHtml = a => [a.line1, a.line2, a.city, a.postcode].filter(Boolean).map(esc).join("<br>");
+
+/** Basket → "Checkout" button. Signed-in + email-verified customers only. */
+async function startCheckout() {
+  if (!cartLines().length) return;
+  openCart(false);
+  if (MODE === "live" && acct) {
+    const ok = await acct.requireLogin("Sign in to place your order.");
+    if (!ok) return;
+  }
+  openCheckout();
+}
 
 function openCheckout() {
   if (!cartLines().length) return;
-  openCart(false);
   coForm.hidden = false;
   $("#coDone").hidden = true;
   $("#coError").hidden = true;
   const f = fulfil();
   const opts = [
-    f.collection && ["collection", "Collect from the shop", "Free"],
-    f.delivery && ["delivery", "Delivery", f.fee ? money(f.fee) : "Free"],
+    f.collection && ["collection", "Pick up from the shop", "Free"],
+    f.delivery && ["delivery", "Delivery (UK)", f.fee ? money(f.fee) : "Free"],
   ].filter(Boolean);
   const keep = chosen();
   $("#coChoices").innerHTML = opts.length
@@ -512,6 +495,12 @@ function openCheckout() {
         <label><input type="radio" name="how" value="${v}" ${keep === v || (!keep && i === 0) ? "checked" : ""}>
         <span>${label}</span><span class="fee">${fee}</span></label>`).join("")
     : `<p class="muted">Online ordering is paused right now. Please check back soon.</p>`;
+
+  // fill in what we already know about the customer
+  const p = acct ? acct.profile : {};
+  if (!coForm.elements.name.value) coForm.elements.name.value = p.name || acct?.user?.displayName || "";
+  if (!coForm.elements.phone.value) coForm.elements.phone.value = showUkPhone(p.phone || "");
+  $("#coEmail").textContent = acct?.user?.email || "Sign in to order";
   drawCheckout();
   openDialog(co);
 }
@@ -528,9 +517,15 @@ function drawCheckout() {
     <div class="sum-row"><span>Subtotal</span><span>${money(sub)}</span></div>
     ${how === "delivery" ? `<div class="sum-row"><span>Delivery</span><span>${fee ? money(fee) : "Free"}</span></div>` : ""}
     <div class="sum-row total"><span>Total</span><span>${money(sub + fee)}</span></div>
-    <p class="sum-note">The shop checks prices and stock again when you place the order.</p>`;
+    <p class="sum-note">The shop confirms prices and stock when it accepts your order.</p>`;
+
+  const addr = acct?.profile.address;
   $("#coAddress").hidden = how !== "delivery";
-  for (const n of ["line1", "city", "postcode"]) coForm.elements[n].required = how === "delivery";
+  $("#coAddrCard").innerHTML = addr
+    ? `<div class="addr-text">${addrHtml(addr)}</div>${addr.verified ? `<span class="badge ok">Postcode checked</span>` : ""}`
+    : `<div class="addr-empty">No delivery location yet.</div>`;
+  $("#coAddrBtn").textContent = addr ? "Change location" : "Set location";
+  $("#coPhoneHint").textContent = how === "delivery" ? "(UK, needed for delivery)" : "(UK, optional)";
 
   const blocked = MODE !== "live" ? "Ordering is switched off in preview mode."
     : !navigator.onLine ? "You're offline. Connect to the internet to place your order."
@@ -541,50 +536,41 @@ function drawCheckout() {
   if (blocked && MODE !== "live") showError("#coError", blocked);
 }
 
-function showError(sel, msg) {
-  const el = $(sel);
-  el.textContent = msg;
-  el.hidden = !msg;
-}
-
 function checkoutPayload() {
   const v = n => (coForm.elements[n]?.value || "").trim();
   const how = chosen();
+  const lines = cartLines();
+  const fee = how === "delivery" ? fulfil().fee : 0;
+  const a = acct?.profile.address;
   return {
-    items: cartLines().map(l => ({ productId: l.p.id, qty: l.qty })),
-    customer: { name: v("name"), phone: v("phone"), email: v("email") },
+    items: lines.map(l => ({ productId: l.p.id, qty: l.qty, name: String(l.p.name || "").slice(0, 120) })),
+    customer: { name: v("name"), phone: normaliseUkPhone(v("phone")), rawPhone: v("phone"), email: acct?.user?.email || "" },
     fulfilment: how,
-    address: how === "delivery" ? { line1: v("line1"), line2: v("line2"), city: v("city"), postcode: v("postcode") } : null,
+    address: how === "delivery" && a
+      ? { line1: a.line1 || "", line2: a.line2 || "", city: a.city || "", postcode: a.postcode || "",
+          lat: typeof a.lat === "number" ? a.lat : null, lng: typeof a.lng === "number" ? a.lng : null, verified: a.verified === true }
+      : null,
     note: v("note"),
-    payment: { method: "mock" },
+    estTotal: (subtotalOf(lines) * 100 + fee * 100) / 100,
     hp: v("website"),
   };
 }
 
-/** Client-side checks mirror the server so mistakes are caught instantly. */
+/** Client-side checks mirror firestore.rules so mistakes are caught instantly. */
 function checkCheckout(p) {
-  const bad = [];
-  const mark = (name, isBad) => { const el = coForm.elements[name]; if (el) el.setAttribute("aria-invalid", String(isBad)); if (isBad) bad.push(name); };
-  mark("name", p.customer.name.length < 2);
-  const phoneOk = !p.customer.phone || (/^\+?[0-9 ()-]+$/.test(p.customer.phone) && p.customer.phone.replace(/\D/g, "").length >= 7);
-  const emailOk = !p.customer.email || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(p.customer.email);
-  const reach = !!(p.customer.phone || p.customer.email);
-  mark("phone", !phoneOk || !reach);
-  mark("email", !emailOk || !reach);
-  if (p.fulfilment === "delivery") for (const n of ["line1", "city", "postcode"]) mark(n, !p.address[n]);
-  else for (const n of ["line1", "city", "postcode"]) mark(n, false);
-
-  if (!bad.length) return "";
-  if (bad.includes("name")) return "Please enter your name.";
-  if (!reach) return "Please add a phone number or an email so the shop can reach you.";
-  if (!phoneOk) return "That phone number doesn't look right.";
-  if (!emailOk) return "That email address doesn't look right.";
-  return "Please fill in the delivery address.";
+  const mark = (name, isBad) => { const el = coForm.elements[name]; if (el) el.setAttribute("aria-invalid", String(isBad)); return isBad; };
+  if (mark("name", p.customer.name.length < 2)) return "Please enter your name.";
+  const phoneBad = p.customer.rawPhone ? !p.customer.phone : p.fulfilment === "delivery";
+  if (mark("phone", phoneBad)) return p.customer.rawPhone
+    ? "Please enter a UK number, like 07123 456789."
+    : "Please add a mobile number so the shop can reach you about your delivery.";
+  if (p.fulfilment === "delivery" && !p.address) return "Please set your delivery location first.";
+  return "";
 }
 
 /** One id per basket+choice: a retry after a timeout can never create a second order. */
 function requestIdFor(payload) {
-  const sig = JSON.stringify([payload.items, payload.fulfilment]);
+  const sig = JSON.stringify([payload.items.map(i => [i.productId, i.qty]), payload.fulfilment]);
   const pending = store.sget("pendingOrder");
   if (pending && pending.sig === sig) return pending.id;
   const id = uid();
@@ -592,46 +578,81 @@ function requestIdFor(payload) {
   return id;
 }
 
-function setBusy(dialog, btn, busy) {
-  btn.classList.toggle("busy", busy);
-  btn.disabled = busy;
-  btn.setAttribute("aria-busy", String(busy));
-  if (busy) dialog.dataset.busy = "1"; else delete dialog.dataset.busy;
+const REF_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";      // no 0/O/1/I, so refs are easy to read out
+const makeRef = () => {
+  const b = crypto.getRandomValues(new Uint8Array(6));
+  return "PS-" + [...b].map(x => REF_ALPHABET[x % REF_ALPHABET.length]).join("");
+};
+
+/** Writes the order + the rate-limit stamp in one batch. Prices are NOT sent: the owner re-prices on confirm. */
+async function writeOrder(p) {
+  const { db, fs, auth } = FS;
+  const user = auth.currentUser;
+  const orderRef = fs.doc(db, "orders", `o_${p.requestId}`);
+  const ref = makeRef();
+  const doc = {
+    uid: user.uid, ref, requestId: p.requestId, status: "new", paymentStatus: "mock", isTest: true,
+    fulfilment: p.fulfilment,
+    items: p.items,
+    customer: { name: p.customer.name, phone: p.customer.phone || "", email: p.customer.email },
+    note: p.note, estTotal: p.estTotal,
+    createdAt: fs.serverTimestamp(), updatedAt: fs.serverTimestamp(),
+  };
+  if (p.address) doc.address = p.address;
+  const batch = fs.writeBatch(db);
+  batch.set(orderRef, doc);
+  batch.set(fs.doc(db, "users", user.uid), { lastOrderAt: fs.serverTimestamp(), updatedAt: fs.serverTimestamp() }, { merge: true });
+  try {
+    await batch.commit();
+    return ref;
+  } catch (e) {
+    // Retrying a request that already went through is denied by the rate limit; if the order is there, it worked.
+    const snap = await fs.getDoc(orderRef).catch(() => null);
+    if (snap && snap.exists()) return snap.data().ref;
+    throw e;
+  }
 }
 
-const NETWORK_CODES = new Set(["functions/unavailable", "functions/deadline-exceeded", "functions/internal", "functions/unknown"]);
+function setCheckoutNote(msg) { showError("#coError", msg); }
 
 async function submitCheckout(e) {
   e.preventDefault();
-  if (!backend) return;
+  if (!FS || !acct?.user) return;
   const payload = checkoutPayload();
+  for (const el of coForm.elements) el.removeAttribute?.("aria-invalid");
   const problem = checkCheckout(payload);
-  if (problem) { showError("#coError", problem); coForm.querySelector('[aria-invalid="true"]')?.focus(); return; }
-  showError("#coError", "");
+  if (problem) { setCheckoutNote(problem); coForm.querySelector('[aria-invalid="true"]')?.focus(); return; }
+  if (payload.hp) { showOrderDone({ ref: makeRef(), items: [], total: 0, fulfilment: payload.fulfilment }); return; }   // bots get a fake success
+  if (!acct.verified) { setCheckoutNote("Please verify your email first."); return; }
+  setCheckoutNote("");
   payload.requestId = requestIdFor(payload);
 
   const btn = $("#coSubmit");
   setBusy(co, btn, true);
   try {
-    const { data } = await backend.placeOrder(payload);
+    const lines = cartLines();
+    const ref = await writeOrder(payload);
     store.sset("pendingOrder", null);
+    // remember their phone for next time
+    if (payload.customer.phone && payload.customer.phone !== acct.profile.phone) acct.saveProfile({ phone: payload.customer.phone }).catch(() => {});
+    const fee = payload.fulfilment === "delivery" ? fulfil().fee : 0;
+    const done = {
+      ref, fulfilment: payload.fulfilment, deliveryFee: fee, total: payload.estTotal,
+      items: lines.map(l => ({ name: l.p.name, qty: l.qty, lineTotal: pence(l.p.price) * l.qty / 100 })),
+    };
     S.cart = {}; saveCart(); drawCart(true);
-    showOrderDone(data);
+    showOrderDone(done);
   } catch (err) {
-    console.error("[store] placeOrder", err);
+    console.error("[store] order", err);
     const code = err && err.code;
-    const conflicts = err && err.details && err.details.conflicts;
-    if (code === "functions/failed-precondition" && Array.isArray(conflicts)) {
-      for (const c of conflicts) c.available > 0 ? (S.cart[c.productId] = c.available) : delete S.cart[c.productId];
-      saveCart(); drawCart(); drawCheckout();
-      const names = conflicts.map(c => c.available > 0 ? `${c.name || "An item"} (only ${c.available} left)` : `${c.name || "An item"} (no longer available)`);
-      showError("#coError", `We've updated your basket: ${names.join(", ")}. Please check it and place the order again.`);
-    } else if (code === "functions/invalid-argument" || code === "functions/failed-precondition" || code === "functions/resource-exhausted") {
-      showError("#coError", err.message);
-    } else if (NETWORK_CODES.has(code) || !navigator.onLine) {
-      showError("#coError", "We couldn't reach the shop, so we can't be sure your order went through. Please try again — trying again won't create a duplicate order.");
+    if (code === "permission-denied") {
+      setCheckoutNote(!acct.verified
+        ? "Please verify your email first, then try again."
+        : "We couldn't place that order. If you just sent one, please wait about 30 seconds before the next.");
+    } else if (code === "unavailable" || code === "deadline-exceeded" || !navigator.onLine) {
+      setCheckoutNote("We couldn't reach the shop, so we can't be sure your order went through. Please try again. Trying again won't create a duplicate order.");
     } else {
-      showError("#coError", "Something went wrong on our side. Please try again in a moment.");
+      setCheckoutNote("Something went wrong on our side. Please try again in a moment.");
     }
   } finally {
     setBusy(co, btn, false);
@@ -644,11 +665,10 @@ function showOrderDone(o) {
   const done = $("#coDone");
   done.hidden = false;
   $("#coRef").textContent = `Order reference ${o.ref}`;
-  $("#coTestNote").hidden = !o.isTest;
   $("#coDoneSum").innerHTML = `
     ${(o.items || []).map(l => `<div class="sum-row"><span>${esc(l.name)} × ${l.qty}</span><span>${money(l.lineTotal)}</span></div>`).join("")}
     ${o.fulfilment === "delivery" ? `<div class="sum-row"><span>Delivery</span><span>${o.deliveryFee ? money(o.deliveryFee) : "Free"}</span></div>` : ""}
-    <div class="sum-row total"><span>Total${o.isTest ? " (not charged)" : ""}</span><span>${money(o.total)}</span></div>`;
+    <div class="sum-row total"><span>Total (not charged)</span><span>${money(o.total)}</span></div>`;
   $("#coFeedback").dataset.ref = o.ref;
   done.querySelector(".btn-primary").focus({ preventScroll: true });
 }
@@ -657,10 +677,15 @@ function showOrderDone(o) {
 const fb = $("#fb");
 const fbForm = $("#fbForm");
 
-function openFeedback(orderRef = "") {
+async function openFeedback(orderRef = "") {
+  if (MODE === "live" && acct) {
+    const ok = await acct.requireLogin("Sign in to send feedback, so the shop can reply to you.");
+    if (!ok) return;
+  }
   fbForm.hidden = false;
   $("#fbDone").hidden = true;
   if (orderRef) fbForm.elements.orderRef.value = orderRef;
+  if (!fbForm.elements.name.value && acct?.profile.name) fbForm.elements.name.value = acct.profile.name;
   const off = MODE !== "live";
   $("#fbSubmit").disabled = off;
   showError("#fbError", off ? "Feedback is switched off in preview mode." : "");
@@ -675,10 +700,11 @@ function paintStars() {
 
 async function submitFeedback(e) {
   e.preventDefault();
-  if (!backend) return;
+  if (!FS || !acct?.user) return;
   const v = n => (fbForm.elements[n]?.value || "").trim();
   const rating = Number(fbForm.querySelector('input[name="rating"]:checked')?.value || 0) || null;
-  const payload = { message: v("message"), name: v("name"), orderRef: v("orderRef").toUpperCase(), rating, hp: v("website") };
+  const kind = fbForm.querySelector('input[name="kind"]:checked')?.value || "feedback";
+  const payload = { kind, message: v("message"), name: v("name"), orderRef: v("orderRef").toUpperCase(), rating };
 
   const msgEl = fbForm.elements.message;
   if (payload.message.length < 10) { msgEl.setAttribute("aria-invalid", "true"); showError("#fbError", "Please write at least 10 characters."); msgEl.focus(); return; }
@@ -689,17 +715,27 @@ async function submitFeedback(e) {
   const btn = $("#fbSubmit");
   setBusy(fb, btn, true);
   try {
-    await backend.submitFeedback(payload);
+    if (!v("website")) {                                            // a filled-in hidden field means a bot
+      const { db, fs, auth } = FS;
+      const user = auth.currentUser;
+      const batch = fs.writeBatch(db);
+      batch.set(fs.doc(fs.collection(db, "feedback")), {
+        uid: user.uid, kind, message: payload.message, rating, name: payload.name, orderRef: payload.orderRef,
+        read: false, archived: false, createdAt: fs.serverTimestamp(),
+      });
+      batch.set(fs.doc(db, "users", user.uid), { lastFeedbackAt: fs.serverTimestamp(), updatedAt: fs.serverTimestamp() }, { merge: true });
+      await batch.commit();
+    }
     fbForm.reset(); paintStars(); $("#fbCount").textContent = "0 / 1000";
     fbForm.hidden = true;
     $("#fbDone").hidden = false;
     $("#fbDone .btn-primary").focus({ preventScroll: true });
   } catch (err) {
-    console.error("[store] submitFeedback", err);
+    console.error("[store] feedback", err);
     const code = err && err.code;
     showError("#fbError",
-      code === "functions/invalid-argument" || code === "functions/resource-exhausted" ? err.message
-        : NETWORK_CODES.has(code) || !navigator.onLine ? "We couldn't send that — please check your connection and try again."
+      code === "permission-denied" ? (acct.verified ? "Please wait a minute before sending another message." : "Please verify your email first, then try again.")
+        : code === "unavailable" || !navigator.onLine ? "We couldn't send that. Please check your connection and try again."
         : "Something went wrong on our side. Please try again in a moment.");
   } finally {
     setBusy(fb, btn, false);
@@ -707,18 +743,20 @@ async function submitFeedback(e) {
   }
 }
 
-/* ── toast ───────────────────────────────────────────── */
-let toastTimer;
-function toast(msg) {
-  const el = $("#toast");
-  el.textContent = msg;
-  el.classList.add("show");
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove("show"), 1800);
+/* ── wiring ──────────────────────────────────────────── */
+/** Called whenever the customer signs in or out (or their profile changes). */
+let adminMod = null;
+function onAccountChange(a) {
+  if ($("#co").open && !coForm.hidden) { $("#coEmail").textContent = a.user?.email || "Sign in to order"; drawCheckout(); }
+  // the owner gets the admin panel (loaded only for them) and live alerts
+  if (a.isOwner && !adminMod) {
+    adminMod = import("./admin.js").then(m => { m.watchAlerts({ FS, acct: a, getSite: () => S.site }); return m; })
+      .catch(err => { console.error("[admin]", err); adminMod = null; });
+  }
 }
 
-/* ── wiring ──────────────────────────────────────────── */
 function init() {
+  wireDialogs();
   $("#yr").textContent = new Date().getFullYear();
   renderSite();
   render();
@@ -777,7 +815,7 @@ function init() {
   $("#cartBtn").addEventListener("click", () => openCart(true));
   $("#closeCart").addEventListener("click", () => openCart(false));
   $("#scrim").addEventListener("click", () => openCart(false));
-  $("#checkout").addEventListener("click", openCheckout);
+  $("#checkout").addEventListener("click", startCheckout);
   $("#cartItems").addEventListener("click", e => {
     const b = e.target.closest("[data-step]"); if (b) return stepCart(b.dataset.id, +b.dataset.step);
     const r = e.target.closest("[data-remove]");
@@ -790,16 +828,26 @@ function init() {
   // checkout
   coForm.addEventListener("change", e => { if (e.target.name === "how") drawCheckout(); });
   coForm.addEventListener("input", e => {
-    // fixing either contact field clears both (only one of them is required)
-    const group = ["phone", "email"].includes(e.target.name) ? ["phone", "email"] : [e.target.name];
-    group.forEach(n => coForm.elements[n]?.removeAttribute("aria-invalid"));
+    e.target.removeAttribute?.("aria-invalid");
     if (!$("#coError").hidden && MODE === "live") showError("#coError", "");
+  });
+  $("#coAddrBtn").addEventListener("click", () => {
+    if (acct) acct.openLocation(() => drawCheckout());
   });
   coForm.addEventListener("submit", submitCheckout);
   $("#coFeedback").addEventListener("click", e => {
     const ref = e.currentTarget.dataset.ref || "";
     closeDialog(co);
     setTimeout(() => openFeedback(ref), reduced.matches ? 0 : 220);
+  });
+
+  // sign-in only exists once Firebase is connected
+  if (MODE !== "live") $("#signInBtn").addEventListener("click", () => toast("Sign-in isn't available in preview mode"));
+
+  // owner admin panel
+  $("#manageBtn").addEventListener("click", async () => {
+    try { const m = await adminMod; if (m) m.openAdmin({ FS, acct, getSite: () => S.site }); else toast("The admin panel is still loading…"); }
+    catch { toast("Couldn't open the admin panel. Please refresh."); }
   });
 
   // feedback

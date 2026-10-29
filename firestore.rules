@@ -1,19 +1,24 @@
 rules_version = '2';
 
-// Plodroid Store — Firestore security rules
+// Plodroid Store — Firestore security rules (free "Spark" plan edition: no Cloud Functions).
 //
 // Who can do what:
-//   • Anyone:      read visible products, visible categories and public site settings.
-//   • Nobody (client): create orders or feedback directly. The website goes through the
-//                  placeOrder / submitFeedback Cloud Functions, which check everything first.
-//   • The owner:   manage the catalogue, read/update orders and feedback, read alerts.
-//                  "Owner" = a signed-in account with a document at owners/{uid}.
-//                  Owner documents can only be created in the Firebase console.
+//   • Anyone:           read visible products, visible categories and public site settings.
+//   • Signed-in + email-verified customer:
+//                       create their OWN orders and feedback (tightly checked, rate-limited),
+//                       read their own orders, read/write their own profile (name, phone, address).
+//   • The owner:        manage the catalogue, read/update orders, read feedback, edit site settings.
+//                       "Owner" = a signed-in account with a document at owners/{uid}.
+//                       Owner documents can only be created in the Firebase console.
+//
+// Order prices are NOT trusted: an order stores only product ids + quantities. The owner confirms an
+// order in the admin panel, which re-reads live prices and stock and then locks them in.
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
     function signedIn() { return request.auth != null; }
+    function verified() { return signedIn() && request.auth.token.email_verified == true; }
     function isOwner() {
       return signedIn() && exists(/databases/$(database)/documents/owners/$(request.auth.uid));
     }
@@ -33,6 +38,43 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // ── customer profiles ────────────────────────────────────
+    // lastOrderAt / lastFeedbackAt are the rate limiter: they can only be moved forward to "now",
+    // and only if the previous value is old enough. Orders and feedback require that same write.
+    function throttleOk(k, secs) {
+      return (resource == null || !(k in resource.data) || k in request.resource.data)       // can't erase it
+        && (!(k in request.resource.data)
+            || (resource != null && k in resource.data && request.resource.data[k] == resource.data[k])
+            || (request.resource.data[k] == request.time
+                && (resource == null || !(k in resource.data)
+                    || resource.data[k] < request.time - duration.value(secs, 's'))));
+    }
+    function validAddress(a) {
+      return a == null
+        || (a is map
+            && a.keys().hasOnly(['line1', 'line2', 'city', 'postcode', 'lat', 'lng', 'verified'])
+            && a.get('line1', '') is string && a.get('line1', '').size() <= 120
+            && a.get('line2', '') is string && a.get('line2', '').size() <= 120
+            && a.get('city', '') is string && a.get('city', '').size() <= 60
+            && a.get('postcode', '') is string && a.get('postcode', '').size() <= 12
+            && (a.get('lat', null) == null || a.get('lat', null) is number)
+            && (a.get('lng', null) == null || a.get('lng', null) is number)
+            && (a.get('verified', null) == null || a.get('verified', null) is bool));
+    }
+    function validProfile(d) {
+      return d.keys().hasOnly(['name', 'phone', 'address', 'lastOrderAt', 'lastFeedbackAt', 'updatedAt'])
+        && optStr(d, 'name', 80) && optStr(d, 'phone', 20)
+        && (!('address' in d) || validAddress(d.address))
+        && d.updatedAt == request.time;
+    }
+    match /users/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow create, update: if signedIn() && request.auth.uid == uid
+        && validProfile(request.resource.data)
+        && throttleOk('lastOrderAt', 30) && throttleOk('lastFeedbackAt', 60);
+      allow delete: if false;
+    }
+
     // ── products (public catalogue) ──────────────────────────
     function validProduct(d) {
       return d.keys().hasOnly(['name', 'price', 'stock', 'categoryId', 'image', 'imagePath', 'description',
@@ -43,7 +85,7 @@ service cloud.firestore {
         && d.price is number && d.price >= 0 && d.price <= 100000
         && d.stock is int && d.stock >= 0 && d.stock <= 1000000
         && d.visible is bool && d.archived is bool
-        && optStr(d, 'categoryId', 64) && optStr(d, 'image', 2000) && optStr(d, 'imagePath', 300)
+        && optStr(d, 'categoryId', 64) && optStr(d, 'image', 60000) && optStr(d, 'imagePath', 300)
         && optStr(d, 'description', 2000) && optStr(d, 'unit', 30)
         && optBool(d, 'featured') && optInt(d, 'sortOrder', -1000000, 1000000)
         && optInt(d, 'lowStockThreshold', 0, 100000);
@@ -72,7 +114,7 @@ service cloud.firestore {
         && d.keys().hasAll(['name', 'visible', 'sortOrder', 'updatedAt'])
         && d.name is string && d.name.size() >= 1 && d.name.size() <= 60
         && d.visible is bool && d.sortOrder is int
-        && optStr(d, 'description', 300) && optStr(d, 'image', 2000) && optStr(d, 'imagePath', 300);
+        && optStr(d, 'description', 300) && optStr(d, 'image', 60000) && optStr(d, 'imagePath', 300);
     }
     match /categories/{id} {
       allow read: if isOwner() || resource.data.visible == true;
@@ -108,38 +150,74 @@ service cloud.firestore {
         && request.resource.data.updatedAt == request.time;
     }
 
-    // ── orders (created only by the placeOrder function) ─────
+    // ── orders ───────────────────────────────────────────────
+    function validNewOrder(id, d) {
+      return d.keys().hasOnly(['uid', 'ref', 'requestId', 'status', 'paymentStatus', 'isTest', 'fulfilment',
+                               'items', 'customer', 'address', 'note', 'estTotal', 'createdAt', 'updatedAt'])
+        && d.keys().hasAll(['uid', 'ref', 'requestId', 'status', 'paymentStatus', 'isTest', 'fulfilment',
+                            'items', 'customer', 'note', 'createdAt', 'updatedAt'])
+        && d.uid == request.auth.uid
+        && d.requestId is string && d.requestId.matches('^[A-Za-z0-9-]{8,64}$')
+        && id == 'o_' + d.requestId                                          // same request = same order (no duplicates)
+        && d.ref is string && d.ref.matches('^PS-[A-Z0-9]{6}$')
+        && d.status == 'new' && d.paymentStatus == 'mock' && d.isTest == true
+        && d.fulfilment in ['collection', 'delivery']
+        && d.items is list && d.items.size() >= 1 && d.items.size() <= 50
+        && d.customer is map && d.customer.keys().hasOnly(['name', 'phone', 'email'])
+        && d.customer.name is string && d.customer.name.size() >= 2 && d.customer.name.size() <= 80
+        && d.customer.phone is string && d.customer.phone.size() <= 20
+        && d.customer.email is string && d.customer.email.size() <= 120
+        && (d.fulfilment == 'delivery'
+              ? (d.address is map && validAddress(d.address)
+                 && d.address.get('line1', '').size() >= 1 && d.address.get('city', '').size() >= 1
+                 && d.address.get('postcode', '').size() >= 5 && d.customer.phone.size() >= 7)
+              : (!('address' in d) || d.address == null))
+        && d.note is string && d.note.size() <= 500
+        && (!('estTotal' in d) || (d.estTotal is number && d.estTotal >= 0 && d.estTotal <= 1000000))
+        && d.createdAt == request.time && d.updatedAt == request.time;
+    }
     match /orders/{id} {
-      allow read: if isOwner();
-      allow create: if false;
+      allow read: if isOwner() || (signedIn() && resource.data.uid == request.auth.uid);
+      allow create: if verified() && validNewOrder(id, request.resource.data)
+        && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('lastOrderAt', null) == request.time;
       allow update: if isOwner()
-        && onlyChanges(['status', 'paymentStatus', 'updatedAt'])
-        && resource.data.status != 'cancelled'                          // cancelled is final
+        && onlyChanges(['status', 'paymentStatus', 'lines', 'subtotal', 'deliveryFee', 'total', 'updatedAt'])
+        && resource.data.status != 'cancelled'                              // cancelled is final
         && request.resource.data.status in ['new', 'confirmed', 'preparing', 'ready', 'completed', 'cancelled']
         && (request.resource.data.paymentStatus == resource.data.paymentStatus
-            || (resource.data.isTest == false                         // test orders stay "mock"
+            || (resource.data.isTest == false                               // test orders stay "mock"
                 && request.resource.data.paymentStatus in ['pending', 'paid', 'failed', 'refunded']))
         && request.resource.data.updatedAt == request.time;
       // Only cancelled test orders can be cleared away; real order history is kept.
       allow delete: if isOwner() && resource.data.isTest == true && resource.data.status == 'cancelled';
     }
 
-    // ── feedback (created only by the submitFeedback function) ─
+    // ── feedback, bug reports and questions ──────────────────
     match /feedback/{id} {
       allow read, delete: if isOwner();
-      allow create: if false;
+      allow create: if verified()
+        && request.resource.data.keys().hasOnly(['uid', 'kind', 'message', 'rating', 'name', 'orderRef', 'read', 'archived', 'createdAt'])
+        && request.resource.data.keys().hasAll(['uid', 'kind', 'message', 'read', 'archived', 'createdAt'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.kind in ['feedback', 'bug', 'question']
+        && request.resource.data.message is string
+        && request.resource.data.message.size() >= 10 && request.resource.data.message.size() <= 1000
+        && (!('rating' in request.resource.data) || request.resource.data.rating == null
+            || (request.resource.data.rating is int && request.resource.data.rating >= 1 && request.resource.data.rating <= 5))
+        && optStr(request.resource.data, 'name', 60) && optStr(request.resource.data, 'orderRef', 9)
+        && request.resource.data.read == false && request.resource.data.archived == false
+        && request.resource.data.createdAt == request.time
+        && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('lastFeedbackAt', null) == request.time;
       allow update: if isOwner() && onlyChanges(['read', 'archived'])
         && request.resource.data.read is bool && request.resource.data.archived is bool;
     }
 
-    // ── owner alerts written by the backend ──────────────────
+    // ── legacy collections (only used by the optional paid backend / Android push) ──
     match /notifications/{id} {
       allow read, delete: if isOwner();
       allow update: if isOwner() && onlyChanges(['read']) && request.resource.data.read is bool;
       allow create: if false;
     }
-
-    // ── phones that should receive push notifications ────────
     match /ownerDevices/{token} {
       allow read, delete: if isOwner();
       allow create, update: if isOwner()
@@ -148,7 +226,7 @@ service cloud.firestore {
         && request.resource.data.updatedAt == request.time;
     }
 
-    // Everything else (rateLimits, unknown collections) is closed.
+    // Everything else is closed.
     match /{document=**} {
       allow read, write: if false;
     }
