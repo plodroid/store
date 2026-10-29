@@ -12,7 +12,7 @@ const PEM = privateKey.export({ type: "pkcs8", format: "pem" });
 const signed = buf => [...buf].map(b => (b > 127 ? b - 256 : b));    // Apps Script returns signed bytes
 const bytes = x => (typeof x === "string" ? Buffer.from(x, "utf8") : Buffer.from(x.map(b => b & 255)));
 
-function world(props = {}, lookup = null) {
+function world(props = {}, lookup = null, hook = null) {
   const clock = { now: 1_800_000_000_000 };
   const mails = [];
   const store = new Map();
@@ -33,6 +33,7 @@ function world(props = {}, lookup = null) {
       getUuid: () => crypto.randomUUID(),
       computeDigest: (_, s) => signed(crypto.createHash("sha256").update(s).digest()),
       computeRsaSha256Signature: (input, key) => signed(crypto.sign("RSA-SHA256", Buffer.from(input), key)),
+      base64Encode: x => bytes(x).toString("base64"),
       base64EncodeWebSafe: x => bytes(x).toString("base64").replace(/\+/g, "-").replace(/\//g, "_"),   // padded, like the real one
       formatDate: d => d.toISOString().slice(0, 10).replace(/-/g, ""),
     },
@@ -44,6 +45,7 @@ function world(props = {}, lookup = null) {
     MailApp: { sendEmail: m => mails.push(m), getRemainingDailyQuota: () => 100 },
     // stand-in for Google's token lookup: `lookup` maps an idToken to the account it belongs to
     UrlFetchApp: { fetch: (url, opts) => {
+      if (hook && !url.startsWith("https://identitytoolkit")) { const r = hook(url, opts); return { getResponseCode: () => r.code ?? 200, getContentText: () => JSON.stringify(r.body) }; }
       const u = lookup && lookup[JSON.parse(opts.payload).idToken];
       return { getResponseCode: () => (u ? 200 : 400), getContentText: () => JSON.stringify({ users: u ? [u] : [] }) };
     } },
@@ -239,4 +241,64 @@ test("notify: refuses other links, empty lists, and respects the daily cap", () 
   const r = w.call(NOTIFY());
   assert.equal(r.sent, 1); assert.deepEqual(r.sentTo, ["a@b.co"]);
   assert.equal(w.call(NOTIFY()).error, "busy");
+});
+
+/* ── Stripe card payments ── */
+const fsDoc = o => ({ fields: Object.fromEntries(Object.entries(o).map(([k, v]) => [k, typeof v === "number" ? (Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v }) : { stringValue: v }])) });
+function payWorld({ order, key = "sk_test_x", stripeSession } = {}) {
+  const seen = { stripe: [], patch: [] };
+  const hook = (url, opts) => {
+    if (url.startsWith("https://oauth2.googleapis.com/token")) return { body: { access_token: "AT" } };
+    if (url.includes("firestore.googleapis.com")) {
+      if (opts.method === "patch") { seen.patch.push({ url, body: JSON.parse(opts.payload) }); return { body: {} }; }
+      return order ? { body: fsDoc(order) } : { code: 404, body: {} };
+    }
+    if (url.startsWith("https://api.stripe.com")) {
+      seen.stripe.push({ url, method: opts.method, auth: opts.headers.Authorization, form: opts.payload });
+      return { body: opts.method === "post" ? { url: "https://checkout.stripe.com/c/pay/cs_test_abc" } : stripeSession };
+    }
+    return { code: 500, body: {} };
+  };
+  const w = world(key ? { STRIPE_SECRET_KEY: key } : {}, { good: { localId: "u1", email: "a@b.co" }, other: { localId: "u2" } }, hook);
+  return { ...w, seen };
+}
+const ORDER = { uid: "u1", ref: "BH-ABC123", status: "confirmed", paymentStatus: "mock", total: 7.5 };
+
+test("pay: the Stripe amount comes from the order, in pence, never from the browser", () => {
+  const w = payWorld({ order: ORDER });
+  const r = w.call({ a: "pay", idToken: "good", orderId: "order12345", amount: 1 });
+  assert.equal(r.ok, true); assert.match(r.url, /^https:\/\/checkout\.stripe\.com\//);
+  const f = w.seen.stripe[0].form;
+  assert.equal(f["line_items[0][price_data][unit_amount]"], "750");
+  assert.equal(f["line_items[0][price_data][currency]"], "gbp");
+  assert.equal(f.client_reference_id, "order12345");
+  assert.match(f.success_url, /\?paid=order12345&sid=\{CHECKOUT_SESSION_ID\}$/);
+  assert.equal(w.seen.stripe[0].auth, "Basic " + Buffer.from("sk_test_x:").toString("base64"));
+});
+test("pay: refuses someone else's order, unconfirmed orders, paid orders, bad logins and missing key", () => {
+  assert.equal(payWorld({ order: ORDER }).call({ a: "pay", idToken: "other", orderId: "order12345" }).error, "not_found");
+  assert.equal(payWorld({ order: ORDER }).call({ a: "pay", idToken: "nope", orderId: "order12345" }).error, "auth");
+  assert.equal(payWorld({ order: { ...ORDER, status: "new" } }).call({ a: "pay", idToken: "good", orderId: "order12345" }).error, "not_ready");
+  assert.equal(payWorld({ order: { ...ORDER, paymentStatus: "paid" } }).call({ a: "pay", idToken: "good", orderId: "order12345" }).error, "already_paid");
+  assert.equal(payWorld({ order: ORDER, key: "" }).call({ a: "pay", idToken: "good", orderId: "order12345" }).error, "not_set_up");
+  assert.equal(payWorld({ order: ORDER }).call({ a: "pay", idToken: "good", orderId: "../x" }).error, "auth");
+});
+test("paid: marks the order paid only when Stripe says paid for the same order and amount", () => {
+  const ok = { payment_status: "paid", client_reference_id: "order12345", currency: "gbp", amount_total: 750 };
+  const w = payWorld({ order: ORDER, stripeSession: ok });
+  assert.deepEqual(w.call({ a: "paid", idToken: "good", orderId: "order12345", sid: "cs_test_abc" }), { ok: true });
+  const patch = w.seen.patch[0];
+  assert.match(patch.url, /orders\/order12345\?currentDocument\.exists=true&updateMask\.fieldPaths=paymentStatus/);
+  assert.equal(patch.body.fields.paymentStatus.stringValue, "paid");
+  for (const bad of [{ payment_status: "unpaid" }, { client_reference_id: "other0000000" }, { amount_total: 100 }, { currency: "usd" }]) {
+    const x = payWorld({ order: ORDER, stripeSession: { ...ok, ...bad } });
+    assert.equal(x.call({ a: "paid", idToken: "good", orderId: "order12345", sid: "cs_test_abc" }).error, "not_paid");
+    assert.equal(x.seen.patch.length, 0);
+  }
+  assert.equal(payWorld({ order: ORDER, stripeSession: ok }).call({ a: "paid", idToken: "other", orderId: "order12345", sid: "cs_test_abc" }).error, "not_found");
+  assert.equal(payWorld({ order: ORDER, stripeSession: ok }).call({ a: "paid", idToken: "good", orderId: "order12345", sid: "whatever" }).error, "auth");
+});
+test("doGet reports whether card payments are set up", () => {
+  const get = k => JSON.parse(vm.runInContext("doGet", payWorld({ key: k }).ctx)().s).pay;
+  assert.equal(get("sk_test_x"), true); assert.equal(get(""), false);
 });

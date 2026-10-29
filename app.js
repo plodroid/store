@@ -4,9 +4,9 @@
    locked down by firestore.rules, so the whole thing runs on the free Firebase plan. */
 
 import { $, $$, esc, store, money, pence, reduced, uid, openDialog, closeDialog, wireDialogs,
-         toast, showError, setBusy, priceOf, onSale, percentOff, millis } from "./ui.js?v=5";
-import { createAuth } from "./auth.js?v=5";
-import { normaliseUkPhone, showUkPhone } from "./uk.js?v=5";
+         toast, showError, setBusy, priceOf, onSale, percentOff, millis } from "./ui.js?v=6";
+import { createAuth } from "./auth.js?v=6";
+import { normaliseUkPhone, showUkPhone } from "./uk.js?v=6";
 
 const DEF = window.STORE_DEFAULTS;
 const PATHS = window.STORE_PATHS;
@@ -642,7 +642,41 @@ const STATUS_HELP = {
   cancelled: "This order was cancelled.",
 };
 
+/* ── card payments (Stripe Checkout via the Apps Script) ── */
+const AUTH_URL = () => String(window.STORE_AUTH_URL || "");
+let payReady = null;      // does the shop have card payments switched on? asked once, when My orders opens
+const cardsOn = () => (payReady ??= /^https:\/\/script\.google\.com\//.test(AUTH_URL())
+  ? fetch(AUTH_URL()).then(r => r.json()).then(j => j.pay === true).catch(() => false) : Promise.resolve(false));
+const callPay = async body => {
+  const idToken = await acct.user.getIdToken();
+  const res = await fetch(AUTH_URL(), { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ ...body, idToken }) });
+  return res.json();
+};
+const PAY_ERR = { not_ready: "The shop needs to confirm your order before you can pay.", already_paid: "This order is already paid.", not_set_up: "Card payments aren't switched on yet." };
+const canPay = o => o.paymentStatus !== "paid" && ["confirmed", "preparing", "ready"].includes(o.status) && Number(o.total) > 0;
+let lastOrders = [], cardsReady = false;
+
+async function startPay(btn) {
+  setBusy(null, btn, true);
+  try {
+    const r = await callPay({ a: "pay", orderId: btn.dataset.pay });
+    if (r.ok && r.url) { location.href = r.url; return; }
+    toast(PAY_ERR[r.error] || "Couldn't start the payment. Please try again.");
+  } catch { toast("Couldn't start the payment. Please check your connection."); }
+  setBusy(null, btn, false);
+}
+
+/** Back from Stripe: ask the shop's server to check the payment with Stripe, then show the orders. */
+async function finishPay({ id, sid }) {
+  try {
+    const r = await callPay({ a: "paid", orderId: id, sid });
+    toast(r.ok ? "Payment received. Thank you!" : "We couldn't confirm that payment yet. If you were charged, tell the shop.");
+  } catch { toast("We couldn't confirm that payment yet. Please check My orders."); }
+  openMyOrders();
+}
+
 function paintOrders(list) {
+  lastOrders = list;
   const box = $("#moList"); if (!box) return;
   list.sort((a, b) => (millis(b.createdAt) || Date.now()) - (millis(a.createdAt) || Date.now()));
   if (!list.length) { box.innerHTML = `<p class="muted">You haven't placed any orders yet.</p>`; return; }
@@ -654,7 +688,8 @@ function paintOrders(list) {
       <div class="mo-top"><b>${esc(o.ref)}</b><span class="mo-chip" data-st="${esc(o.status)}">${esc(statusText(o))}</span></div>
       <p class="muted mo-meta">${new Date(millis(o.createdAt) || Date.now()).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })} · ${o.fulfilment === "delivery" ? "Delivery" : "Pick-up"}</p>
       <ul class="mo-items">${lines.map(l => `<li><span>${esc(l.name)}</span><span>× ${l.qty}</span></li>`).join("")}</ul>
-      <div class="sum-row total"><span>${o.total != null ? "Total" : "Estimated total"}</span><span>${total != null ? money(total) : ""}</span></div>
+      <div class="sum-row total"><span>${o.total != null ? "Total" : "Estimated total"}${o.paymentStatus === "paid" ? ` <span class="mo-chip" data-st="completed">Paid</span>` : ""}</span><span>${total != null ? money(total) : ""}</span></div>
+      ${cardsReady && canPay(o) ? `<button class="btn-primary wide" type="button" data-pay="${esc(o.id)}">Pay ${money(total)} by card</button><p class="muted mo-help">Or pay when you ${o.fulfilment === "delivery" ? "receive" : "collect"} it.</p>` : ""}
       ${help ? `<p class="muted mo-help">${esc(help)}</p>` : ""}
     </article>`;
   }).join("");
@@ -665,12 +700,14 @@ async function openMyOrders() {
   if (!(await acct.requireLogin("Sign in to see your orders."))) return;
   $("#moBody").innerHTML = `<h2 id="moTitle">My orders</h2><p class="muted modal-sub">Live status from the shop.</p><div class="mo-list" id="moList"><p class="muted">Loading…</p></div>`;
   openDialog(mo);
+  cardsOn().then(on => { if (on !== cardsReady) { cardsReady = on; if ($("#moList") && lastOrders.length) paintOrders(lastOrders); } });
   const { db, fs } = FS;
   if (moUnsub) moUnsub();
   moUnsub = fs.onSnapshot(fs.query(fs.collection(db, "orders"), fs.where("uid", "==", acct.user.uid)),
     snap => paintOrders(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
     err => { console.warn("[orders]", err && err.code); const b = $("#moList"); if (b) b.innerHTML = `<p class="form-error">We couldn't load your orders right now.</p>`; });
 }
+mo.addEventListener("click", e => { const b = e.target.closest("[data-pay]"); if (b) startPay(b); });
 mo.addEventListener("close", () => { if (moUnsub) { moUnsub(); moUnsub = null; } });
 
 /* ── search (one box in the header) ──────────────────── */
@@ -1080,7 +1117,20 @@ async function submitFeedback(e) {
 /** Called whenever the customer signs in or out (or their profile changes). */
 let adminMod = null;
 let wasSigned = false;
+const RET = (() => {
+  const q = new URLSearchParams(location.search);
+  const r = q.get("paid") && /^cs_(test|live)_/.test(q.get("sid") || "") ? { id: q.get("paid"), sid: q.get("sid") } : null;
+  if (r || q.has("paycancel")) history.replaceState(null, "", location.pathname + location.hash);
+  return { pay: r, cancelled: q.has("paycancel") };
+})();
+let retDone = false;
+
 function onAccountChange(a) {
+  if (!retDone && (RET.pay || RET.cancelled) && a.ready !== false) {
+    if (RET.cancelled) { retDone = true; toast("Payment cancelled. You can pay any time from My orders."); }
+    else if (a.user && a.verified) { retDone = true; finishPay(RET.pay); }
+    else if (!a.user) { retDone = true; toast("Sign in to see your payment."); }
+  }
   if ($("#co").open && !coForm.hidden) { $("#coEmail").textContent = a.email || "Sign in to order"; drawCheckout(); }
   const signed = !!a.user && a.verified;
   if (signed) {
@@ -1100,7 +1150,7 @@ function onAccountChange(a) {
   }
   // the owner gets the admin panel (loaded only for them) and live alerts
   if (a.isOwner && !adminMod) {
-    adminMod = import("./admin.js?v=5").then(m => { m.watchAlerts({ FS, acct: a, getSite: () => S.site }); return m; })
+    adminMod = import("./admin.js?v=6").then(m => { m.watchAlerts({ FS, acct: a, getSite: () => S.site }); return m; })
       .catch(err => { console.error("[admin]", err); adminMod = null; });
   } else if (!a.isOwner && adminMod) {
     const p = adminMod; adminMod = null;

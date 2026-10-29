@@ -5,6 +5,8 @@
  *   send   {email}        -> emails a random 4-digit code to that address
  *   verify {email, code}  -> if the code is right, returns a Firebase sign-in token for that email
  *   notify {idToken, product, link, emails} -> owner only: emails customers that a product is back in stock
+ *   pay    {idToken, orderId}   -> a customer's own confirmed order: returns a Stripe Checkout link for its total
+ *   paid   {idToken, orderId, sid} -> after Stripe sends the customer back: checks the payment with Stripe, marks the order paid
  *
  * Why it exists: Firebase can't email 4-digit codes on the free plan. This script runs free in your
  * Google account, sends the emails from your Gmail, and signs the Firebase token with your project's
@@ -23,11 +25,12 @@ const SETTINGS = {
   SENDS_PER_DAY: 80,         // codes for the whole shop per day (a free Gmail can send about 100 emails a day)
   GOOGLE_ONLY: ['housikiki@gmail.com'],   // these emails must use "Continue with Google" (a 4-digit code is too weak for the owner)
   NOTIFY_MAX: 40,            // customers per back-in-stock send
+  PROJECT_ID: 'asimsstore',  // Firebase project (orders are read and marked paid here)
 };
 
 /* ── web app entry points ─────────────────────────────── */
 
-function doGet() { return out_({ ok: true, service: 'store-login' }); }
+function doGet() { return out_({ ok: true, service: 'store-login', pay: !!stripeKey_() }); }
 
 function doPost(e) {
   let body;
@@ -38,6 +41,8 @@ function doPost(e) {
   try { lock.waitLock(10000); } catch (x) { return out_({ ok: false, error: 'server' }); }
   try {
     if (body.a === 'notify') return out_(notify_(body));
+    if (body.a === 'pay') return out_(pay_(body));
+    if (body.a === 'paid') return out_(paid_(body));
     const email = String(body.email || '').trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 120) return out_({ ok: false, error: 'bad_email' });
     if (body.a === 'send') return out_(send_(email));
@@ -165,6 +170,119 @@ function notify_(b) {
   return { ok: true, sent: sentTo.length, sentTo: sentTo };
 }
 function esc_(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+
+/* ── card payments (Stripe Checkout) ─────────────────────
+   The secret key lives only in Script properties (STRIPE_SECRET_KEY). Amounts always come from the order in
+   Firestore, never from the browser, and "paid" is only written after Stripe itself says so. */
+
+function stripeKey_() { return PropertiesService.getScriptProperties().getProperty('STRIPE_SECRET_KEY') || ''; }
+
+/** The Firebase account behind a login token, or null. */
+function user_(idToken) {
+  if (!idToken) return null;
+  const res = UrlFetchApp.fetch('https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=' + SETTINGS.FIREBASE_API_KEY,
+    { method: 'post', contentType: 'application/json', payload: JSON.stringify({ idToken: String(idToken) }), muteHttpExceptions: true });
+  if (res.getResponseCode() !== 200) return null;
+  const u = (JSON.parse(res.getContentText()).users || [])[0];
+  return u && u.localId ? { uid: u.localId, email: u.email || '' } : null;
+}
+
+function stripe_(method, path, form) {
+  const opts = { method: method, headers: { Authorization: 'Basic ' + Utilities.base64Encode(stripeKey_() + ':') }, muteHttpExceptions: true };
+  if (form) opts.payload = form;
+  const res = UrlFetchApp.fetch('https://api.stripe.com' + path, opts);
+  const j = JSON.parse(res.getContentText());
+  if (res.getResponseCode() >= 300) throw new Error('Stripe: ' + ((j.error && j.error.message) || res.getResponseCode()));
+  return j;
+}
+
+function orderId_(v) { const id = String(v || ''); return /^[A-Za-z0-9]{10,40}$/.test(id) ? id : ''; }
+
+function pay_(b) {
+  if (!stripeKey_()) return { ok: false, error: 'not_set_up' };
+  const u = user_(b.idToken), id = orderId_(b.orderId);
+  if (!u || !id) return { ok: false, error: 'auth' };
+  const o = order_(id);
+  if (!o || o.uid !== u.uid) return { ok: false, error: 'not_found' };
+  if (o.paymentStatus === 'paid') return { ok: false, error: 'already_paid' };
+  if (['confirmed', 'preparing', 'ready'].indexOf(o.status) < 0 || !(Number(o.total) > 0)) return { ok: false, error: 'not_ready' };
+  const form = {
+    mode: 'payment', client_reference_id: id,
+    success_url: SETTINGS.SITE_URL + '?paid=' + id + '&sid={CHECKOUT_SESSION_ID}',
+    cancel_url: SETTINGS.SITE_URL + '?paycancel=1',
+    'line_items[0][quantity]': '1',
+    'line_items[0][price_data][currency]': 'gbp',
+    'line_items[0][price_data][unit_amount]': String(Math.round(Number(o.total) * 100)),
+    'line_items[0][price_data][product_data][name]': SETTINGS.STORE_NAME + ' order ' + String(o.ref || ''),
+    'metadata[order_id]': id, 'payment_intent_data[description]': SETTINGS.STORE_NAME + ' order ' + String(o.ref || ''),
+  };
+  if (u.email) form.customer_email = u.email;
+  return { ok: true, url: stripe_('post', '/v1/checkout/sessions', form).url };
+}
+
+function paid_(b) {
+  if (!stripeKey_()) return { ok: false, error: 'not_set_up' };
+  const u = user_(b.idToken), id = orderId_(b.orderId), sid = String(b.sid || '');
+  if (!u || !id || !/^cs_(test|live)_[A-Za-z0-9]+$/.test(sid)) return { ok: false, error: 'auth' };
+  const o = order_(id);
+  if (!o || o.uid !== u.uid) return { ok: false, error: 'not_found' };
+  if (o.paymentStatus === 'paid') return { ok: true, already: true };
+  const s = stripe_('get', '/v1/checkout/sessions/' + sid);
+  if (s.payment_status !== 'paid' || s.client_reference_id !== id || s.currency !== 'gbp' || s.amount_total !== Math.round(Number(o.total) * 100)) {
+    return { ok: false, error: 'not_paid' };
+  }
+  const now = new Date().toISOString();
+  firestore_('patch', 'orders/' + id, {
+    paymentStatus: { stringValue: 'paid' }, paymentMethod: { stringValue: 'card' }, stripeSession: { stringValue: sid },
+    paidAt: { timestampValue: now }, updatedAt: { timestampValue: now },
+  });
+  return { ok: true };
+}
+
+/* Firestore over REST, signed in as the service account (so the security rules don't apply to this script) */
+
+function accessToken_() {
+  const cache = CacheService.getScriptCache(), hit = cache.get('fs_token');
+  if (hit) return hit;
+  const p = PropertiesService.getScriptProperties();
+  const clientEmail = p.getProperty('FB_CLIENT_EMAIL'), privateKey = (p.getProperty('FB_PRIVATE_KEY') || '').replace(/\\n/g, '\n');
+  const now = Math.floor(Date.now() / 1000);
+  const input = b64u_(JSON.stringify({ alg: 'RS256', typ: 'JWT' })) + '.' + b64u_(JSON.stringify({
+    iss: clientEmail, scope: 'https://www.googleapis.com/auth/datastore', aud: 'https://oauth2.googleapis.com/token', iat: now, exp: now + 3300 }));
+  const jwt = input + '.' + Utilities.base64EncodeWebSafe(Utilities.computeRsaSha256Signature(input, privateKey)).replace(/=+$/, '');
+  const res = UrlFetchApp.fetch('https://oauth2.googleapis.com/token', { method: 'post', muteHttpExceptions: true,
+    payload: { grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: jwt } });
+  const j = JSON.parse(res.getContentText());
+  if (!j.access_token) throw new Error('Google token: ' + (j.error_description || j.error || res.getResponseCode()));
+  cache.put('fs_token', j.access_token, 3000);
+  return j.access_token;
+}
+
+function firestore_(method, path, fields) {
+  let url = 'https://firestore.googleapis.com/v1/projects/' + SETTINGS.PROJECT_ID + '/databases/(default)/documents/' + path;
+  const opts = { method: method, headers: { Authorization: 'Bearer ' + accessToken_() }, muteHttpExceptions: true };
+  if (fields) {
+    url += '?currentDocument.exists=true&' + Object.keys(fields).map(function (k) { return 'updateMask.fieldPaths=' + k; }).join('&');
+    opts.contentType = 'application/json'; opts.payload = JSON.stringify({ fields: fields });
+  }
+  const res = UrlFetchApp.fetch(url, opts);
+  if (res.getResponseCode() === 404) return null;
+  if (res.getResponseCode() >= 300) throw new Error('Firestore ' + res.getResponseCode());
+  return JSON.parse(res.getContentText());
+}
+
+function fsValue_(v) {
+  if (v.stringValue !== undefined) return v.stringValue;
+  if (v.integerValue !== undefined) return Number(v.integerValue);
+  if (v.doubleValue !== undefined) return v.doubleValue;
+  if (v.booleanValue !== undefined) return v.booleanValue;
+  if (v.timestampValue !== undefined) return v.timestampValue;
+  if (v.mapValue) return fsFields_(v.mapValue.fields || {});
+  if (v.arrayValue) return (v.arrayValue.values || []).map(fsValue_);
+  return null;
+}
+function fsFields_(f) { const o = {}; Object.keys(f).forEach(function (k) { o[k] = fsValue_(f[k]); }); return o; }
+function order_(id) { const d = firestore_('get', 'orders/' + id); return d ? fsFields_(d.fields || {}) : null; }
 
 /* ── Firebase custom token (RS256 JWT signed with the service-account key) ── */
 

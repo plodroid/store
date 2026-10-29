@@ -3,8 +3,8 @@
    Free-plan design: orders arrive as requests, and "Confirm" re-prices and re-checks stock in a
    transaction (so customers can never choose their own price). */
 
-import { $, $$, esc, money, openDialog, closeDialog, showError, setBusy, toast, millis, timeAgo, store, priceOf, onSale } from "./ui.js?v=5";
-import { lookupPostcode } from "./uk.js?v=5";
+import { $, $$, esc, money, openDialog, closeDialog, showError, setBusy, toast, millis, timeAgo, store, priceOf, onSale } from "./ui.js?v=6";
+import { lookupPostcode } from "./uk.js?v=6";
 
 const css = document.createElement("link");
 css.rel = "stylesheet"; css.href = new URL("./admin.css", import.meta.url).href;
@@ -198,7 +198,7 @@ function homeView() {
       <button class="stat ${a.newOrders ? "hot" : ""}" data-act="go-orders" data-f="new"><span>New orders</span><b>${a.newOrders}</b></button>
       <button class="stat" data-act="go-orders" data-f="active"><span>In progress</span><b>${open}</b></button>
       <div class="stat"><span>Orders this week</span><b>${since(7).length}</b></div>
-      <div class="stat"><span>Order value · 30 days</span><b>${money(since(30).reduce((t, o) => t + orderValue(o), 0))}</b><small>test checkout, no payments taken</small></div>
+      <div class="stat"><span>Order value · 30 days</span><b>${money(since(30).reduce((t, o) => t + orderValue(o), 0))}</b><small>orders placed, paid or not</small></div>
       <button class="stat ${a.unread ? "hot" : ""}" data-act="tab" data-tab="feedback"><span>Unread messages</span><b>${a.unread}</b></button>
       <button class="stat" data-act="tab" data-tab="products"><span>Low or out of stock</span><b>${low.length + out.length}</b></button>
     </div>
@@ -511,7 +511,7 @@ function ordersView() {
       const total = o.total != null ? o.total : o.estTotal;
       return `<button class="orow" type="button" data-act="open-order" data-id="${esc(o.id)}">
         <span class="chip ${o.status}">${esc(statusLabel(o))}</span>
-        <span class="adm-grow"><b>${esc(o.ref)}</b> · ${esc(o.customer?.name || "Customer")}<br><span class="muted">${n} item${n === 1 ? "" : "s"} · ${o.fulfilment === "delivery" ? "Delivery" : "Pick-up"} · ${timeAgo(created(o))}</span></span>
+        <span class="adm-grow"><b>${esc(o.ref)}</b> · ${esc(o.customer?.name || "Customer")}${o.paymentStatus === "paid" ? " · <b>Paid</b>" : ""}<br><span class="muted">${n} item${n === 1 ? "" : "s"} · ${o.fulfilment === "delivery" ? "Delivery" : "Pick-up"} · ${timeAgo(created(o))}</span></span>
         <span class="otot">${total != null ? money(total) : ""}${o.total == null ? `<small>estimate</small>` : ""}</span></button>`;
     }).join("")}</div>` : `<p class="adm-empty">${A.orders.length ? "Nothing here." : "No orders yet. They'll appear here the moment a customer orders."}</p>`}`;
 }
@@ -538,7 +538,7 @@ function orderDialog(id) {
 
   $("#admDlgBody").innerHTML = `
     <h2>${esc(o.ref)} <span class="chip ${o.status}">${esc(statusLabel(o))}</span></h2>
-    <p class="muted modal-sub">${new Date(created(o)).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })} · test checkout, no payment taken</p>
+    <p class="muted modal-sub">${new Date(created(o)).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })} · ${o.paymentStatus === "paid" ? "Paid by card" : "Not paid online yet (pay at pick-up or delivery)"}</p>
     <div class="form-section"><h3>Customer</h3>
       <div class="kv"><span>Name</span><b>${esc(o.customer?.name || "")}</b></div>
       ${o.customer?.phone ? `<div class="kv"><span>Phone</span><a href="tel:${esc(o.customer.phone)}">${esc(o.customer.phone)}</a></div>` : ""}

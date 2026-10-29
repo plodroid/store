@@ -54,6 +54,9 @@ export async function launch(base, { seed = SEED, accounts = {}, viewport, maile
     const b = JSON.parse(r.request().postData() || "{}");
     mail.calls.push(b);
     const reply = j => r.fulfill({ status: 200, headers: h, json: j });
+    if (r.request().method() === "GET") return reply({ ok: true, service: "store-login", pay: mail.pay !== false });
+    if (b.a === "pay") return reply({ ok: true, url: "https://checkout.stripe.test/pay?o=" + b.orderId });
+    if (b.a === "paid") return reply({ ok: b.sid === "cs_test_good" });
     if (["housikiki@gmail.com"].includes(b.email)) return reply({ ok: false, error: "use_google" });
     if (b.a === "notify") return reply({ ok: true, sent: (b.emails || []).length, sentTo: b.emails || [] });
     if (b.a === "send") {

@@ -164,6 +164,49 @@ await test("my orders: shows this customer's orders with a friendly status", asy
   assert.ok(!/BH-ZZZ999/.test(txt)); assert.match(txt, /ready/i);
 });
 
+const order = (id, extra) => ({ uid: "UID", ref: "BH-" + id.slice(-6).toUpperCase(), requestId: id, status: "confirmed", paymentStatus: "mock", isTest: true, fulfilment: "collection",
+  items: [{ productId: "p1", qty: 1, name: "Medjool Dates 500g" }], customer: { name: "Gina", phone: "", email: "gina@example.com" }, note: "", estTotal: 6.5, total: 6.5, createdAt: T, updatedAt: T, ...extra });
+const putOrder = (p, id, extra) => p.evaluate(([id, o]) => window.__FAKE.inject("orders", id, { ...o, uid: window.__FAKE.signedInUid() }), [id, order(id, extra)]);
+
+await test("card payment: Pay button only on confirmed unpaid orders; it sends the order to Stripe", async (t) => {
+  const p = t.page;
+  await signedIn(p, t);
+  await putOrder(p, "o_conf12345"); await putOrder(p, "o_new123456", { status: "new", total: undefined }); await putOrder(p, "o_paid12345", { paymentStatus: "paid" });
+  await p.context().route("https://checkout.stripe.test/**", r => r.fulfill({ contentType: "text/html", body: "<title>stripe</title>" }));
+  await p.click("#acctBtn"); await p.click("#menuOrders");
+  await p.waitForFunction(() => document.querySelectorAll("#moBody .mo-card").length === 3);
+  assert.equal(await p.locator("[data-pay]").count(), 1);
+  assert.match(await p.locator("[data-pay]").innerText(), /Pay £6\.50 by card/);
+  assert.equal(await p.locator('.mo-chip[data-st="completed"]', { hasText: "Paid" }).count(), 1);
+  await p.click("[data-pay]");
+  await p.waitForURL(/checkout\.stripe\.test\/pay\?o=o_conf12345/);
+  const call = t.mail.calls.find(c => c.a === "pay");
+  assert.equal(call.orderId, "o_conf12345"); assert.ok(call.idToken, "sends the login token");
+  assert.equal(call.amount, undefined, "the browser never sends an amount");
+});
+
+await test("card payment: coming back from Stripe confirms the payment and clears the link", async (t) => {
+  const p = t.page;
+  await signedIn(p, t);
+  await putOrder(p, "o_conf12345");
+  await p.goto(url + "/index.html?paid=o_conf12345&sid=cs_test_good#/");
+  await p.waitForSelector("#moBody .mo-card");
+  assert.ok(t.mail.calls.some(c => c.a === "paid" && c.orderId === "o_conf12345" && c.sid === "cs_test_good"));
+  assert.match(await p.locator("#toast").innerText(), /Payment received/);
+  assert.ok(!/paid=|sid=/.test(p.url()), "link is cleaned");
+});
+
+await test("card payment: no Pay button when the shop hasn't switched card payments on", async (t) => {
+  const p = t.page;
+  t.mail.pay = false;
+  await signedIn(p, t);
+  await putOrder(p, "o_conf12345");
+  await p.click("#acctBtn"); await p.click("#menuOrders");
+  await p.waitForSelector("#moBody .mo-card");
+  await p.waitForTimeout(400);
+  assert.equal(await p.locator("[data-pay]").count(), 0);
+});
+
 await test("checkout: delivery shows as 'Not available yet' when the owner has it off", async (t) => {
   const p = t.page;
   await signedIn(p, t);
