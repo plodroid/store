@@ -134,6 +134,12 @@ async function connect() {
     const [{ initializeApp }, fs, au] = await Promise.all([
       import(FB + "firebase-app.js"), import(FB + "firebase-firestore.js"), import(FB + "firebase-auth.js"),
     ]);
+    // paint the last known shop straight away; the live data below replaces it a moment later
+    const warm = store.get("shopCache", null);
+    if (warm && Array.isArray(warm.p) && Array.isArray(warm.c)) {
+      Object.assign(S, { products: warm.p, categories: warm.c, site: { ...DEF, ...(warm.s || {}) }, state: "ready" });
+      renderSite(); render(false);
+    }
     const app = initializeApp(window.FIREBASE_CONFIG);
     const db = fs.getFirestore(app);
     FS = { db, fs, auth: au.getAuth(app), au };
@@ -143,12 +149,16 @@ async function connect() {
     const slow = setTimeout(() => { if (S.state === "loading") { S.state = "error"; render(); } }, 15000);
 
     let first = true, haveProducts = false, haveCats = false;
+    const flat = d => Object.fromEntries(Object.entries(d).map(([k, v]) => [k, v && typeof v.toMillis === "function" ? v.toMillis() : v]));
+    let saveT;
+    const remember = () => { clearTimeout(saveT); saveT = setTimeout(() => store.set("shopCache", { p: S.products.map(flat), c: S.categories.map(flat), s: flat(S.site) }), 300); };
     const ready = () => {
       if (!haveProducts || !haveCats) return;
       clearTimeout(slow);
       S.state = "ready";
-      render(first);              // live edits after the first paint don't replay entrances
+      render(first && !warm);     // live edits after the first paint don't replay entrances
       first = false;
+      remember();
     };
     const onErr = err => {
       console.error("[shop]", err);
@@ -173,7 +183,7 @@ async function connect() {
 
     fs.onSnapshot(fs.doc(db, PATHS.settings, PATHS.siteDoc), snap => {
       S.site = { ...DEF, ...(snap.exists() ? snap.data() : {}) };
-      renderSite();
+      renderSite(); if (haveProducts && haveCats) remember();
     }, err => console.error("[shop] settings", err));
   } catch (e) {
     console.error("[shop]", e);
@@ -196,7 +206,7 @@ function renderSite() {
   c.hidden = !S.site.whatsapp;
   if (S.site.whatsapp) c.href = S.site.whatsapp;
   if (S.view !== "product") setTitle("");
-  renderBanner();
+  renderFoot();
   syncNavHeight();
 }
 
@@ -204,15 +214,9 @@ function syncNavHeight() {
   document.documentElement.style.setProperty("--nav-h", `${$("#nav").offsetHeight}px`);
 }
 
-/** The banner on top of the shop: the owner's headline, plus a short line on how orders reach you. */
-function renderBanner() {
+function renderFoot() {
   const f = fulfil();
-  const how = [f.collection && "Pick-up", f.delivery && "UK delivery"].filter(Boolean).join(" · ");
-  $("#bannerTitle").textContent = (S.site.heroTitle || "New in store").replace(/\n/g, " ");
-  $("#bannerKicker").textContent = how;
-  const sub = $("#bannerSub");
-  sub.textContent = S.site.heroSubtitle || ""; sub.hidden = !S.site.heroSubtitle;
-  $("#footerBlurb").textContent = how;
+  $("#footerBlurb").textContent = [f.collection && "Pick-up", f.delivery && "UK delivery"].filter(Boolean).join(" · ");
 }
 
 /* ── routing: #/ (shop) · #/p/<id> (product page) · #/saved ───────── */
@@ -338,7 +342,7 @@ const io = new IntersectionObserver(entries => {
   let k = 0;
   for (const e of entries) {
     if (!e.isIntersecting) continue;
-    e.target.style.setProperty("--d", `${Math.min(k++, 8) * 40}ms`);
+    e.target.style.setProperty("--d", `${Math.min(k++, 6) * 25}ms`);
     e.target.classList.add("in");
     io.unobserve(e.target);
   }
@@ -791,7 +795,7 @@ const coForm = $("#coForm");
 const fulfil = () => {
   const s = S.site;
   const fee = Number(s.deliveryFee);
-  return { collection: s.collection !== false, delivery: s.delivery === true, fee: Number.isFinite(fee) && fee > 0 ? fee : 0 };
+  return { collection: s.collection !== false, delivery: s.delivery !== false, fee: Number.isFinite(fee) && fee > 0 ? fee : 0 };
 };
 const chosen = () => coForm.querySelector('input[name="how"]:checked')?.value || null;
 const addrHtml = a => [a.line1, a.line2, a.city, a.postcode].filter(Boolean).map(esc).join("<br>");
@@ -1119,7 +1123,6 @@ function init() {
   addEventListener("resize", () => { syncNavHeight(); moveIndicator(); paintDock(); });
   document.fonts?.ready.then(() => { syncNavHeight(); moveIndicator(); paintDock(); });
   document.addEventListener("dockchange", paintDock);
-  $("#bannerCta").addEventListener("click", goToShop);
   $("#dockCart").addEventListener("click", () => openCart(!$("#drawer").classList.contains("open")));
 
   // connection status

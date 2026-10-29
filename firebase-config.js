@@ -43,6 +43,6 @@ window.STORE_DEFAULTS = {
   announcement: "",
   whatsapp:     "",
   collection:   true,    // customers can collect
-  delivery:     false,   // delivery off until the owner turns it on
+  delivery:     true,    // customers can choose delivery; the owner can switch it off
   deliveryFee:  0,
 };

@@ -664,7 +664,7 @@ function settingsView() {
       <label class="inp"><span>WhatsApp link <em>(optional)</em></span><input name="whatsapp" maxlength="200" value="${esc(s.whatsapp || "")}" placeholder="https://wa.me/447123456789"></label>
       <h3 class="gap">How customers get their order</h3>
       <label class="check"><input type="checkbox" name="collection" ${s.collection !== false ? "checked" : ""}><span>Pick-up from the shop</span></label>
-      <label class="check"><input type="checkbox" name="delivery" ${s.delivery === true ? "checked" : ""}><span>Delivery (UK addresses)</span></label>
+      <label class="check"><input type="checkbox" name="delivery" ${s.delivery !== false ? "checked" : ""}><span>Delivery (UK addresses)</span></label>
       <label class="inp"><span>Delivery fee (£)</span><input name="deliveryFee" inputmode="decimal" value="${s.deliveryFee ? esc(String(s.deliveryFee)) : "0"}"></label>
       <p class="form-error" id="setErr" role="alert" hidden></p>
       <button class="btn-primary wide" id="setSave" type="submit">Save settings</button>

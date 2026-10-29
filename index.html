@@ -21,7 +21,12 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&display=swap" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&display=swap"></noscript>
+<link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js">
+<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js">
+<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js">
 <link rel="stylesheet" href="./styles.css">
 </head>
 
@@ -81,21 +86,6 @@
 
   <!-- ═════ shop ═════ -->
   <div id="vShop">
-    <div class="wrap">
-      <section class="banner" id="banner" aria-labelledby="bannerTitle">
-        <div class="banner-copy">
-          <p class="banner-kicker" id="bannerKicker"></p>
-          <h1 id="bannerTitle">New in store</h1>
-          <p class="banner-sub" id="bannerSub" hidden></p>
-          <button class="glass-btn" id="bannerCta" type="button">Shop now</button>
-        </div>
-        <div class="banner-art" aria-hidden="true">
-          <span class="orb o1"></span><span class="orb o2"></span>
-          <span class="bag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8h14l-1.2 12H6.2z"/><path d="M9 8a3 3 0 0 1 6 0"/></svg></span>
-        </div>
-      </section>
-    </div>
-
     <div class="restock" id="restock" role="status" hidden></div>
 
     <section id="shop" class="shop" aria-labelledby="shopTitle">
@@ -110,7 +100,7 @@
       <div class="wrap">
         <div class="shop-head">
           <div class="shop-title">
-            <h2 id="shopTitle">All products</h2>
+            <h1 id="shopTitle">All products</h1>
             <span class="muted" id="resultCount"></span>
           </div>
           <div class="tools">
