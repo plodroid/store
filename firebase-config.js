@@ -38,8 +38,8 @@ window.STORE_PATHS = {
 /* Used until settings/site loads. The owner app edits these live. */
 window.STORE_DEFAULTS = {
   storeName:    "Bee Hive",
-  heroTitle:    "Everyday essentials,\nall in one place.",
-  heroSubtitle: "Food, drinks, groceries and more. Order online, then pick up from the shop.",
+  heroTitle:    "New in store",
+  heroSubtitle: "",
   announcement: "",
   whatsapp:     "",
   collection:   true,    // customers can collect

@@ -103,23 +103,46 @@ export function createAuth({ FS, onChange = () => {} }) {
     $("#signInBtn").hidden = signed;
     $("#acctBtn").hidden = !signed;
     $("#manageBtn").hidden = !st.owner;
+    $("#dockAcctLabel").textContent = signed ? "Account" : "Sign in";
     if (!signed) closeMenu();
   }
   const menu = $("#menu");
-  function closeMenu() { menu.hidden = true; $("#acctBtn").setAttribute("aria-expanded", "false"); }
+  const dockAcct = $("#dockAcct");
+  const phone = () => !matchMedia("(min-width: 900px)").matches;
+  const tell = () => document.dispatchEvent(new Event("dockchange"));
+  function closeMenu() {
+    menu.hidden = true;
+    $("#acctBtn").setAttribute("aria-expanded", "false");
+    dockAcct.setAttribute("aria-expanded", "false");
+    tell();
+  }
+  /** Desktop: a popover right under the avatar. Phones: a glass sheet above the tab bar (see .menu in the CSS). */
+  function placeMenu() {
+    menu.classList.toggle("pop", !phone());
+    if (phone()) { menu.style.top = menu.style.left = menu.style.right = ""; return; }
+    const r = $("#acctBtn").getBoundingClientRect(), w = menu.offsetWidth;
+    menu.style.top = `${Math.round(r.bottom + 8)}px`;
+    menu.style.left = `${Math.round(Math.max(12, Math.min(innerWidth - w - 12, r.right - w)))}px`;
+    menu.style.right = "auto";
+  }
   function toggleMenu() {
     const open = menu.hidden;
     menu.hidden = !open;
     $("#acctBtn").setAttribute("aria-expanded", String(open));
+    dockAcct.setAttribute("aria-expanded", String(open));
     $("#menuEmail").textContent = st.email;
-    if (open) $("#menuAcct").focus({ preventScroll: true });
+    if (open) { placeMenu(); $("#menuAcct").focus({ preventScroll: true }); }
+    tell();
   }
   $("#signInBtn").addEventListener("click", () => openAuth());
   $("#acctBtn").addEventListener("click", toggleMenu);
+  // on phones the tab bar's last button is the account: signed out it opens sign-in, signed in it opens the menu
+  dockAcct.addEventListener("click", () => (st.user && st.verified ? toggleMenu() : openAuth()));
+  addEventListener("resize", () => { if (!menu.hidden) placeMenu(); });
   $("#menuAcct").addEventListener("click", () => { closeMenu(); openAccount(); });
   $("#menuOut").addEventListener("click", async () => { closeMenu(); await signOut(); });
-  addEventListener("click", e => { if (!menu.hidden && !e.target.closest("#menu, #acctBtn")) closeMenu(); });
-  addEventListener("keydown", e => { if (e.key === "Escape" && !menu.hidden) { closeMenu(); $("#acctBtn").focus(); } });
+  addEventListener("click", e => { if (!menu.hidden && !e.target.closest("#menu, #acctBtn, #dockAcct")) closeMenu(); });
+  addEventListener("keydown", e => { if (e.key === "Escape" && !menu.hidden) { closeMenu(); (phone() ? dockAcct : $("#acctBtn")).focus(); } });
 
   async function signOut() {
     await au.signOut(auth);

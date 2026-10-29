@@ -11,13 +11,25 @@ for (const [tag, vp, theme] of [["d-light", { width: 1280, height: 900 }, "light
   if (theme === "dark") await p.evaluate(() => { document.documentElement.dataset.theme = "dark"; });
   await p.locator("#grid .tile", { hasText: "Medjool" }).locator("[data-wish]").click();
   await p.waitForTimeout(500);
-  await p.screenshot({ path: S + `s-${tag}-shop.png`, fullPage: true });
+  await p.screenshot({ path: S + `s-${tag}-shop.png` });
   await p.click("#filterBtn"); await p.waitForTimeout(300);
   await p.screenshot({ path: S + `s-${tag}-filters.png` });
   await p.goto(url + "/index.html#/p/p4"); await p.waitForSelector("#vProduct:not([hidden]) .pp-name"); await p.waitForTimeout(500);
-  await p.screenshot({ path: S + `s-${tag}-product.png`, fullPage: true });
+  await p.screenshot({ path: S + `s-${tag}-product.png` });
   await p.goto(url + "/index.html#/saved"); await p.waitForTimeout(500);
   await p.screenshot({ path: S + `s-${tag}-saved.png` });
+  await p.goto(url + "/index.html"); await p.waitForSelector("[data-add]");
+  if (theme === "dark") await p.evaluate(() => { document.documentElement.dataset.theme = "dark"; });
+  await p.evaluate(() => { window.__FAKE.nextGoogle = { email: "me@example.com", name: "Me", uid: "g_me" }; });
+  await p.click(vp.width < 900 ? "#dockAcct" : "#signInBtn"); await p.waitForTimeout(500);
+  await p.screenshot({ path: S + `s-${tag}-auth.png` });
+  await p.click("[data-google]"); await p.waitForTimeout(800);
+  await p.click(vp.width < 900 ? "#dockAcct" : "#acctBtn"); await p.waitForTimeout(500);
+  await p.screenshot({ path: S + `s-${tag}-menu.png` });
+  await p.keyboard.press("Escape");
+  await p.click("[data-add]"); await p.waitForTimeout(300);
+  await p.click(vp.width < 900 ? "#dockCart" : "#cartBtn"); await p.waitForTimeout(700);
+  await p.screenshot({ path: S + `s-${tag}-cart.png` });
   await t.close();
 }
 await closeAll(); srv.close();

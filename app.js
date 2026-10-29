@@ -15,7 +15,7 @@ const FB = "https://www.gstatic.com/firebasejs/10.12.2/";
 function paintTheme() {
   const dark = document.documentElement.dataset.theme === "dark";
   $("#themeBtn").setAttribute("aria-label", dark ? "Switch to light mode" : "Switch to dark mode");
-  $("#themeBtn2").textContent = dark ? "Light mode" : "Dark mode";
+  $("#themeBtn2").textContent = $("#menuTheme").textContent = dark ? "Light mode" : "Dark mode";
   document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#161616" : "#F4F3EE");
 }
 
@@ -56,8 +56,7 @@ const lowAt = p => Number.isInteger(p.lowStockThreshold) ? p.lowStockThreshold :
 const parseMoney = v => { const t = String(v ?? "").replace(/[£,\s]/g, ""); const n = Number(t); return t !== "" && Number.isFinite(n) && n >= 0 ? n : null; };
 const noFilters = () => ({ stock: false, sale: false, saved: false, min: "", max: "" });
 
-const HEX = `<svg class="hex" viewBox="0 0 64 64" aria-hidden="true"><path d="M32 4 57 18.5v27L32 60 7 45.5v-27z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>`;
-const ph = ch => `<span class="ph" aria-hidden="true">${HEX}<b>${esc(ch)}</b></span>`;
+const ph = ch => `<span class="ph" aria-hidden="true"><b>${esc(String(ch || "?").toUpperCase())}</b></span>`;
 
 const I = {
   plus:  `<svg class="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>`,
@@ -197,7 +196,7 @@ function renderSite() {
   c.hidden = !S.site.whatsapp;
   if (S.site.whatsapp) c.href = S.site.whatsapp;
   if (S.view !== "product") setTitle("");
-  renderTrust();
+  renderBanner();
   syncNavHeight();
 }
 
@@ -205,16 +204,15 @@ function syncNavHeight() {
   document.documentElement.style.setProperty("--nav-h", `${$("#nav").offsetHeight}px`);
 }
 
-/** The three short promises under the hero. They follow what the owner switched on in Settings. */
-function renderTrust() {
+/** The banner on top of the shop: the owner's headline, plus a short line on how orders reach you. */
+function renderBanner() {
   const f = fulfil();
-  const items = [
-    f.collection && [I.shop, "Pick up from the shop", S.site.collectionNote || "Free. We'll tell you when it's ready"],
-    f.delivery && [I.truck, "UK delivery", S.site.deliveryNote || (f.fee ? `From ${money(f.fee)} to your door` : "Free to your door")],
-    [I.tick, "Checked by the shop", "Every order is confirmed with live prices and stock"],
-  ].filter(Boolean);
-  $("#trustList").innerHTML = items.map(([icon, t, sub]) => `<li>${icon}<div><b>${esc(t)}</b><span>${esc(sub)}</span></div></li>`).join("");
-  $("#footerBlurb").textContent = [f.collection && "Pick-up from the shop", f.delivery && "UK delivery"].filter(Boolean).join(" · ") || "Everyday essentials, food and drinks.";
+  const how = [f.collection && "Pick-up", f.delivery && "UK delivery"].filter(Boolean).join(" · ");
+  $("#bannerTitle").textContent = (S.site.heroTitle || "New in store").replace(/\n/g, " ");
+  $("#bannerKicker").textContent = how;
+  const sub = $("#bannerSub");
+  sub.textContent = S.site.heroSubtitle || ""; sub.hidden = !S.site.heroSubtitle;
+  $("#footerBlurb").textContent = how;
 }
 
 /* ── routing: #/ (shop) · #/p/<id> (product page) · #/saved ───────── */
@@ -232,10 +230,10 @@ function showView(scroll = true) {
   $("#vShop").hidden = r.name !== "shop";
   $("#vProduct").hidden = r.name !== "product";
   $("#vSaved").hidden = r.name !== "saved";
-  $("#nav").classList.remove("searching");
-  $("#searchToggle").setAttribute("aria-expanded", "false");
+  document.body.dataset.view = r.name;
   if (r.name !== "product") setTitle(r.name === "saved" ? "Saved items" : "");
   render(false);
+  paintDock();
   if (!scroll) return;
   if (r.name === "shop" && r.anchor) goToShop();
   else if (r.name === "shop" && prev !== "shop" && S.y != null) scrollTo({ top: S.y, behavior: "auto" });   // "back" lands where you were
@@ -259,22 +257,6 @@ function renderCats() {
   $(".tabs").hidden = S.categories.length === 0;
   $$(".tab").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.c === S.cat)));
   moveIndicator();
-}
-
-/** "Shop by category" tiles beside the headline. */
-function renderHero() {
-  const list = $("#heroCats");
-  const cats = S.state === "ready" ? S.categories.slice(0, 4) : [];
-  list.hidden = !cats.length;
-  $(".hero-grid").classList.toggle("solo", !cats.length);
-  list.innerHTML = cats.map(c => {
-    const items = SHOP.filter(p => p.categoryId === c.id);
-    const withImg = items.find(p => p.image);
-    return `<li><a href="#shop" data-c="${esc(c.id)}" data-scroll>
-      <span class="hc-thumb">${withImg ? `<img src="${esc(withImg.image)}" alt="" loading="lazy" decoding="async" data-fallback="${esc(c.name[0])}">` : ph(c.name[0])}</span>
-      <span class="hc-text"><b>${esc(c.name)}</b><small>${items.length} ${items.length === 1 ? "item" : "items"}</small></span></a></li>`;
-  }).join("");
-  $$("img[data-fallback]", list).forEach(img => img.addEventListener("error", onImgError, { once: true }));
 }
 
 function moveIndicator() {
@@ -372,7 +354,6 @@ function reveal(root, animate) {
 function render(animate = true) {
   SHOP = shopProducts();
   renderCats();
-  renderHero();
   renderFilters();
   renderRestock();
   paintWish();
@@ -498,16 +479,26 @@ function renderProduct() {
   const seen = recentProducts(p.id).slice(0, 4);
   setTitle(p.name);
 
+  const saved = S.wish.has(p.id);
   root.innerHTML = `
     ${back}${p.category ? `<a href="#shop" data-c="${esc(p.categoryId)}" data-scroll>${esc(p.category)}</a><span aria-hidden="true">/</span>` : ""}<span aria-current="page">${esc(p.name)}</span></nav>
     <article class="pp">
-      <div class="pp-media">${media(p)}${out ? `<span class="flag">Sold out</span>` : onSale(p) ? `<span class="flag sale">−${percentOff(p)}%</span>` : ""}</div>
+      <div class="pp-media">${media(p)}${out ? `<span class="flag">Sold out</span>` : onSale(p) ? `<span class="flag sale">−${percentOff(p)}%</span>` : ""}
+        <div class="pp-float">
+          <a class="icon-btn glass-s" href="#/" aria-label="Back to the shop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="m15 5-7 7 7 7"/></svg></a>
+          <span class="grp">
+            <button class="icon-btn glass-s" type="button" data-share aria-label="Share">${I.share}</button>
+            ${heartBtn(p, "icon-btn glass-s pp-heart")}
+          </span>
+        </div>
+      </div>
       <div class="pp-info">
         ${p.category ? `<div class="pp-cat">${esc(p.category)}</div>` : ""}
         <h1 class="pp-name">${esc(p.name)}</h1>
         <div class="pp-price">${priceHtml(p)}${onSale(p) ? `<span class="save-chip">Save ${money(p.price - priceOf(p))}</span>` : ""}</div>
         ${stock ? `<div class="pp-stock ${state}"><i></i>${stock}</div>` : ""}
         ${p.description ? `<p class="pp-desc">${esc(p.description)}</p>` : ""}
+        ${facts.length ? `<ul class="pp-facts">${facts.map(t => `<li>${I.tick}${esc(t)}</li>`).join("")}</ul>` : ""}
         <div class="pp-actions">
           ${out
             ? `<button class="btn-primary${asked ? " on" : ""}" type="button" data-notify="${esc(p.id)}">${I.bell}<span>${asked ? "We'll email you when it's back" : "Email me when it's back"}</span></button>`
@@ -520,10 +511,9 @@ function renderProduct() {
         </div>
         ${asked && out ? `<p class="hint pp-hint">Changed your mind? <button class="link" type="button" data-notify="${esc(p.id)}">Cancel the alert</button></p>` : ""}
         <div class="pp-sub">
-          ${heartBtn(p, "pp-save").replace("</svg></button>", `</svg><span>${S.wish.has(p.id) ? "Saved" : "Save for later"}</span></button>`)}
+          ${heartBtn(p, "pp-save").replace("</svg></button>", `</svg><span>${saved ? "Saved" : "Save for later"}</span></button>`)}
           <button class="pp-save" type="button" data-share>${I.share}<span>Share</span></button>
         </div>
-        ${facts.length ? `<ul class="pp-facts">${facts.map(t => `<li>${I.tick}${esc(t)}</li>`).join("")}</ul>` : ""}
       </div>
     </article>
     ${more.length ? `<section class="rail-sec"><h2>You may also like</h2><div class="grid rail" id="ppMore">${more.map(tile).join("")}</div></section>` : ""}
@@ -554,6 +544,7 @@ function paintWish() {
   const n = [...S.wish].filter(id => S.state !== "ready" || find(id)).length;
   const pip = $("#wishCount");
   pip.hidden = !n; pip.textContent = n;
+  const dp = $("#dockWish"); dp.hidden = !n; dp.textContent = n;
   $("#savedLink").setAttribute("aria-label", n ? `Saved items, ${n}` : "Saved items");
 }
 
@@ -728,6 +719,8 @@ function drawCart(bump = false) {
   const c = $("#cartCount");
   c.textContent = count;
   if (bump && !reduced.matches) { c.classList.remove("bump"); c.offsetWidth; c.classList.add("bump"); }
+  const dc = $("#dockCount"); dc.hidden = !count; dc.textContent = count;
+  if (bump && !reduced.matches) { dc.classList.remove("bump"); dc.offsetWidth; dc.classList.add("bump"); }
   $("#cartBtn").setAttribute("aria-label", `Open basket, ${count} ${count === 1 ? "item" : "items"}`);
 
   $("#cartTotal").textContent = money(subtotalOf(lines));
@@ -770,7 +763,26 @@ function openCart(open) {
   $("#scrim").classList.toggle("open", open);
   document.body.style.overflow = open ? "hidden" : "";
   if (open) setTimeout(() => $("#closeCart").focus({ preventScroll: true }), 60);
-  else $("#cartBtn").focus({ preventScroll: true });
+  else if (innerWidth >= 900) $("#cartBtn").focus({ preventScroll: true });
+  paintDock();
+}
+
+/* ── tab bar (phones): a glass pill slides to the active item ── */
+function paintDock() {
+  const dock = $("#dock"); if (!dock || !dock.offsetWidth) return;
+  const key = $("#drawer").classList.contains("open") ? "cart" : !$("#menu").hidden ? "acct" : S.view === "saved" ? "saved" : S.view === "shop" ? "home" : "";
+  const items = $$("[data-dock]", dock);
+  items.forEach(i => i.classList.toggle("on", i.dataset.dock === key));
+  const on = items.find(i => i.dataset.dock === key), ind = $("#dockInd");
+  ind.hidden = !on;
+  if (!on) return;
+  const first = !ind.dataset.ready, was = ind.dataset.at;
+  if (first) ind.style.transition = "none";
+  ind.style.width = `${on.offsetWidth}px`;
+  ind.style.translate = `${on.offsetLeft}px 0`;
+  if (first) { ind.offsetWidth; ind.style.transition = ""; ind.dataset.ready = "1"; }
+  else if (was !== key && !reduced.matches) { ind.classList.remove("go"); ind.offsetWidth; ind.classList.add("go"); }
+  ind.dataset.at = key;
 }
 
 /* ── checkout ────────────────────────────────────────── */
@@ -1104,8 +1116,11 @@ function init() {
   const onScroll = () => nav.classList.toggle("scrolled", scrollY > 8);
   addEventListener("scroll", onScroll, { passive: true });
   onScroll();
-  addEventListener("resize", () => { syncNavHeight(); moveIndicator(); });
-  document.fonts?.ready.then(() => { syncNavHeight(); moveIndicator(); });
+  addEventListener("resize", () => { syncNavHeight(); moveIndicator(); paintDock(); });
+  document.fonts?.ready.then(() => { syncNavHeight(); moveIndicator(); paintDock(); });
+  document.addEventListener("dockchange", paintDock);
+  $("#bannerCta").addEventListener("click", goToShop);
+  $("#dockCart").addEventListener("click", () => openCart(!$("#drawer").classList.contains("open")));
 
   // connection status
   const net = () => {
@@ -1133,9 +1148,10 @@ function init() {
   };
   $("#themeBtn").addEventListener("click", flipTheme);
   $("#themeBtn2").addEventListener("click", flipTheme);
+  $("#menuTheme").addEventListener("click", flipTheme);
   paintTheme();
 
-  // search: one box in the header (an icon on phones opens it)
+  // search: one box in the header
   const q = $("#q");
   q.addEventListener("input", e => {
     if (S.view !== "shop") location.hash = "#shop";
@@ -1146,13 +1162,6 @@ function init() {
     clearTimeout(qTimer);
     if (S.view !== "shop") { location.hash = "#shop"; return; }
     render(false); q.blur(); goToShop();
-  });
-  $("#searchToggle").addEventListener("click", () => {
-    const open = !nav.classList.contains("searching");
-    nav.classList.toggle("searching", open);
-    $("#searchToggle").setAttribute("aria-expanded", String(open));
-    syncNavHeight();
-    if (open) q.focus();
   });
   $("#emptyAction").addEventListener("click", () => { q.value = ""; S.q = ""; clearFilters(); clearTimeout(qTimer); render(false); });
 
@@ -1209,7 +1218,7 @@ function init() {
   });
 
   // account menu extras
-  const menuDone = () => { $("#menu").hidden = true; $("#acctBtn").setAttribute("aria-expanded", "false"); };
+  const menuDone = () => { $("#menu").hidden = true; $("#acctBtn").setAttribute("aria-expanded", "false"); $("#dockAcct").setAttribute("aria-expanded", "false"); paintDock(); };
   $("#menuOrders").addEventListener("click", () => { menuDone(); openMyOrders(); });
   $("#menuSaved").addEventListener("click", () => { menuDone(); location.hash = "#/saved"; });
   $("#footOrders").addEventListener("click", openMyOrders);

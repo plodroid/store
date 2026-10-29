@@ -15,7 +15,7 @@ async function test(name, fn, extra = {}, vp) {
     await t.page.goto(url + "/index.html");
     await t.page.waitForSelector("[data-add]", { timeout: 8000 });
     await t.page.evaluate(() => { window.__FAKE.nextGoogle = { email: "housikiki@gmail.com", name: "Owner", uid: "g_owner" }; });
-    await t.page.click("#signInBtn"); await t.page.click("[data-google]");
+    await t.page.click(vp && vp.width < 900 ? "#dockAcct" : "#signInBtn"); await t.page.click("[data-google]");
     await t.page.waitForSelector("#manageBtn:not([hidden])");
     await fn(t);
     const bad = t.errors.filter(e => !/ERR_TUNNEL|Failed to load resource/.test(e));
