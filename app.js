@@ -4,9 +4,9 @@
    locked down by firestore.rules, so the whole thing runs on the free Firebase plan. */
 
 import { $, $$, esc, store, money, pence, reduced, uid, openDialog, closeDialog, wireDialogs,
-         toast, showError, setBusy, priceOf, onSale, percentOff, millis } from "./ui.js?v=10";
-import { createAuth } from "./auth.js?v=10";
-import { normaliseUkPhone, showUkPhone } from "./uk.js?v=10";
+         toast, showError, setBusy, priceOf, onSale, percentOff, millis } from "./ui.js?v=11";
+import { createAuth } from "./auth.js?v=11";
+import { normaliseUkPhone, showUkPhone } from "./uk.js?v=11";
 
 const DEF = window.STORE_DEFAULTS;
 const PATHS = window.STORE_PATHS;
@@ -16,7 +16,7 @@ function paintTheme() {
   const dark = document.documentElement.dataset.theme === "dark";
   $("#themeBtn").setAttribute("aria-label", dark ? "Switch to light mode" : "Switch to dark mode");
   $("#themeBtn2").textContent = $("#menuTheme").textContent = dark ? "Light mode" : "Dark mode";
-  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#161616" : "#F4F3EE");
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#161616" : "#FFF8E6");
 }
 
 /* ── mode ────────────────────────────────────────────── */

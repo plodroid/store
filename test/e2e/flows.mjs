@@ -51,21 +51,21 @@ const setLocation = async p => {
 };
 
 /* ── look & theme ─────────────────────────────────── */
-await test("light by default (#F4F3EE), toggle to dark, remembered after reload", async ({ page: p }) => {
+await test("light by default (honey cream #FFF8E6), toggle to dark, remembered after reload", async ({ page: p }) => {
   assert.equal(await p.evaluate(() => document.documentElement.dataset.theme || "light"), "light");
-  assert.equal(await p.evaluate(() => getComputedStyle(document.body).backgroundColor), "rgb(244, 243, 238)");
+  assert.equal(await p.evaluate(() => getComputedStyle(document.documentElement).backgroundColor), "rgb(255, 248, 230)");
   await p.click("#themeBtn");
   assert.equal(await p.evaluate(() => document.documentElement.dataset.theme), "dark");
-  assert.notEqual(await p.evaluate(() => getComputedStyle(document.body).backgroundColor), "rgb(244, 243, 238)");
+  assert.notEqual(await p.evaluate(() => getComputedStyle(document.documentElement).backgroundColor), "rgb(255, 248, 230)");
   await p.reload(); await p.waitForSelector("[data-add]");
   assert.equal(await p.evaluate(() => document.documentElement.dataset.theme), "dark");
   await p.click("#themeBtn");
   assert.equal(await p.evaluate(() => localStorage.getItem("theme")), "light");
 });
 
-await test("no gradients left in the CSS (solid blue only)", async () => {
+await test("no gradients left in the CSS (solid honey only; the honeycomb fade mask is allowed)", async () => {
   const fs = await import("node:fs");
-  const found = ["styles.css", "admin.css"].filter(f => fs.readFileSync(new URL("../../" + f, import.meta.url), "utf8").split("\n").some(l => /gradient/.test(l) && !/appearance: none/.test(l)))   // (the select chevron is drawn with two tiny gradients);
+  const found = ["styles.css", "admin.css"].filter(f => fs.readFileSync(new URL("../../" + f, import.meta.url), "utf8").split("\n").some(l => /gradient/.test(l) && !/appearance: none|mask-image/.test(l)))   // (the select chevron is drawn with two tiny gradients);
   assert.deepEqual(found, []);
 });
 

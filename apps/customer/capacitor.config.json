@@ -9,7 +9,7 @@
   },
   "android": { "allowMixedContent": false },
   "plugins": {
-    "SplashScreen": { "launchShowDuration": 600, "backgroundColor": "#F4F3EE", "showSpinner": false },
-    "StatusBar": { "style": "DARK", "backgroundColor": "#F4F3EE", "overlaysWebView": false }
+    "SplashScreen": { "launchShowDuration": 600, "backgroundColor": "#FFF8E6", "showSpinner": false },
+    "StatusBar": { "style": "DARK", "backgroundColor": "#FFF8E6", "overlaysWebView": false }
   }
 }

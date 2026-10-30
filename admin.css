@@ -128,16 +128,16 @@ button.stat:active { transform: scale(.98); }
 
 /* sale + waiting */
 .sale-btn { flex: none; height: 32px; padding: 0 12px; border-radius: 999px; font-size: 13px; color: var(--muted); border: 1px solid var(--line-2); background: var(--surface); transition: background-color .2s ease, color .2s ease; }
-.sale-btn.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.sale-btn.on { color: var(--blue); border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .sale-btn:disabled { opacity: .4; }
 @media (hover: hover) { .sale-btn:not(:disabled):hover { background: var(--fill-2); } }
-.pmeta s { color: var(--faint); } .sale-now { font-weight: 600; color: var(--accent); }
+.pmeta s { color: var(--faint); } .sale-now { font-weight: 600; color: var(--blue); }
 .pwait { display: block; margin-top: 3px; font-size: 12.5px; color: var(--muted); text-align: left; }
 .pwait.ready { color: var(--blue); font-weight: 500; text-decoration: underline; text-underline-offset: 2px; }
 @media (max-width: 520px) { .sale-btn { margin-left: 8px; } }
 
 /* order cards on the Today screen: one big button each */
-.ocard { margin: 0 0 12px; padding: 12px; border-radius: 18px; background: var(--bg, #F4F3EE); border: 1px solid var(--line); }
+.ocard { margin: 0 0 12px; padding: 12px; border-radius: 18px; background: var(--bg, #FFF8E6); border: 1px solid var(--line); }
 .ocard:last-child { margin-bottom: 0; }
 .ocard-top { display: flex; align-items: center; gap: 10px; width: 100%; margin: 0 0 10px; padding: 0; text-align: left; background: none; border: 0; color: inherit; font: inherit; cursor: pointer; }
 .ocard .hint { margin: 8px 2px 0; text-align: center; }
@@ -152,7 +152,8 @@ button.stat:active { transform: scale(.98); }
 .gate { min-height: 100dvh; display: grid; place-items: center; padding: 24px 16px; }
 .gate[hidden] { display: none; }
 .gate-card { width: min(100%, 360px); display: grid; justify-items: center; gap: 10px; text-align: center; }
-.gate-logo { width: 72px; height: 72px; border-radius: 18px; margin-bottom: 6px; }
+.gate-brand { height: 64px; margin: 0 0 4px; color: var(--text); }
+.gate-brand .wordmark { height: 100%; }
 .gate-card h1 { font-size: 26px; }
 .gate-sub { margin: -4px 0 8px; color: var(--muted); }
 .gate-msg { min-height: 22px; margin: 4px 0 8px; font-size: 14.5px; color: var(--muted); }

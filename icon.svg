@@ -1,1 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="113" fill="#16795A"/><polygon points="389.4,333.0 256.0,410.0 122.6,333.0 122.6,179.0 256.0,102.0 389.4,179.0" fill="#F4B840"/><polygon points="325.3,296.0 256.0,336.0 186.7,296.0 186.7,216.0 256.0,176.0 325.3,216.0" fill="#16795A"/><polygon points="295.8,279.0 256.0,302.0 216.2,279.0 216.2,233.0 256.0,210.0 295.8,233.0" fill="#F4B840"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512"><rect width="512" height="512" rx="113" fill="#F5B800"/><g transform="translate(256 256) scale(1.12) translate(-256 -246)">
+<ellipse cx="176" cy="142" rx="72" ry="32" transform="rotate(-24 176 142)" fill="#FFF8E6"/>
+<ellipse cx="336" cy="142" rx="72" ry="32" transform="rotate(24 336 142)" fill="#FFF8E6"/>
+<clipPath id="h"><polygon points="256.0,164.0 358.2,223.0 358.2,341.0 256.0,400.0 153.8,341.0 153.8,223.0"/></clipPath>
+<polygon points="256.0,164.0 358.2,223.0 358.2,341.0 256.0,400.0 153.8,341.0 153.8,223.0" fill="#2A2008"/>
+<g clip-path="url(#h)" fill="#FFE08A"><rect x="120" y="244" width="272" height="34"/><rect x="120" y="306" width="272" height="34"/></g>
+</g></svg>
