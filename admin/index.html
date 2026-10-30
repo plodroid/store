@@ -17,8 +17,8 @@ function native(){try{if(window.Capacitor&&Capacitor.isNativePlatform&&Capacitor
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js">
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js">
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js">
-<link rel="stylesheet" href="../styles.css?v=9">
-<link rel="stylesheet" href="../admin.css?v=9">
+<link rel="stylesheet" href="../styles.css?v=10">
+<link rel="stylesheet" href="../admin.css?v=10">
 </head>
 
 <body class="adm-page">
@@ -30,7 +30,9 @@ function native(){try{if(window.Capacitor&&Capacitor.isNativePlatform&&Capacitor
     <p class="gate-sub">Shop owner area</p>
     <p class="gate-msg" id="gateMsg" role="status">Loading…</p>
     <button class="btn-primary wide" id="gateGoogle" type="button" hidden>Continue with Google</button>
+    <button class="btn-primary wide" id="gateRetry" type="button" hidden onclick="location.reload()">Try again</button>
     <button class="btn-quiet" id="gateOut" type="button" hidden>Sign out</button>
+    <p class="gate-why" id="gateWhy" hidden></p>
     <a class="gate-back" id="gateBack" href="../">Go to the shop</a>
   </div>
 </main>
@@ -47,7 +49,7 @@ function native(){try{if(window.Capacitor&&Capacitor.isNativePlatform&&Capacitor
 </dialog>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="../firebase-config.js?v=9"></script>
-<script type="module" src="./main.js?v=9"></script>
+<script src="../firebase-config.js?v=10"></script>
+<script type="module" src="./main.js?v=10"></script>
 </body>
 </html>

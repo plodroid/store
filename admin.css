@@ -160,3 +160,5 @@ button.stat:active { transform: scale(.98); }
 .gate-card .btn-primary { margin: 0; }
 .gate-back { margin-top: 12px; font-size: 14px; color: var(--muted); text-decoration: underline; text-underline-offset: 3px; }
 .adm-top .btn-quiet { flex: none; }
+
+.gate-why{margin:14px 0 0;font:12px/1.4 ui-monospace,monospace;color:#7a817d;word-break:break-word}
