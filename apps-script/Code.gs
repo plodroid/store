@@ -196,7 +196,7 @@ function stripe_(method, path, form) {
   return j;
 }
 
-function orderId_(v) { const id = String(v || ''); return /^[A-Za-z0-9]{10,40}$/.test(id) ? id : ''; }
+function orderId_(v) { const id = String(v || ''); return /^o_[A-Za-z0-9_-]{6,60}$/.test(id) ? id : ''; }
 
 function pay_(b) {
   if (!stripeKey_()) return { ok: false, error: 'not_set_up' };

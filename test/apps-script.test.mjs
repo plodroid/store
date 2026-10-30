@@ -266,37 +266,37 @@ const ORDER = { uid: "u1", ref: "BH-ABC123", status: "confirmed", paymentStatus:
 
 test("pay: the Stripe amount comes from the order, in pence, never from the browser", () => {
   const w = payWorld({ order: ORDER });
-  const r = w.call({ a: "pay", idToken: "good", orderId: "order12345", amount: 1 });
+  const r = w.call({ a: "pay", idToken: "good", orderId: "o_order12345", amount: 1 });
   assert.equal(r.ok, true); assert.match(r.url, /^https:\/\/checkout\.stripe\.com\//);
   const f = w.seen.stripe[0].form;
   assert.equal(f["line_items[0][price_data][unit_amount]"], "750");
   assert.equal(f["line_items[0][price_data][currency]"], "gbp");
-  assert.equal(f.client_reference_id, "order12345");
-  assert.match(f.success_url, /\?paid=order12345&sid=\{CHECKOUT_SESSION_ID\}$/);
+  assert.equal(f.client_reference_id, "o_order12345");
+  assert.match(f.success_url, /\?paid=o_order12345&sid=\{CHECKOUT_SESSION_ID\}$/);
   assert.equal(w.seen.stripe[0].auth, "Basic " + Buffer.from("sk_test_x:").toString("base64"));
 });
 test("pay: refuses someone else's order, unconfirmed orders, paid orders, bad logins and missing key", () => {
-  assert.equal(payWorld({ order: ORDER }).call({ a: "pay", idToken: "other", orderId: "order12345" }).error, "not_found");
-  assert.equal(payWorld({ order: ORDER }).call({ a: "pay", idToken: "nope", orderId: "order12345" }).error, "auth");
-  assert.equal(payWorld({ order: { ...ORDER, status: "new" } }).call({ a: "pay", idToken: "good", orderId: "order12345" }).error, "not_ready");
-  assert.equal(payWorld({ order: { ...ORDER, paymentStatus: "paid" } }).call({ a: "pay", idToken: "good", orderId: "order12345" }).error, "already_paid");
-  assert.equal(payWorld({ order: ORDER, key: "" }).call({ a: "pay", idToken: "good", orderId: "order12345" }).error, "not_set_up");
+  assert.equal(payWorld({ order: ORDER }).call({ a: "pay", idToken: "other", orderId: "o_order12345" }).error, "not_found");
+  assert.equal(payWorld({ order: ORDER }).call({ a: "pay", idToken: "nope", orderId: "o_order12345" }).error, "auth");
+  assert.equal(payWorld({ order: { ...ORDER, status: "new" } }).call({ a: "pay", idToken: "good", orderId: "o_order12345" }).error, "not_ready");
+  assert.equal(payWorld({ order: { ...ORDER, paymentStatus: "paid" } }).call({ a: "pay", idToken: "good", orderId: "o_order12345" }).error, "already_paid");
+  assert.equal(payWorld({ order: ORDER, key: "" }).call({ a: "pay", idToken: "good", orderId: "o_order12345" }).error, "not_set_up");
   assert.equal(payWorld({ order: ORDER }).call({ a: "pay", idToken: "good", orderId: "../x" }).error, "auth");
 });
 test("paid: marks the order paid only when Stripe says paid for the same order and amount", () => {
-  const ok = { payment_status: "paid", client_reference_id: "order12345", currency: "gbp", amount_total: 750 };
+  const ok = { payment_status: "paid", client_reference_id: "o_order12345", currency: "gbp", amount_total: 750 };
   const w = payWorld({ order: ORDER, stripeSession: ok });
-  assert.deepEqual(w.call({ a: "paid", idToken: "good", orderId: "order12345", sid: "cs_test_abc" }), { ok: true });
+  assert.deepEqual(w.call({ a: "paid", idToken: "good", orderId: "o_order12345", sid: "cs_test_abc" }), { ok: true });
   const patch = w.seen.patch[0];
-  assert.match(patch.url, /orders\/order12345\?currentDocument\.exists=true&updateMask\.fieldPaths=paymentStatus/);
+  assert.match(patch.url, /orders\/o_order12345\?currentDocument\.exists=true&updateMask\.fieldPaths=paymentStatus/);
   assert.equal(patch.body.fields.paymentStatus.stringValue, "paid");
   for (const bad of [{ payment_status: "unpaid" }, { client_reference_id: "other0000000" }, { amount_total: 100 }, { currency: "usd" }]) {
     const x = payWorld({ order: ORDER, stripeSession: { ...ok, ...bad } });
-    assert.equal(x.call({ a: "paid", idToken: "good", orderId: "order12345", sid: "cs_test_abc" }).error, "not_paid");
+    assert.equal(x.call({ a: "paid", idToken: "good", orderId: "o_order12345", sid: "cs_test_abc" }).error, "not_paid");
     assert.equal(x.seen.patch.length, 0);
   }
-  assert.equal(payWorld({ order: ORDER, stripeSession: ok }).call({ a: "paid", idToken: "other", orderId: "order12345", sid: "cs_test_abc" }).error, "not_found");
-  assert.equal(payWorld({ order: ORDER, stripeSession: ok }).call({ a: "paid", idToken: "good", orderId: "order12345", sid: "whatever" }).error, "auth");
+  assert.equal(payWorld({ order: ORDER, stripeSession: ok }).call({ a: "paid", idToken: "other", orderId: "o_order12345", sid: "cs_test_abc" }).error, "not_found");
+  assert.equal(payWorld({ order: ORDER, stripeSession: ok }).call({ a: "paid", idToken: "good", orderId: "o_order12345", sid: "whatever" }).error, "auth");
 });
 test("doGet reports whether card payments are set up", () => {
   const get = k => JSON.parse(vm.runInContext("doGet", payWorld({ key: k }).ctx)().s).pay;

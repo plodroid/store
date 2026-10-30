@@ -4,9 +4,9 @@
    locked down by firestore.rules, so the whole thing runs on the free Firebase plan. */
 
 import { $, $$, esc, store, money, pence, reduced, uid, openDialog, closeDialog, wireDialogs,
-         toast, showError, setBusy, priceOf, onSale, percentOff, millis } from "./ui.js?v=6";
-import { createAuth } from "./auth.js?v=6";
-import { normaliseUkPhone, showUkPhone } from "./uk.js?v=6";
+         toast, showError, setBusy, priceOf, onSale, percentOff, millis } from "./ui.js?v=7";
+import { createAuth } from "./auth.js?v=7";
+import { normaliseUkPhone, showUkPhone } from "./uk.js?v=7";
 
 const DEF = window.STORE_DEFAULTS;
 const PATHS = window.STORE_PATHS;
@@ -1150,7 +1150,7 @@ function onAccountChange(a) {
   }
   // the owner gets the admin panel (loaded only for them) and live alerts
   if (a.isOwner && !adminMod) {
-    adminMod = import("./admin.js?v=6").then(m => { m.watchAlerts({ FS, acct: a, getSite: () => S.site }); return m; })
+    adminMod = import("./admin.js?v=7").then(m => { m.watchAlerts({ FS, acct: a, getSite: () => S.site }); return m; })
       .catch(err => { console.error("[admin]", err); adminMod = null; });
   } else if (!a.isOwner && adminMod) {
     const p = adminMod; adminMod = null;
