@@ -1,0 +1,19 @@
+{
+  "name": "bee-hive-owner-app",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Bee Hive owner app: an Android shell (Capacitor) around https://plodroid.github.io/store/admin/",
+  "scripts": {
+    "sync": "cap sync android"
+  },
+  "dependencies": {
+    "@capacitor-firebase/authentication": "^8.5.2",
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/core": "^8.6.0",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.4"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.6.0"
+  }
+}

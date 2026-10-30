@@ -3,8 +3,8 @@
    Free-plan design: orders arrive as requests, and "Confirm" re-prices and re-checks stock in a
    transaction (so customers can never choose their own price). */
 
-import { $, $$, esc, money, openDialog, closeDialog, showError, setBusy, toast, millis, timeAgo, store, priceOf, onSale } from "./ui.js?v=8";
-import { lookupPostcode } from "./uk.js?v=8";
+import { $, $$, esc, money, openDialog, closeDialog, showError, setBusy, toast, millis, timeAgo, store, priceOf, onSale } from "./ui.js?v=9";
+import { lookupPostcode } from "./uk.js?v=9";
 
 const css = document.createElement("link");
 css.rel = "stylesheet"; css.href = new URL("./admin.css", import.meta.url).href;
@@ -89,6 +89,7 @@ function paintDot() {
   if (dot) dot.hidden = !(a.newOrders || a.unread);
   const btn = $("#manageBtn");
   if (btn) btn.title = a.newOrders || a.unread ? `${a.newOrders} new order(s), ${a.unread} unread message(s)` : "";
+  if (X && X.page) document.title = (a.newOrders || a.unread ? `(${a.newOrders + a.unread}) ` : "") + "Manage shop · Bee Hive";
 }
 
 let audio;
@@ -116,6 +117,9 @@ function alertMe(title, body) {
 /* ── shell ───────────────────────────────────────────── */
 const TABS = [["home", "Today"], ["products", "Products"], ["orders", "Orders"], ["feedback", "Messages"], ["categories", "Categories"], ["settings", "Settings"]];
 
+/** Page mode: the settings doc changed, so redraw what is showing. */
+export function refresh() { if (A.open) paint(); }
+
 export function openAdmin(ctx) {
   X = ctx;
   watchAlerts(ctx);
@@ -125,9 +129,9 @@ export function openAdmin(ctx) {
     el.innerHTML = `
       <div class="adm-shell">
         <header class="adm-top">
-          <button class="icon-btn" type="button" data-act="close" aria-label="Back to the shop">${ICON.close}</button>
+          ${X.page ? "" : `<button class="icon-btn" type="button" data-act="close" aria-label="Back to the shop">${ICON.close}</button>`}
           <h2>Manage shop</h2>
-          <span class="adm-spacer"></span>
+          ${X.page ? `${X.app ? "" : `<a class="btn-quiet sm" href="../">View shop</a>`}<button class="btn-quiet sm" type="button" data-act="signout">Sign out</button>` : `<span class="adm-spacer"></span>`}
         </header>
         <nav class="adm-tabs" id="admTabs" aria-label="Admin sections"></nav>
         <main class="adm-main" id="admMain"></main>
@@ -135,13 +139,14 @@ export function openAdmin(ctx) {
     el.addEventListener("click", onClick);
     el.addEventListener("input", onInput);
     el.addEventListener("change", onInput);
-    addEventListener("keydown", e => { if (e.key === "Escape" && A.open && !$("dialog[open]")) close(); });
+    if (!X.page) addEventListener("keydown", e => { if (e.key === "Escape" && A.open && !$("dialog[open]")) close(); });
   }
   el.hidden = false; A.open = true;
   document.body.style.overflow = "hidden";
   paint();
 }
 function close() {
+  if (X.page) return;                       // the owner page has nothing to go back to
   A.open = false; $("#admin").hidden = true; document.body.style.overflow = "";
   $("#manageBtn")?.focus({ preventScroll: true });
 }

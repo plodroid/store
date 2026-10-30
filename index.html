@@ -16,7 +16,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./icon-192.png">
-<script>try{var t=localStorage.getItem("theme");if(t==="dark"){document.documentElement.dataset.theme="dark";document.querySelector('meta[name="theme-color"]').content="#161616"}}catch(e){}</script>
+<script>function native(){try{if(window.Capacitor&&Capacitor.isNativePlatform&&Capacitor.isNativePlatform())document.documentElement.dataset.native="1"}catch(e){}}native();addEventListener("DOMContentLoaded",native);try{var t=localStorage.getItem("theme");if(t==="dark"){document.documentElement.dataset.theme="dark";document.querySelector('meta[name="theme-color"]').content="#161616"}}catch(e){}</script>
 <link rel="icon" type="image/svg+xml" href="./icon.svg">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -27,7 +27,7 @@
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js">
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js">
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js">
-<link rel="stylesheet" href="./styles.css?v=8">
+<link rel="stylesheet" href="./styles.css?v=9">
 </head>
 
 <body>
@@ -47,10 +47,9 @@
     </form>
 
     <!-- only the shop owner ever sees this -->
-    <button class="icon-btn glass-s manage" id="manageBtn" type="button" hidden aria-label="Manage shop">
+    <a class="icon-btn glass-s manage" id="manageBtn" href="./admin/" hidden aria-label="Manage shop">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
-      <span class="alert-dot" id="manageDot" hidden></span>
-    </button>
+    </a>
 
     <div class="nav-actions">
       <a class="icon-btn heart-link" id="savedLink" href="#/saved" aria-label="Saved items">
@@ -365,21 +364,9 @@
   <div class="modal-body" id="locBody"></div>
 </dialog>
 
-<!-- owner admin panel (built on demand, only for the owner) -->
-<div class="admin" id="admin" hidden></div>
-<dialog class="pd modal adm-dlg" id="admDlg" aria-label="Edit">
-  <button class="icon-btn pd-close" type="button" data-close aria-label="Close">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
-  </button>
-  <div class="modal-body" id="admDlgBody"></div>
-</dialog>
-<dialog class="pd modal confirm" id="admConfirm" aria-label="Please confirm">
-  <div class="modal-body" id="admConfirmBody"></div>
-</dialog>
-
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="./firebase-config.js?v=8"></script>
-<script type="module" src="./app.js?v=8"></script>
+<script src="./firebase-config.js?v=9"></script>
+<script type="module" src="./app.js?v=9"></script>
 </body>
 </html>

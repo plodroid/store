@@ -778,3 +778,6 @@ em { font-style: normal; color: var(--faint); font-weight: 400; }
 .btn-primary { color: var(--on-accent); }
 .btn-grad { color: var(--on-accent); }
 .check input:checked::after { border-color: var(--on-accent); }
+
+/* inside the Android customer app: no owner button, and no Google sign-in (Google blocks it in web views) */
+html[data-native] .manage, html[data-native] .auth .or, html[data-native] .auth .social { display: none !important; }

@@ -12,11 +12,11 @@ async function test(name, fn, extra = {}, vp) {
   const t = await launch(url, { seed: seedWith(extra), viewport: vp });
   try {
     t.page.setDefaultTimeout(8000);
-    await t.page.goto(url + "/index.html");
-    await t.page.waitForSelector("[data-add]", { timeout: 8000 });
+    await t.page.goto(url + "/admin/index.html");
+    await t.page.waitForSelector("#gateGoogle:not([hidden])", { timeout: 8000 });
     await t.page.evaluate(() => { window.__FAKE.nextGoogle = { email: "housikiki@gmail.com", name: "Owner", uid: "g_owner" }; });
-    await t.page.click(vp && vp.width < 900 ? "#dockAcct" : "#signInBtn"); await t.page.click("[data-google]");
-    await t.page.waitForSelector("#manageBtn:not([hidden])");
+    await t.page.click("#gateGoogle");
+    await t.page.waitForSelector("#admin:not([hidden]) .adm-tab");
     await fn(t);
     const bad = t.errors.filter(e => !/ERR_TUNNEL|Failed to load resource/.test(e));
     assert.deepEqual(bad, [], "page errors");
@@ -28,7 +28,7 @@ async function test(name, fn, extra = {}, vp) {
   } finally { await t.close(); }
 }
 const db = p => p.evaluate(() => window.__FAKE.dump());
-const openAdmin = async p => { await p.click("#manageBtn"); await p.waitForSelector("#admin:not([hidden]) .adm-tab, #admin .adm-tab"); };
+const openAdmin = async p => { await p.waitForSelector("#admin:not([hidden]) .adm-tab"); };
 const tab = async (p, k) => { await p.click(`[data-act="tab"][data-tab="${k}"]`); };
 
 await test("opens the panel with the five/six tabs", async ({ page: p }) => {
@@ -166,11 +166,22 @@ await test("settings: save delivery fee", async ({ page: p }) => {
   await p.waitForFunction(() => window.__FAKE.dump().settings.site.deliveryFee === 3);
 });
 
-await test("alert: new order while panel is closed lights the dot + toast", async ({ page: p }) => {
+await test("alert: a new order while you're on the page beeps, toasts and puts a count in the tab title", async ({ page: p }) => {
   await p.waitForTimeout(400);
-  await p.evaluate(o => window.__FAKE.inject("orders", "o_new99999", o), ORDER({ requestId: "new99999", ref: "BH-NEW999" }));
-  await p.waitForFunction(() => !document.querySelector("#manageDot").hidden || document.querySelector("#manageDot").offsetParent !== null);
+  await p.evaluate(o => window.__FAKE.inject("orders", "o_new99999", o), ORDER({ requestId: "new99999", ref: "BH-NEW999", status: "confirmed", paymentStatus: "paid", total: 13 }));
   await p.waitForFunction(() => /order/i.test(document.querySelector("#toast").textContent));
+  await p.waitForFunction(() => /^\(\d+\)/.test(document.title));
+});
+
+await test("owner page: it is a page of its own (not the shop), with sign out; the wrong account is turned away", async (t) => {
+  const p = t.page;
+  assert.ok(!(await p.locator("#grid").count()), "no shop on the owner page");
+  await p.click('[data-act="signout"]');
+  await p.waitForSelector("#gateGoogle:not([hidden])");
+  await p.evaluate(() => { window.__FAKE.nextGoogle = { email: "someone@example.com", name: "Not Owner", uid: "g_other" }; });
+  await p.click("#gateGoogle");
+  await p.waitForFunction(() => /isn't the shop owner/.test(document.querySelector("#gateMsg").textContent));
+  assert.ok(await p.locator("#admin").isHidden());
 });
 
 await test("owner panel is usable on a phone (390px) with no sideways scroll", async ({ page: p }) => {

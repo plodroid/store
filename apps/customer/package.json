@@ -1,0 +1,14 @@
+{
+  "name": "bee-hive-customer-app",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Bee Hive customer app: an Android shell (Capacitor) around https://plodroid.github.io/store/",
+  "scripts": { "sync": "cap sync android" },
+  "dependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/core": "^8.6.0",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.4"
+  },
+  "devDependencies": { "@capacitor/cli": "^8.6.0" }
+}

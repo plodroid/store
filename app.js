@@ -4,9 +4,9 @@
    locked down by firestore.rules, so the whole thing runs on the free Firebase plan. */
 
 import { $, $$, esc, store, money, pence, reduced, uid, openDialog, closeDialog, wireDialogs,
-         toast, showError, setBusy, priceOf, onSale, percentOff, millis } from "./ui.js?v=8";
-import { createAuth } from "./auth.js?v=8";
-import { normaliseUkPhone, showUkPhone } from "./uk.js?v=8";
+         toast, showError, setBusy, priceOf, onSale, percentOff, millis } from "./ui.js?v=9";
+import { createAuth } from "./auth.js?v=9";
+import { normaliseUkPhone, showUkPhone } from "./uk.js?v=9";
 
 const DEF = window.STORE_DEFAULTS;
 const PATHS = window.STORE_PATHS;
@@ -1145,7 +1145,6 @@ async function submitFeedback(e) {
 
 /* ── wiring ──────────────────────────────────────────── */
 /** Called whenever the customer signs in or out (or their profile changes). */
-let adminMod = null;
 let wasSigned = false;
 const RET = (() => {
   const q = new URLSearchParams(location.search);
@@ -1177,14 +1176,6 @@ function onAccountChange(a) {
     S.wish = new Set(); store.set("wish", []);
     stopMyAlerts();
     render(false);
-  }
-  // the owner gets the admin panel (loaded only for them) and live alerts
-  if (a.isOwner && !adminMod) {
-    adminMod = import("./admin.js?v=8").then(m => { m.watchAlerts({ FS, acct: a, getSite: () => S.site }); return m; })
-      .catch(err => { console.error("[admin]", err); adminMod = null; });
-  } else if (!a.isOwner && adminMod) {
-    const p = adminMod; adminMod = null;
-    p.then(m => m && m.stopAlerts()).catch(() => {});
   }
 }
 
@@ -1328,12 +1319,6 @@ function init() {
 
   // sign-in only exists once Firebase is connected
   if (MODE !== "live") $("#signInBtn").addEventListener("click", () => toast("Sign-in isn't available in preview mode"));
-
-  // owner admin panel
-  $("#manageBtn").addEventListener("click", async () => {
-    try { const m = await adminMod; if (m) m.openAdmin({ FS, acct, getSite: () => S.site }); else toast("The admin panel is still loading…"); }
-    catch { toast("Couldn't open the admin panel. Please refresh."); }
-  });
 
   // feedback
   $("#openFeedback").addEventListener("click", () => openFeedback());

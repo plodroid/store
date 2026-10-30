@@ -147,3 +147,16 @@ button.stat:active { transform: scale(.98); }
 .guide summary h3 { display: inline; margin: 0; }
 .guide summary::after { content: " ▾"; color: var(--faint); }
 .guide ol { margin: 12px 0 0; padding-left: 20px; display: grid; gap: 8px; font-size: 14.5px; line-height: 1.45; }
+
+/* the owner page's sign-in screen */
+.gate { min-height: 100dvh; display: grid; place-items: center; padding: 24px 16px; }
+.gate[hidden] { display: none; }
+.gate-card { width: min(100%, 360px); display: grid; justify-items: center; gap: 10px; text-align: center; }
+.gate-logo { width: 72px; height: 72px; border-radius: 18px; margin-bottom: 6px; }
+.gate-card h1 { font-size: 26px; }
+.gate-sub { margin: -4px 0 8px; color: var(--muted); }
+.gate-msg { min-height: 22px; margin: 4px 0 8px; font-size: 14.5px; color: var(--muted); }
+.gate-msg.bad { color: var(--coral); }
+.gate-card .btn-primary { margin: 0; }
+.gate-back { margin-top: 12px; font-size: 14px; color: var(--muted); text-decoration: underline; text-underline-offset: 3px; }
+.adm-top .btn-quiet { flex: none; }

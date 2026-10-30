@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "696286412872",
+    "project_id": "asimsstore",
+    "storage_bucket": "asimsstore.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:696286412872:android:68995e7b4bb4e1d01cd87d",
+        "android_client_info": {
+          "package_name": "com.plodroid.beehive.owner"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAyEC7cTlTsNibzK7zVFm3NTds1ezcJDa0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -37,12 +37,14 @@ const signedIn = async (p, t, email = "gina@example.com") => {
   await p.keyboard.type(t.mail.codes[email]);
   await p.waitForSelector("#acctBtn:not([hidden])");
 };
-const owner = async p => {
+const owner = async p => {            // the owner has a page of their own now: /admin/
+  await p.goto(url + "/admin/index.html");
+  await p.waitForSelector("#gateGoogle:not([hidden])");
   await p.evaluate(() => { window.__FAKE.nextGoogle = { email: "housikiki@gmail.com", name: "Owner", uid: "g_owner" }; });
-  await p.click("#signInBtn"); await p.click("[data-google]");
-  await p.waitForSelector("#manageBtn:not([hidden])");
+  await p.click("#gateGoogle");
+  await p.waitForSelector("#admin:not([hidden]) .adm-tab");
 };
-const admTab = async (p, k) => { await p.click("#manageBtn"); await p.waitForSelector("#admTabs [data-tab]"); await p.click(`[data-act="tab"][data-tab="${k}"]`); };
+const admTab = async (p, k) => { await p.waitForSelector("#admTabs [data-tab]"); await p.click(`[data-act="tab"][data-tab="${k}"]`); };
 
 await test("product page: big photo area, description, price, 'You may also like', back to shop", async ({ page: p }) => {
   await p.locator('#grid .tile-name', { hasText: "Medjool" }).click();

@@ -4,7 +4,7 @@ A small shop website (https://plodroid.github.io/store/) on **GitHub Pages + Fir
 
 **Shop features:** product pages (big photo, "You may also like", recently viewed), sale prices (owner taps **Sale** on a product), saved items (wishlist, synced to the account), "email me when it's back" on sold-out items (owner taps the **Back in stock** button to email the people waiting), filters and price sorting, My orders.
 
-**Sign-in:** a random 4-digit code is emailed to the customer (sent by a free Google Apps Script from your Gmail), or "Continue with Google". **Owner:** `housikiki@gmail.com`, signing in with Google, gets a **Manage** button.
+**Sign-in:** a random 4-digit code is emailed to the customer (sent by a free Google Apps Script from your Gmail), or "Continue with Google". **Owner:** `housikiki@gmail.com`, signing in with Google, gets a **Manage** button that opens the owner page at `/store/admin/`. Android apps for customers and the owner live in `apps/` (see `apps/README.md`).
 
 ---
 

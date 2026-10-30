@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Manage shop · Bee Hive</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#F4F3EE">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="../icon-192.png">
+<link rel="icon" type="image/svg+xml" href="../icon.svg">
+<script>try{var t=localStorage.getItem("theme");if(t==="dark"){document.documentElement.dataset.theme="dark";document.querySelector('meta[name="theme-color"]').content="#161616"}}catch(e){}
+function native(){try{if(window.Capacitor&&Capacitor.isNativePlatform&&Capacitor.isNativePlatform())document.documentElement.dataset.native="1"}catch(e){}}native();addEventListener("DOMContentLoaded",native);</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&display=swap" media="print" onload="this.media='all'">
+<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js">
+<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js">
+<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js">
+<link rel="stylesheet" href="../styles.css?v=9">
+<link rel="stylesheet" href="../admin.css?v=9">
+</head>
+
+<body class="adm-page">
+<!-- sign-in screen: shown until the owner is signed in -->
+<main class="gate" id="gate">
+  <div class="gate-card">
+    <img class="gate-logo" src="../icon-192.png" alt="" width="72" height="72">
+    <h1>Bee Hive</h1>
+    <p class="gate-sub">Shop owner area</p>
+    <p class="gate-msg" id="gateMsg" role="status">Loading…</p>
+    <button class="btn-primary wide" id="gateGoogle" type="button" hidden>Continue with Google</button>
+    <button class="btn-quiet" id="gateOut" type="button" hidden>Sign out</button>
+    <a class="gate-back" id="gateBack" href="../">Go to the shop</a>
+  </div>
+</main>
+
+<div class="admin" id="admin" hidden></div>
+<dialog class="pd modal adm-dlg" id="admDlg" aria-label="Edit">
+  <button class="icon-btn pd-close" type="button" data-close aria-label="Close">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+  </button>
+  <div class="modal-body" id="admDlgBody"></div>
+</dialog>
+<dialog class="pd modal confirm" id="admConfirm" aria-label="Please confirm">
+  <div class="modal-body" id="admConfirmBody"></div>
+</dialog>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="../firebase-config.js?v=9"></script>
+<script type="module" src="./main.js?v=9"></script>
+</body>
+</html>
