@@ -272,6 +272,7 @@ test("pay: the Stripe amount comes from the order, in pence, never from the brow
   assert.equal(f["line_items[0][price_data][unit_amount]"], "750");
   assert.equal(f["line_items[0][price_data][currency]"], "gbp");
   assert.equal(f.client_reference_id, "o_order12345");
+  assert.equal(f["adaptive_pricing[enabled]"], "false");
   assert.match(f.success_url, /\?paid=o_order12345&sid=\{CHECKOUT_SESSION_ID\}$/);
   assert.equal(w.seen.stripe[0].auth, "Basic " + Buffer.from("sk_test_x:").toString("base64"));
 });

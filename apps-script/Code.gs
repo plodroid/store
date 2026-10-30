@@ -210,6 +210,7 @@ function pay_(b) {
     mode: 'payment', client_reference_id: id,
     success_url: SETTINGS.SITE_URL + '?paid=' + id + '&sid={CHECKOUT_SESSION_ID}',
     cancel_url: SETTINGS.SITE_URL + '?paycancel=1',
+    'adaptive_pricing[enabled]': 'false',                  // UK shop: always charge in £, never offer a converted currency
     'line_items[0][quantity]': '1',
     'line_items[0][price_data][currency]': 'gbp',
     'line_items[0][price_data][unit_amount]': String(Math.round(Number(o.total) * 100)),
