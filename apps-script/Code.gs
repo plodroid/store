@@ -6,7 +6,9 @@
  *   verify {email, code}  -> if the code is right, returns a Firebase sign-in token for that email
  *   notify {idToken, product, link, emails} -> owner only: emails customers that a product is back in stock
  *   pay    {idToken, orderId}   -> a customer's own confirmed order: returns a Stripe Checkout link for its total
- *   paid   {idToken, orderId, sid} -> after Stripe sends the customer back: checks the payment with Stripe, marks the order paid
+ *   paid   {idToken, orderId, sid} -> after Stripe sends the customer back: checks the payment with Stripe, marks the order paid,
+ *                                     confirms it, takes the stock and emails the owner + customer
+ *   stage  {idToken, orderId}   -> owner only: emails the customer the order's new step (on my way / arrived / ready)
  *
  * Why it exists: Firebase can't email 4-digit codes on the free plan. This script runs free in your
  * Google account, sends the emails from your Gmail, and signs the Firebase token with your project's
@@ -26,6 +28,7 @@ const SETTINGS = {
   GOOGLE_ONLY: ['housikiki@gmail.com'],   // these emails must use "Continue with Google" (a 4-digit code is too weak for the owner)
   NOTIFY_MAX: 40,            // customers per back-in-stock send
   PROJECT_ID: 'asimsstore',  // Firebase project (orders are read and marked paid here)
+  OWNER_EMAIL: 'housikiki@gmail.com',   // gets an email for every paid order
 };
 
 /* ── web app entry points ─────────────────────────────── */
@@ -43,6 +46,7 @@ function doPost(e) {
     if (body.a === 'notify') return out_(notify_(body));
     if (body.a === 'pay') return out_(pay_(body));
     if (body.a === 'paid') return out_(paid_(body));
+    if (body.a === 'stage') return out_(stage_(body));
     const email = String(body.email || '').trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 120) return out_({ ok: false, error: 'bad_email' });
     if (body.a === 'send') return out_(send_(email));
@@ -198,6 +202,27 @@ function stripe_(method, path, form) {
 
 function orderId_(v) { const id = String(v || ''); return /^o_[A-Za-z0-9_-]{6,60}$/.test(id) ? id : ''; }
 
+/** Works out an order's price from the live shop data (never from the browser). */
+function quote_(o) {
+  const site = firestore_('get', 'settings/site'), st = site ? fsFields_(site.fields || {}) : {};
+  if (o.fulfilment === 'delivery' && st.delivery === false) return { ok: false, error: 'no_delivery' };
+  if (o.fulfilment !== 'delivery' && st.collection === false) return { ok: false, error: 'no_collection' };
+  const items = Array.isArray(o.items) ? o.items : [], lines = [];
+  let pence = 0;
+  for (let i = 0; i < items.length; i++) {
+    const qty = Number(items[i].qty), d = qty >= 1 && qty <= 99 && Math.floor(qty) === qty ? firestore_('get', 'products/' + String(items[i].productId).replace(/[^A-Za-z0-9_-]/g, '')) : null;
+    const p = d ? fsFields_(d.fields || {}) : null;
+    if (!p || p.archived || !p.visible || !(Number(p.stock) >= qty)) return { ok: false, error: 'stock', item: String((p && p.name) || items[i].name || 'An item') };
+    const unit = typeof p.salePrice === 'number' && p.salePrice >= 0 && p.salePrice < p.price ? p.salePrice : Number(p.price) || 0;
+    const line = Math.round(unit * 100) * qty;
+    pence += line;
+    lines.push({ productId: String(items[i].productId), name: p.name, unit: p.unit || null, unitPrice: unit, qty: qty, lineTotal: line / 100 });
+  }
+  const fee = o.fulfilment === 'delivery' ? Math.round((Number(st.deliveryFee) || 0) * 100) : 0;
+  if (!lines.length || pence + fee < 30) return { ok: false, error: 'too_small' };   // Stripe's minimum is 30p
+  return { ok: true, lines: lines, subtotal: pence / 100, deliveryFee: fee / 100, total: (pence + fee) / 100 };
+}
+
 function pay_(b) {
   if (!stripeKey_()) return { ok: false, error: 'not_set_up' };
   const u = user_(b.idToken), id = orderId_(b.orderId);
@@ -205,7 +230,15 @@ function pay_(b) {
   const o = order_(id);
   if (!o || o.uid !== u.uid) return { ok: false, error: 'not_found' };
   if (o.paymentStatus === 'paid') return { ok: false, error: 'already_paid' };
-  if (['confirmed', 'preparing', 'ready'].indexOf(o.status) < 0 || !(Number(o.total) > 0)) return { ok: false, error: 'not_ready' };
+  if (o.status === 'new') {            // checkout: price it now, from the shop's own data
+    const q = quote_(o);
+    if (!q.ok) return q;
+    firestore_('patch', 'orders/' + id, {
+      lines: fsEnc_(q.lines), subtotal: fsEnc_(q.subtotal), deliveryFee: fsEnc_(q.deliveryFee), total: fsEnc_(q.total),
+      updatedAt: { timestampValue: new Date().toISOString() },
+    });
+    o.total = q.total;
+  } else if (['confirmed', 'preparing', 'ready'].indexOf(o.status) < 0 || !(Number(o.total) > 0)) return { ok: false, error: 'not_ready' };
   const form = {
     mode: 'payment', client_reference_id: id,
     success_url: SETTINGS.SITE_URL + '?paid=' + id + '&sid={CHECKOUT_SESSION_ID}',
@@ -232,12 +265,61 @@ function paid_(b) {
   if (s.payment_status !== 'paid' || s.client_reference_id !== id || s.currency !== 'gbp' || s.amount_total !== Math.round(Number(o.total) * 100)) {
     return { ok: false, error: 'not_paid' };
   }
-  const now = new Date().toISOString();
-  firestore_('patch', 'orders/' + id, {
+  const now = new Date().toISOString(), fresh = o.status === 'new';
+  const f = {
     paymentStatus: { stringValue: 'paid' }, paymentMethod: { stringValue: 'card' }, stripeSession: { stringValue: sid },
     paidAt: { timestampValue: now }, updatedAt: { timestampValue: now },
-  });
+  };
+  if (fresh) f.status = { stringValue: 'confirmed' };       // paid at checkout = confirmed, no waiting for the owner
+  firestore_('patch', 'orders/' + id, f);
+  if (fresh) {
+    (Array.isArray(o.lines) ? o.lines : []).forEach(function (l) {      // take the stock (never below 0)
+      try {
+        const d = firestore_('get', 'products/' + l.productId);
+        if (d) firestore_('patch', 'products/' + l.productId, { stock: fsEnc_(Math.max(0, Number(fsFields_(d.fields || {}).stock) - l.qty)), updatedAt: { timestampValue: now } });
+      } catch (err) { console.error(err); }
+    });
+    mailPaid_(o);
+  }
   return { ok: true };
+}
+
+/* ── emails about an order ── */
+
+function mail_(to, subject, text) {
+  if (!to || dayCount_() >= SETTINGS.SENDS_PER_DAY) return false;
+  try {
+    MailApp.sendEmail({ to: to, name: SETTINGS.STORE_NAME, subject: subject, body: text + '\n\n' + SETTINGS.STORE_NAME + ' · ' + SETTINGS.SITE_URL });
+    bumpDay_(); return true;
+  } catch (err) { console.error(err); return false; }
+}
+
+function mailPaid_(o) {
+  const how = o.fulfilment === 'delivery' ? 'DELIVERY' : 'PICK-UP', c = o.customer || {}, a = o.address;
+  const items = (o.lines || []).map(function (l) { return '  ' + l.qty + ' x ' + l.name; }).join('\n');
+  mail_(SETTINGS.OWNER_EMAIL, 'New paid order ' + o.ref + ' (' + how + ', £' + Number(o.total).toFixed(2) + ')',
+    'Someone just paid for an order.\n\n' + items + '\n\nTotal paid: £' + Number(o.total).toFixed(2) + '\n' + how + '\nName: ' + (c.name || '') + '\nPhone: ' + (c.phone || '-') +
+    (a ? '\nAddress: ' + [a.line1, a.line2, a.city, a.postcode].filter(Boolean).join(', ') : '') + (o.note ? '\nNote: ' + o.note : '') +
+    '\n\nOpen the shop, tap Manage, and press the big button on the order.');
+  mail_(c.email, 'We got your order ' + o.ref,
+    'Thank you! Your payment of £' + Number(o.total).toFixed(2) + ' went through and your order ' + o.ref + ' is confirmed.\n\n' + items +
+    '\n\nWe will email you when it is ' + (o.fulfilment === 'delivery' ? 'on its way.' : 'ready to collect.'));
+}
+
+const STAGE_MAIL = {
+  ontheway: ['is on its way', 'The owner has set off with your order and is on the way to you. Please keep your phone close.'],
+  arrived: ['has arrived', 'The owner is outside with your order now.'],
+  ready: ['is ready to collect', 'Your order is ready. Come and pick it up from the shop whenever you like.'],
+};
+
+/** Owner only. The order's CURRENT step decides the email, so this can't be used to send anything else. */
+function stage_(b) {
+  if (!ownerOf_(String(b.idToken || ''))) return { ok: false, error: 'not_owner' };
+  const id = orderId_(b.orderId), o = id ? order_(id) : null;
+  if (!o || !STAGE_MAIL[o.status]) return { ok: false, error: 'bad_request' };
+  const m = STAGE_MAIL[o.status], to = o.customer && o.customer.email;
+  if (!to) return { ok: true, sent: 0 };
+  return { ok: true, sent: mail_(to, 'Your order ' + o.ref + ' ' + m[0], m[1] + '\n\nOrder ' + o.ref) ? 1 : 0 };
 }
 
 /* Firestore over REST, signed in as the service account (so the security rules don't apply to this script) */
@@ -281,6 +363,15 @@ function fsValue_(v) {
   if (v.mapValue) return fsFields_(v.mapValue.fields || {});
   if (v.arrayValue) return (v.arrayValue.values || []).map(fsValue_);
   return null;
+}
+function fsEnc_(v) {
+  if (v === null || v === undefined) return { nullValue: null };
+  if (typeof v === 'string') return { stringValue: v };
+  if (typeof v === 'boolean') return { booleanValue: v };
+  if (typeof v === 'number') return Math.floor(v) === v ? { integerValue: String(v) } : { doubleValue: v };
+  if (Array.isArray(v)) return { arrayValue: { values: v.map(fsEnc_) } };
+  const f = {}; Object.keys(v).forEach(function (k) { f[k] = fsEnc_(v[k]); });
+  return { mapValue: { fields: f } };
 }
 function fsFields_(f) { const o = {}; Object.keys(f).forEach(function (k) { o[k] = fsValue_(f[k]); }); return o; }
 function order_(id) { const d = firestore_('get', 'orders/' + id); return d ? fsFields_(d.fields || {}) : null; }

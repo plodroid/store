@@ -92,7 +92,7 @@ button.stat:active { transform: scale(.98); }
 .chip { display: inline-flex; align-items: center; height: 22px; padding: 0 9px; border-radius: 999px; font-size: 12px; font-weight: 500; white-space: nowrap; background: var(--surface-3); color: var(--muted); }
 .chip.new { background: color-mix(in srgb, var(--coral) 14%, transparent); color: var(--coral); }
 .chip.confirmed, .chip.info { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--blue); }
-.chip.preparing, .chip.warn { background: var(--warn-bg); color: var(--warn); }
+.chip.preparing, .chip.ontheway, .chip.arrived, .chip.warn { background: var(--warn-bg); color: var(--warn); }
 .chip.ready, .chip.completed { background: var(--ok-bg); color: var(--ok); }
 .chip.cancelled, .chip.bad { background: var(--bad-bg); color: var(--bad); }
 .adm-dlg h2 .chip { vertical-align: middle; margin-left: 8px; }
@@ -135,3 +135,15 @@ button.stat:active { transform: scale(.98); }
 .pwait { display: block; margin-top: 3px; font-size: 12.5px; color: var(--muted); text-align: left; }
 .pwait.ready { color: var(--blue); font-weight: 500; text-decoration: underline; text-underline-offset: 2px; }
 @media (max-width: 520px) { .sale-btn { margin-left: 8px; } }
+
+/* order cards on the Today screen: one big button each */
+.ocard { margin: 0 0 12px; padding: 12px; border-radius: 18px; background: var(--bg, #F4F3EE); border: 1px solid var(--line); }
+.ocard:last-child { margin-bottom: 0; }
+.ocard-top { display: flex; align-items: center; gap: 10px; width: 100%; margin: 0 0 10px; padding: 0; text-align: left; background: none; border: 0; color: inherit; font: inherit; cursor: pointer; }
+.ocard .hint { margin: 8px 2px 0; text-align: center; }
+.tabhelp { margin: 0 0 12px; font-size: 14px; }
+.guide summary { cursor: pointer; list-style: none; }
+.guide summary::-webkit-details-marker { display: none; }
+.guide summary h3 { display: inline; margin: 0; }
+.guide summary::after { content: " ▾"; color: var(--faint); }
+.guide ol { margin: 12px 0 0; padding-left: 20px; display: grid; gap: 8px; font-size: 14.5px; line-height: 1.45; }

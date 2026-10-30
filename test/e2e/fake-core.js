@@ -177,7 +177,7 @@
         if (d.uid !== w.uid) deny("orders: uid");
         if (!/^[A-Za-z0-9-]{8,64}$/.test(d.requestId) || id !== "o_" + d.requestId) deny("orders: id");
         if (!/^BH-[A-Z0-9]{6}$/.test(d.ref)) deny("orders: ref");
-        if (d.status !== "new" || d.paymentStatus !== "mock" || d.isTest !== true) deny("orders: status");
+        if (d.status !== "new" || !["mock", "awaiting"].includes(d.paymentStatus) || d.isTest !== true) deny("orders: status");
         if (!["collection", "delivery"].includes(d.fulfilment)) deny("orders: fulfilment");
         if (!Array.isArray(d.items) || d.items.length < 1 || d.items.length > 50) deny("orders: items");
         const cu = d.customer;
@@ -197,7 +197,7 @@
         const changed = Object.keys(raw).filter(k => key(enc(raw[k], t)) !== key(before[k]));
         if (!changed.every(k => ["status", "paymentStatus", "lines", "subtotal", "deliveryFee", "total", "updatedAt"].includes(k))) deny("orders: owner changed " + changed);
         if (before.status === "cancelled") deny("orders: cancelled is final");
-        if (!["new", "confirmed", "preparing", "ready", "completed", "cancelled"].includes(raw.status)) deny("orders: status value");
+        if (!["new", "confirmed", "preparing", "ontheway", "arrived", "ready", "completed", "cancelled"].includes(raw.status)) deny("orders: status value");
         if (raw.paymentStatus !== before.paymentStatus && before.isTest !== false) deny("orders: test payment stays mock");
         if (!isSV(raw.updatedAt)) deny("orders: updatedAt");
         return;

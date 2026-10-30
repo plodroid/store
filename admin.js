@@ -3,8 +3,8 @@
    Free-plan design: orders arrive as requests, and "Confirm" re-prices and re-checks stock in a
    transaction (so customers can never choose their own price). */
 
-import { $, $$, esc, money, openDialog, closeDialog, showError, setBusy, toast, millis, timeAgo, store, priceOf, onSale } from "./ui.js?v=7";
-import { lookupPostcode } from "./uk.js?v=7";
+import { $, $$, esc, money, openDialog, closeDialog, showError, setBusy, toast, millis, timeAgo, store, priceOf, onSale } from "./ui.js?v=8";
+import { lookupPostcode } from "./uk.js?v=8";
 
 const css = document.createElement("link");
 css.rel = "stylesheet"; css.href = new URL("./admin.css", import.meta.url).href;
@@ -42,12 +42,14 @@ export function watchAlerts(ctx) {
   if (A.started) return;
   A.started = true;
   const { fs } = X.FS, d = db();
-  const sub = (key, q, onAdd) => {
+  const sub = (key, q, onAdd, keep = () => true) => {
     let first = true;
     A.unsubs.push(fs.onSnapshot(q, snap => {
-      A[key] = snap.docs.map(x => ({ id: x.id, ...x.data() }));
+      const had = new Set(A[key].map(x => x.id));
+      const docs = snap.docs.filter(x => keep(x.data()));
+      A[key] = docs.map(x => ({ id: x.id, ...x.data() }));
       A.loaded[key] = true; delete A.errors[key];
-      if (!first && onAdd) snap.docChanges().forEach(ch => { if (ch.type === "added" && !ch.doc.metadata.hasPendingWrites) onAdd({ id: ch.doc.id, ...ch.doc.data() }); });
+      if (!first && onAdd) docs.forEach(x => { if (!had.has(x.id) && !x.metadata.hasPendingWrites) onAdd({ id: x.id, ...x.data() }); });
       first = false;
       paintDot(); if (A.open) paint();
     }, err => {
@@ -61,7 +63,8 @@ export function watchAlerts(ctx) {
   sub("categories", fs.collection(d, "categories"));
   sub("alerts", fs.collection(d, "stockAlerts"));
   sub("orders", fs.query(fs.collection(d, "orders"), fs.orderBy("createdAt", "desc"), fs.limit(300)),
-    o => alertMe("New order " + (o.ref || ""), `${(o.items || []).reduce((n, i) => n + (i.qty || 0), 0)} items · ${o.fulfilment === "delivery" ? "Delivery" : "Pick-up"}`));
+    o => alertMe("New order " + (o.ref || ""), `${(o.items || []).reduce((n, i) => n + (i.qty || 0), 0)} items · ${o.fulfilment === "delivery" ? "Delivery" : "Pick-up"}`),
+    o => !(o.status === "new" && o.paymentStatus === "awaiting"));      // a checkout the customer hasn't paid yet isn't an order
   sub("feedback", fs.query(fs.collection(d, "feedback"), fs.orderBy("createdAt", "desc"), fs.limit(200)),
     f => alertMe(f.kind === "bug" ? "New problem report" : f.kind === "question" ? "New question" : "New feedback", (f.message || "").slice(0, 80)));
 }
@@ -77,7 +80,7 @@ export function stopAlerts() {
 }
 
 const attention = () => ({
-  newOrders: A.orders.filter(o => o.status === "new").length,
+  newOrders: A.orders.filter(o => o.status === "new" || o.status === "confirmed").length,      // waiting for the owner to start
   unread: A.feedback.filter(f => !f.read && !f.archived).length,
 });
 function paintDot() {
@@ -111,7 +114,7 @@ function alertMe(title, body) {
 }
 
 /* ── shell ───────────────────────────────────────────── */
-const TABS = [["home", "Home"], ["products", "Products"], ["orders", "Orders"], ["feedback", "Feedback"], ["categories", "Categories"], ["settings", "Settings"]];
+const TABS = [["home", "Today"], ["products", "Products"], ["orders", "Orders"], ["feedback", "Messages"], ["categories", "Categories"], ["settings", "Settings"]];
 
 export function openAdmin(ctx) {
   X = ctx;
@@ -170,7 +173,8 @@ function homeView() {
   const now = Date.now(), DAY = 864e5;
   const since = n => live.filter(o => created(o) >= now - n * DAY);
   const orderValue = o => o.total != null ? o.total : (o.estTotal || 0);
-  const open = A.orders.filter(o => ["confirmed", "preparing", "ready"].includes(o.status)).length;
+  const open = A.orders.filter(o => ["preparing", "ontheway", "arrived", "ready"].includes(o.status)).length;
+  const jobs = A.orders.filter(o => !["completed", "cancelled"].includes(o.status)).sort((x, y) => created(x) - created(y));
   const sellable = A.products.filter(p => !p.archived);
   const low = sellable.filter(p => stockState(p) === "low"), out = sellable.filter(p => stockState(p) === "out");
   const a = attention();
@@ -186,7 +190,6 @@ function homeView() {
   }).join("");
 
   const todo = [
-    ...A.orders.filter(o => o.status === "new").slice(0, 5).map(o => `<button class="adm-row" data-act="open-order" data-id="${esc(o.id)}"><span class="chip new">New</span><span class="adm-grow"><b>${esc(o.ref)}</b> · ${esc(o.customer?.name || "Customer")}</span><span class="muted">${timeAgo(created(o))}</span></button>`),
     ...A.feedback.filter(f => !f.read && !f.archived).slice(0, 3).map(f => `<button class="adm-row" data-act="tab" data-tab="feedback"><span class="chip ${f.kind === "bug" ? "bad" : "info"}">${KIND[f.kind] || "Feedback"}</span><span class="adm-grow adm-clip">${esc(f.message)}</span><span class="muted">${timeAgo(millis(f.createdAt))}</span></button>`),
     ...out.slice(0, 4).map(p => `<button class="adm-row" data-act="edit-product" data-id="${esc(p.id)}"><span class="chip bad">Out of stock</span><span class="adm-grow">${esc(p.name)}</span></button>`),
     ...sellable.filter(p => p.stock > 0 && waiting(p.id).length).slice(0, 4).map(p => `<button class="adm-row" data-act="notify-stock" data-id="${esc(p.id)}"><span class="chip info">Back in stock</span><span class="adm-grow">${esc(p.name)}</span><span class="muted">email ${waiting(p.id).length} waiting</span></button>`),
@@ -194,20 +197,33 @@ function homeView() {
   ];
 
   return `${errorBanner(["products", "orders", "feedback"])}
+    <section class="adm-card"><h3>Orders to do${jobs.length ? ` <span class="adm-badge">${jobs.length}</span>` : ""}</h3>
+      ${jobs.length ? jobs.slice(0, 12).map(orderCard).join("") : `<p class="adm-empty small">No orders waiting. When a customer pays, you get an email and a beep here, and the order shows up on this screen.</p>`}
+    </section>
     <div class="stats">
-      <button class="stat ${a.newOrders ? "hot" : ""}" data-act="go-orders" data-f="new"><span>New orders</span><b>${a.newOrders}</b></button>
-      <button class="stat" data-act="go-orders" data-f="active"><span>In progress</span><b>${open}</b></button>
+      <button class="stat ${a.newOrders ? "hot" : ""}" data-act="go-orders" data-f="active"><span>Orders waiting for you</span><b>${a.newOrders}</b></button>
+      <button class="stat" data-act="go-orders" data-f="active"><span>On the go right now</span><b>${open}</b></button>
       <div class="stat"><span>Orders this week</span><b>${since(7).length}</b></div>
-      <div class="stat"><span>Order value · 30 days</span><b>${money(since(30).reduce((t, o) => t + orderValue(o), 0))}</b><small>orders placed, paid or not</small></div>
-      <button class="stat ${a.unread ? "hot" : ""}" data-act="tab" data-tab="feedback"><span>Unread messages</span><b>${a.unread}</b></button>
+      <div class="stat"><span>Sales · last 30 days</span><b>${money(since(30).reduce((t, o) => t + orderValue(o), 0))}</b><small>orders placed, paid or not</small></div>
+      <button class="stat ${a.unread ? "hot" : ""}" data-act="tab" data-tab="feedback"><span>New messages</span><b>${a.unread}</b></button>
       <button class="stat" data-act="tab" data-tab="products"><span>Low or out of stock</span><b>${low.length + out.length}</b></button>
     </div>
     <section class="adm-card"><h3>Orders, last 14 days</h3>
       <svg class="chart" viewBox="0 0 392 108" role="img" aria-label="Orders per day over the last 14 days: ${days.map(d => d.n).join(", ")}" preserveAspectRatio="none">${bars}</svg>
     </section>
-    <section class="adm-card"><h3>Needs your attention</h3>
-      ${todo.length ? `<div class="adm-list">${todo.join("")}</div>` : `<p class="adm-empty small">All clear. Nothing needs you right now.</p>`}
-    </section>`;
+    <section class="adm-card"><h3>Also worth a look</h3>
+      ${todo.length ? `<div class="adm-list">${todo.join("")}</div>` : `<p class="adm-empty small">All clear. Nothing else needs you right now.</p>`}
+    </section>
+    <details class="adm-card guide" id="admGuide" ${store.get("adm.guideSeen", false) ? "" : "open"}><summary><h3>How does this work?</h3></summary>
+      <ol>
+        <li><b>A customer pays.</b> They choose pick-up or delivery in the shop and pay by card. You get an email and a beep, and the order appears at the top of this screen.</li>
+        <li><b>Delivery:</b> press <b>I'm on my way</b> when you set off. The customer gets an email. Press <b>I've arrived</b> when you're outside (they get another email). Press <b>Delivered. All done</b> at the end.</li>
+        <li><b>Pick-up:</b> press <b>Order is ready to collect</b> (the customer gets an email), then <b>Handed over. All done</b> when they take it.</li>
+        <li><b>You only ever press the one big button.</b> Tap an order's name to see the address, phone number and what they bought.</li>
+        <li><b>Stock goes down by itself</b> when someone pays. To change what you sell, prices or how many you have, use the <b>Products</b> tab.</li>
+        <li><b>Problem?</b> You can cancel an order from its details. If they already paid, give the money back from your Stripe dashboard.</li>
+      </ol>
+    </details>`;
 }
 
 /* ═════════ PRODUCTS ═════════ */
@@ -222,6 +238,7 @@ function productsView() {
     .sort((a, b) => String(a.name).localeCompare(String(b.name)));
   const chip = (k, label) => `<button type="button" class="fchip" data-act="pfilter" data-f="${k}" aria-pressed="${f === k}">${label}</button>`;
   return `${errorBanner(["products"])}
+    <p class="muted tabhelp">What you sell. Tap a product to change its price, photo or how many you have. Use the − and + to fix the stock count.</p>
     <div class="adm-bar">
       <label class="adm-search"><input id="admPq" type="search" placeholder="Search products" value="${esc(A.pq)}" autocomplete="off"></label>
       <button class="btn-primary sm" type="button" data-act="new-product">${ICON.plus} Add product</button>
@@ -493,10 +510,55 @@ async function deleteCategory(id) {
 const stripId = o => { const { id, ...rest } = o; return rest; };
 
 /* ═════════ ORDERS ═════════ */
-const STATUS = { new: "New", confirmed: "Confirmed", preparing: "Preparing", ready: "Ready", completed: "Completed", cancelled: "Cancelled" };
-const statusLabel = o => o.status === "ready" ? (o.fulfilment === "delivery" ? "Out for delivery" : "Ready to collect") : STATUS[o.status] || o.status;
-const NEXT = { confirmed: ["preparing", "Start preparing"], preparing: ["ready", null], ready: ["completed", "Mark completed"] };
-const nextLabel = o => o.status === "preparing" ? (o.fulfilment === "delivery" ? "Out for delivery" : "Ready to collect") : NEXT[o.status]?.[1];
+const STATUS = { new: "New", confirmed: "Paid", preparing: "Preparing", ontheway: "On the way", arrived: "Arrived", ready: "Ready to collect", completed: "Done", cancelled: "Cancelled" };
+const statusLabel = o => o.status === "confirmed" && o.paymentStatus !== "paid" ? "Confirmed" : STATUS[o.status] || o.status;
+/* The ONE button an order needs next. Delivery: on my way > arrived > done. Pick-up: ready > done. */
+const STEP = {
+  confirmed: o => o.fulfilment === "delivery"
+    ? ["ontheway", "I'm on my way", "The customer gets an email saying you're on your way."]
+    : ["ready", "Order is ready to collect", "The customer gets an email saying it's ready."],
+  ontheway: () => ["arrived", "I've arrived", "The customer gets an email saying you're outside."],
+  arrived: () => ["completed", "Delivered. All done", "Finishes the order. No email is sent."],
+  ready: () => ["completed", "Handed over. All done", "Finishes the order. No email is sent."],
+};
+STEP.preparing = STEP.confirmed;
+const stepOf = o => { const f = STEP[o.status]; if (!f) return null; const [to, label, hint] = f(o); return { to, label, hint }; };
+const MAILED = ["ontheway", "arrived", "ready"];
+
+/** Tells the customer the order's new step by email (the script decides the wording). Resolves true if it was sent. */
+async function emailStage(orderId) {
+  const url = String(window.STORE_AUTH_URL || "");
+  if (!/^https:\/\/script\.google\.com\//.test(url)) return false;
+  try {
+    const idToken = await X.FS.auth.currentUser.getIdToken(true);
+    const res = await fetch(url, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ a: "stage", idToken, orderId }) });
+    const j = await res.json();
+    return j.ok === true && j.sent > 0;
+  } catch (e) { console.error("[admin] stage email", e); return false; }
+}
+
+/** Moves an order to its next step, then emails the customer. Returns the message to show. */
+async function advance(o) {
+  const st = stepOf(o); if (!st) return "";
+  const { fs } = X.FS;
+  await fs.updateDoc(fs.doc(db(), "orders", o.id), { status: st.to, updatedAt: fs.serverTimestamp() });
+  if (!MAILED.includes(st.to)) return "Order finished. Nice one!";
+  return (await emailStage(o.id)) ? "Done. The customer has been emailed." : "Saved, but the email didn't send. Message the customer yourself.";
+}
+
+/** An order as a card with its one big button: used on the Today screen. */
+function orderCard(o) {
+  const st = stepOf(o), n = (o.items || []).reduce((t, i) => t + (i.qty || 0), 0), total = o.total != null ? o.total : o.estTotal;
+  const where = o.fulfilment === "delivery" ? `Deliver to ${esc(o.address?.postcode || "the customer")}` : "Customer collects";
+  return `<article class="ocard">
+    <button class="ocard-top" type="button" data-act="open-order" data-id="${esc(o.id)}">
+      <span class="chip ${o.status}">${esc(statusLabel(o))}</span>
+      <span class="adm-grow"><b>${esc(o.customer?.name || "Customer")}</b> · ${esc(o.ref)}<br><span class="muted">${where} · ${n} item${n === 1 ? "" : "s"} · ${total != null ? money(total) : ""}${o.paymentStatus === "paid" ? " · <b>Paid</b>" : ""}</span></span>
+    </button>
+    ${st ? `<button class="btn-primary wide" type="button" data-act="advance-order" data-id="${esc(o.id)}">${esc(st.label)}</button><p class="hint">${esc(st.hint)}</p>`
+      : `<button class="btn-primary wide" type="button" data-act="open-order" data-id="${esc(o.id)}">Check this order</button>`}
+  </article>`;
+}
 
 function ordersView() {
   if (loading(["orders"])) return `<p class="adm-empty">Loading…</p>`;
@@ -505,7 +567,8 @@ function ordersView() {
   const list = A.orders.filter(pass);
   const chip = (k, label) => `<button type="button" class="fchip" data-act="ofilter" data-f="${k}" aria-pressed="${f === k}">${label}</button>`;
   return `${errorBanner(["orders"])}
-    <div class="fchips">${chip("active", "To do")}${chip("new", "New")}${chip("completed", "Completed")}${chip("cancelled", "Cancelled")}${chip("all", "All")}</div>
+    <p class="muted tabhelp">Every order, newest first. Tap one to see the details and the button for its next step.</p>
+    <div class="fchips">${chip("active", "To do")}${chip("completed", "Done")}${chip("cancelled", "Cancelled")}${chip("all", "All")}</div>
     ${list.length ? `<div class="adm-list">${list.map(o => {
       const n = (o.items || []).reduce((t, i) => t + (i.qty || 0), 0);
       const total = o.total != null ? o.total : o.estTotal;
@@ -534,7 +597,7 @@ function orderDialog(id) {
   const mismatch = !locked && o.estTotal != null && Math.abs(o.estTotal - total) > 0.005;
   const a = o.address;
   const canCancel = !["completed", "cancelled"].includes(o.status);
-  const next = NEXT[o.status];
+  const next = stepOf(o);
 
   $("#admDlgBody").innerHTML = `
     <h2>${esc(o.ref)} <span class="chip ${o.status}">${esc(statusLabel(o))}</span></h2>
@@ -559,7 +622,7 @@ function orderDialog(id) {
     <p class="form-error" id="ordErr" role="alert" hidden></p>
     ${o.status === "new" ? `<button class="btn-primary wide" id="ordMain" type="button" data-act="confirm-order" ${problems.length ? "disabled" : ""}>Confirm order &amp; reserve stock</button>
       ${problems.length ? `<p class="hint">Fix the stock first (edit the product), or cancel this order.</p>` : ""}`
-    : next ? `<button class="btn-primary wide" id="ordMain" type="button" data-act="advance-order">${esc(nextLabel(o))}</button>` : ""}
+    : next ? `<button class="btn-primary wide" id="ordMain" type="button" data-act="advance-order" data-id="${esc(o.id)}">${esc(next.label)}</button><p class="hint">${esc(next.hint)}</p>` : ""}
     ${canCancel ? `<button class="btn-quiet danger" type="button" data-act="cancel-order">Cancel order</button>` : ""}`;
   openDialog($("#admDlg"));
 
@@ -575,12 +638,13 @@ async function runOrderAction(label, fn) {
   const btn = $("#ordMain") || $("[data-act=cancel-order]");
   const err = $("#ordErr"); showError(err, "");
   setBusy($("#admDlg"), btn, true);
-  try { await fn(); } catch (e) {
+  let msg;
+  try { msg = await fn(); } catch (e) {
     console.error("[admin] order", e);
     showError(err, e.userMessage || (e.code === "permission-denied" ? "The database refused that change." : "Couldn't do that. Check your connection and try again."));
     return;
   } finally { setBusy($("#admDlg"), btn, false); }
-  toast(label);
+  toast(typeof msg === "string" && msg ? msg : label);
   const fresh = A.orders.find(o => o.id === viewing);
   if (fresh && !["completed", "cancelled"].includes(fresh.status)) setTimeout(() => orderDialog(viewing), 250); else closeDialog($("#admDlg"));
 }
@@ -806,17 +870,22 @@ async function onClick(e) {
     case "delete-cat": return deleteCategory(id);
     case "confirm-order": { const o = A.orders.find(x => x.id === viewing); return runOrderAction("Order confirmed. Stock reserved.", () => confirmOrder(o)); }
     case "advance-order": {
-      const o = A.orders.find(x => x.id === viewing);
-      return runOrderAction("Updated", () => fs.updateDoc(fs.doc(db(), "orders", o.id), { status: NEXT[o.status][0], updatedAt: fs.serverTimestamp() }));
+      const o = A.orders.find(x => x.id === id); if (!o) return;
+      if (t.id === "ordMain") return runOrderAction("Updated", () => advance(o));
+      t.disabled = true;                                  // the big button on a Today card
+      try { toast(await advance(o), 3500); } catch (err) { console.error("[admin] advance", err); toast("Couldn't update that order. Check your connection and try again."); t.disabled = false; }
+      return;
     }
     case "cancel-order": {
       const o = A.orders.find(x => x.id === viewing);
-      if (await confirmBox({ title: `Cancel ${o.ref}?`, text: o.status === "new" ? "The customer's request will be cancelled." : "Any reserved stock goes back on the shelf. This can't be undone.", ok: "Cancel order", danger: true }))
+      if (await confirmBox({ title: `Cancel ${o.ref}?`, text: (o.paymentStatus === "paid" ? "This customer already paid by card. Cancelling does NOT refund them: refund the payment in your Stripe dashboard too. " : "") + (o.status === "new" ? "The customer's request will be cancelled." : "Any reserved stock goes back on the shelf. This can't be undone."), ok: "Cancel order", danger: true }))
         runOrderAction("Order cancelled", () => cancelOrder(o));
       return;
     }
   }
 }
+
+document.addEventListener("toggle", e => { if (e.target.id === "admGuide") store.set("adm.guideSeen", true); }, true);
 
 // dialog-level events (forms, file picker) — the dialogs live outside #admin
 document.addEventListener("submit", e => {

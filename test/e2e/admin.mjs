@@ -105,19 +105,51 @@ await test("order: not enough stock blocks confirm; stock untouched", async ({ p
   assert.equal(d.orders.o_abc12345.status, "new"); assert.equal(d.products.p2.stock, 3);
 }, { orders: { o_abc12345: ORDER({ items: [{ productId: "p2", qty: 5, name: "Sparkling Water" }], estTotal: 12 }) } });
 
-await test("order: delivery order shows address + advance statuses to completed", async ({ page: p }) => {
+await test("order: delivery order shows address + advance statuses to completed", async (t) => {
+  const p = t.page;
   await openAdmin(p); await tab(p, "orders");
   await p.click('[data-act="open-order"]');
   assert.match(await p.locator("#admDlg").innerText(), /Example Road/);
   await p.click("#ordMain");
   await p.waitForFunction(() => window.__FAKE.dump().orders.o_abc12345.status === "confirmed");
-  for (const s of ["preparing", "ready", "completed"]) {
+  // delivery has three steps: on my way > arrived > done. The first two email the customer.
+  for (const s of ["ontheway", "arrived", "completed"]) {
     await p.waitForTimeout(500);   // the dialog redraws itself ~250ms after each action
     await p.click("#ordMain");
     await p.waitForFunction(st => window.__FAKE.dump().orders.o_abc12345.status === st, s);
   }
+  const stages = t.mail.calls.filter(c => c.a === "stage");
+  assert.equal(stages.length, 2); assert.ok(stages.every(c => c.orderId === "o_abc12345" && c.idToken));
 }, { orders: { o_abc12345: ORDER({ fulfilment: "delivery", customer: { name: "Gina", phone: "+447123456789", email: "g@e.com" },
   address: { line1: "10 Example Road", line2: "", city: "London", postcode: "SW1A 1AA", lat: 52.63, lng: -1.09, verified: true } }) } });
+
+await test("today: a paid order shows with one big button; pick-up goes ready > done", async (t) => {
+  const p = t.page;
+  await openAdmin(p);
+  assert.match(await p.locator("#admMain").innerText(), /Orders to do/);
+  assert.match(await p.locator(".ocard").innerText(), /Gina Test/);
+  assert.match(await p.locator(".ocard .btn-primary").innerText(), /Order is ready to collect/);
+  await p.click(".ocard .btn-primary");
+  await p.waitForFunction(() => window.__FAKE.dump().orders.o_abc12345.status === "ready");
+  assert.equal(t.mail.calls.filter(c => c.a === "stage").length, 1);
+  await p.waitForFunction(() => /Handed over/.test(document.querySelector(".ocard .btn-primary")?.innerText || ""));
+  await p.click(".ocard .btn-primary");
+  await p.waitForFunction(() => window.__FAKE.dump().orders.o_abc12345.status === "completed");
+  assert.equal(t.mail.calls.filter(c => c.a === "stage").length, 1, "finishing sends no email");
+}, { orders: { o_abc12345: ORDER({ status: "confirmed", paymentStatus: "paid", total: 13 }) } });
+
+await test("today: a checkout that was never paid is hidden from the owner; paying makes it appear", async (t) => {
+  const p = t.page;
+  await openAdmin(p);
+  assert.equal(await p.locator(".ocard").count(), 0);
+  await p.evaluate(() => { const o = window.__FAKE.dump().orders.o_abc12345; window.__FAKE.inject("orders", "o_abc12345", { ...o, status: "confirmed", paymentStatus: "paid", total: 13 }); });
+  await p.waitForSelector(".ocard");
+}, { orders: { o_abc12345: ORDER({ paymentStatus: "awaiting" }) } });
+
+await test("today: plain-English guide is there", async ({ page: p }) => {
+  await openAdmin(p);
+  assert.match(await p.locator("#admGuide").innerText(), /I'm on my way/);
+});
 
 await test("feedback: shows, mark read, archive", async ({ page: p }) => {
   await openAdmin(p); await tab(p, "feedback");

@@ -99,16 +99,20 @@ Editing `Code.gs` does nothing until you redeploy: **Deploy → Manage deploymen
 
 ## Step 11: card payments with Stripe (optional)
 
-Orders are still placed first and confirmed by the shop (that locks the price). Once an order is **Confirmed**, the customer sees **Pay £x by card** under it in *My orders*. They can also just pay at pick-up or on delivery. The card is charged on Stripe's own page, so no card details ever touch this site.
+With card payments on, checkout goes **straight to Stripe's card page**: the customer pays first, and only then does the shop get the order (it is confirmed and the stock is taken automatically). The script works out the price itself from the live shop data (sale prices + delivery fee), so the browser can never choose what is charged. The owner gets an email for every paid order, and the customer gets a receipt email. Card details never touch this site. Without a Stripe key the shop falls back to the old way: place the order, the owner confirms it, pay at pick-up or delivery.
 
 1. Make a free account at <https://dashboard.stripe.com/register> (the shop owner's own account). Stay in **Test mode** (the switch at the top) until you've tried it.
 2. In Stripe: **Developers → API keys**. Copy the **Secret key** (starts with `sk_test_`). Never paste it anywhere public.
 3. In the Apps Script: **Project Settings (the cog) → Script properties → Add script property**. Name `STRIPE_SECRET_KEY`, value = the key. Save.
 4. Redeploy (Step 10): **Deploy → Manage deployments → pencil → Version: New version → Deploy**.
-5. Test: place an order, confirm it as the owner, open *My orders* as the customer, press **Pay**, use card `4242 4242 4242 4242`, any future date, any CVC. You come back to the shop, the order shows **Paid**, and the owner sees **Paid** on it.
+5. Test: add something to the basket, check out, press **Pay**, use card `4242 4242 4242 4242`, any future date, any CVC. You come back to the shop, the order shows **Paid · Confirmed** in *My orders*, and the owner sees it at the top of the **Today** screen.
 6. Going live: in Stripe turn Test mode off, finish Stripe's business details, copy the **live** secret key (`sk_live_`) and replace the script property in step 3, then redo step 4.
 
-If the key is missing, the Pay button simply doesn't appear. The amount always comes from the confirmed order on the server, and an order is only marked paid after the script asks Stripe itself whether it was paid.
+An order is only marked paid after the script asks Stripe itself whether it was paid. Refunds are done in the Stripe dashboard.
+
+### What the owner does
+
+Open the shop, tap **Manage** (the **Today** tab). Every paid order is a card with one big button: delivery orders go **I'm on my way → I've arrived → Delivered. All done**; pick-up orders go **Order is ready to collect → Handed over. All done**. The first buttons email the customer. The *How does this work?* box on that screen explains it in plain words.
 
 ## Troubleshooting
 

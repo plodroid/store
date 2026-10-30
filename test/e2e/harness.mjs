@@ -49,15 +49,17 @@ export async function launch(base, { seed = SEED, accounts = {}, viewport, maile
   const CONFIG = fs.readFileSync(path.join(ROOT, "firebase-config.js"), "utf8");
   await ctx.route("**/firebase-config.js*", r => r.fulfill({ contentType: "text/javascript",
     body: mailer ? CONFIG : CONFIG.replace(/window\.STORE_AUTH_URL\s*=\s*"[^"]*"/, 'window.STORE_AUTH_URL = "PASTE_APPS_SCRIPT_URL"') }));
-  await ctx.route("https://script.google.com/**", r => {
+  await ctx.route("https://script.google.com/**", async r => {
     const h = { "access-control-allow-origin": "*" };
     const b = JSON.parse(r.request().postData() || "{}");
     mail.calls.push(b);
     const reply = j => r.fulfill({ status: 200, headers: h, json: j });
-    if (r.request().method() === "GET") return reply({ ok: true, service: "store-login", pay: mail.pay !== false });
+    if (r.request().method() === "GET") return reply({ ok: true, service: "store-login", pay: mail.pay === true });
+    if (b.a === "pay") { try { mail.atPay = await r.request().frame().page().evaluate(() => window.__FAKE.dump()); } catch {} }
     if (b.a === "pay") return reply({ ok: true, url: "https://checkout.stripe.test/pay?o=" + b.orderId });
     if (b.a === "paid") return reply({ ok: b.sid === "cs_test_good" });
     if (["housikiki@gmail.com"].includes(b.email)) return reply({ ok: false, error: "use_google" });
+    if (b.a === "stage") return reply({ ok: true, sent: 1 });
     if (b.a === "notify") return reply({ ok: true, sent: (b.emails || []).length, sentTo: b.emails || [] });
     if (b.a === "send") {
       mail.codes[b.email] = String(Math.floor(Math.random() * 10000)).padStart(4, "0"); mail.tries[b.email] = 0; mail.sent.push(b.email);

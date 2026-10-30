@@ -10,8 +10,9 @@ rules_version = '2';
 //   • The owner:        manage the catalogue, read/update orders, read feedback, edit site settings.
 //                       "Owner" = the Google account listed in isOwner() below (or a console-made owners/{uid} doc).
 //
-// Order prices are NOT trusted: an order stores only product ids + quantities. The owner confirms an
-// order in the admin panel, which re-reads live prices and stock and then locks them in.
+// Order prices are NOT trusted: an order stores only product ids + quantities. When the customer pays, the
+// mailer script (apps-script/Code.gs) prices the order from live shop data and charges exactly that. (Without
+// card payments the owner confirms the order in the admin panel, which re-reads live prices and stock.)
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -171,7 +172,7 @@ service cloud.firestore {
         && d.requestId is string && d.requestId.matches('^[A-Za-z0-9-]{8,64}$')
         && id == 'o_' + d.requestId                                          // same request = same order (no duplicates)
         && d.ref is string && d.ref.matches('^BH-[A-Z0-9]{6}$')
-        && d.status == 'new' && d.paymentStatus == 'mock' && d.isTest == true
+        && d.status == 'new' && d.paymentStatus in ['mock', 'awaiting'] && d.isTest == true
         && d.fulfilment in ['collection', 'delivery']
         && d.items is list && d.items.size() >= 1 && d.items.size() <= 50
         && d.customer is map && d.customer.keys().hasOnly(['name', 'phone', 'email'])
@@ -194,7 +195,7 @@ service cloud.firestore {
       allow update: if isOwner()
         && onlyChanges(['status', 'paymentStatus', 'lines', 'subtotal', 'deliveryFee', 'total', 'updatedAt'])
         && resource.data.status != 'cancelled'                              // cancelled is final
-        && request.resource.data.status in ['new', 'confirmed', 'preparing', 'ready', 'completed', 'cancelled']
+        && request.resource.data.status in ['new', 'confirmed', 'preparing', 'ontheway', 'arrived', 'ready', 'completed', 'cancelled']
         && (request.resource.data.paymentStatus == resource.data.paymentStatus
             || (resource.data.isTest == false                               // test orders stay "mock"
                 && request.resource.data.paymentStatus in ['pending', 'paid', 'failed', 'refunded']))

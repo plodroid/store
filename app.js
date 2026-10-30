@@ -4,9 +4,9 @@
    locked down by firestore.rules, so the whole thing runs on the free Firebase plan. */
 
 import { $, $$, esc, store, money, pence, reduced, uid, openDialog, closeDialog, wireDialogs,
-         toast, showError, setBusy, priceOf, onSale, percentOff, millis } from "./ui.js?v=7";
-import { createAuth } from "./auth.js?v=7";
-import { normaliseUkPhone, showUkPhone } from "./uk.js?v=7";
+         toast, showError, setBusy, priceOf, onSale, percentOff, millis } from "./ui.js?v=8";
+import { createAuth } from "./auth.js?v=8";
+import { normaliseUkPhone, showUkPhone } from "./uk.js?v=8";
 
 const DEF = window.STORE_DEFAULTS;
 const PATHS = window.STORE_PATHS;
@@ -628,19 +628,24 @@ async function dismissRestock() {
 /* ── my orders ───────────────────────────────────────── */
 const mo = $("#mo");
 let moUnsub = null;
+const unpaid = o => o.status === "new" && o.paymentStatus === "awaiting";      // started checkout, never paid
 const ORDER_STATUS = {
-  new: "Sent to the shop", confirmed: "Confirmed", preparing: "Being prepared",
+  new: o => unpaid(o) ? "Waiting for payment" : "Sent to the shop", confirmed: "Confirmed", preparing: "Being prepared",
+  ontheway: "On its way", arrived: "Arrived",
   ready: o => o.fulfilment === "delivery" ? "Out for delivery" : "Ready to collect",
   completed: "Completed", cancelled: "Cancelled",
 };
 const statusText = o => { const t = ORDER_STATUS[o.status]; return typeof t === "function" ? t(o) : t || o.status; };
 const STATUS_HELP = {
-  new: "The shop will check stock and confirm your order soon.",
-  confirmed: "The shop has confirmed your order and reserved your items.",
+  new: o => unpaid(o) ? "Your order isn't placed until it's paid." : "The shop will check stock and confirm your order soon.",
+  confirmed: o => o.paymentStatus === "paid" ? `Paid, thank you! We'll email you when it's ${o.fulfilment === "delivery" ? "on its way" : "ready to collect"}.` : "The shop has confirmed your order and reserved your items.",
   preparing: "The shop is getting your order ready.",
+  ontheway: "The shop is on the way to you now.",
+  arrived: "The shop has arrived with your order. Please come to the door.",
   completed: "All done. Thank you for ordering!",
   cancelled: "This order was cancelled.",
 };
+const helpText = o => { const t = o.status === "ready" ? (o.fulfilment === "delivery" ? "Your order is on its way." : "Your order is ready. Come and collect it.") : STATUS_HELP[o.status]; return typeof t === "function" ? t(o) : t || ""; };
 
 /* ── card payments (Stripe Checkout via the Apps Script) ── */
 const AUTH_URL = () => String(window.STORE_AUTH_URL || "");
@@ -652,16 +657,27 @@ const callPay = async body => {
   const res = await fetch(AUTH_URL(), { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ ...body, idToken }) });
   return res.json();
 };
-const PAY_ERR = { not_ready: "The shop needs to confirm your order before you can pay.", already_paid: "This order is already paid.", not_set_up: "Card payments aren't switched on yet." };
-const canPay = o => o.paymentStatus !== "paid" && ["confirmed", "preparing", "ready"].includes(o.status) && Number(o.total) > 0;
+const PAY_ERR = { not_ready: "The shop needs to confirm your order before you can pay.", already_paid: "This order is already paid.", not_set_up: "Card payments aren't switched on yet.",
+  no_delivery: "Delivery isn't available right now. Please choose pick-up.", no_collection: "Pick-up isn't available right now. Please choose delivery.", too_small: "That order is too small to pay for by card." };
+const payError = r => r.error === "stock" ? `Sorry, “${r.item}” just ran out. Please change your basket.` : PAY_ERR[r.error] || "Couldn't start the payment. Please try again.";
+const canPay = o => o.paymentStatus !== "paid" && (unpaid(o) || (["confirmed", "preparing", "ready"].includes(o.status) && Number(o.total) > 0));
 let lastOrders = [], cardsReady = false;
+/** Ask (once) whether the shop takes cards; redraw whatever is showing the answer. */
+function warmCards() {
+  cardsOn().then(on => {
+    if (on === cardsReady) return;
+    cardsReady = on;
+    if ($("#moList") && lastOrders.length) paintOrders(lastOrders);
+    if ($("#co").open && !coForm.hidden) drawCheckout();
+  });
+}
 
 async function startPay(btn) {
   setBusy(null, btn, true);
   try {
     const r = await callPay({ a: "pay", orderId: btn.dataset.pay });
     if (r.ok && r.url) { location.href = r.url; return; }
-    toast(PAY_ERR[r.error] || "Couldn't start the payment. Please try again.");
+    toast(payError(r));
   } catch { toast("Couldn't start the payment. Please check your connection."); }
   setBusy(null, btn, false);
 }
@@ -670,6 +686,7 @@ async function startPay(btn) {
 async function finishPay({ id, sid }) {
   try {
     const r = await callPay({ a: "paid", orderId: id, sid });
+    if (r.ok) { S.cart = {}; saveCart(); drawCart(true); store.sset("pendingOrder", null); }      // the order is paid: empty the basket
     toast(r.ok ? "Payment received. Thank you!" : "We couldn't confirm that payment yet. If you were charged, tell the shop.");
   } catch { toast("We couldn't confirm that payment yet. Please check My orders."); }
   openMyOrders();
@@ -679,17 +696,18 @@ function paintOrders(list) {
   lastOrders = list;
   const box = $("#moList"); if (!box) return;
   list.sort((a, b) => (millis(b.createdAt) || Date.now()) - (millis(a.createdAt) || Date.now()));
+  list = list.filter(o => !(unpaid(o) && Date.now() - (millis(o.createdAt) || Date.now()) > 864e5));      // forget checkouts abandoned yesterday
   if (!list.length) { box.innerHTML = `<p class="muted">You haven't placed any orders yet.</p>`; return; }
   box.innerHTML = list.map(o => {
     const lines = Array.isArray(o.lines) ? o.lines.map(l => ({ name: l.name, qty: l.qty })) : (o.items || []).map(i => ({ name: i.name, qty: i.qty }));
     const total = o.total != null ? o.total : o.estTotal;
-    const help = o.status === "ready" ? (o.fulfilment === "delivery" ? "Your order is on its way." : "Your order is ready. Come and collect it.") : STATUS_HELP[o.status] || "";
+    const help = helpText(o);
     return `<article class="mo-card">
       <div class="mo-top"><b>${esc(o.ref)}</b><span class="mo-chip" data-st="${esc(o.status)}">${esc(statusText(o))}</span></div>
       <p class="muted mo-meta">${new Date(millis(o.createdAt) || Date.now()).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })} · ${o.fulfilment === "delivery" ? "Delivery" : "Pick-up"}</p>
       <ul class="mo-items">${lines.map(l => `<li><span>${esc(l.name)}</span><span>× ${l.qty}</span></li>`).join("")}</ul>
       <div class="sum-row total"><span>${o.total != null ? "Total" : "Estimated total"}${o.paymentStatus === "paid" ? ` <span class="mo-chip" data-st="completed">Paid</span>` : ""}</span><span>${total != null ? money(total) : ""}</span></div>
-      ${cardsReady && canPay(o) ? `<button class="btn-primary wide" type="button" data-pay="${esc(o.id)}">Pay ${money(total)} by card</button><p class="muted mo-help">Or pay when you ${o.fulfilment === "delivery" ? "receive" : "collect"} it.</p>` : ""}
+      ${cardsReady && canPay(o) ? `<button class="btn-primary wide" type="button" data-pay="${esc(o.id)}">Pay ${money(total)} by card</button>${unpaid(o) ? "" : `<p class="muted mo-help">Or pay when you ${o.fulfilment === "delivery" ? "receive" : "collect"} it.</p>`}` : ""}
       ${help ? `<p class="muted mo-help">${esc(help)}</p>` : ""}
     </article>`;
   }).join("");
@@ -700,7 +718,7 @@ async function openMyOrders() {
   if (!(await acct.requireLogin("Sign in to see your orders."))) return;
   $("#moBody").innerHTML = `<h2 id="moTitle">My orders</h2><p class="muted modal-sub">Live status from the shop.</p><div class="mo-list" id="moList"><p class="muted">Loading…</p></div>`;
   openDialog(mo);
-  cardsOn().then(on => { if (on !== cardsReady) { cardsReady = on; if ($("#moList") && lastOrders.length) paintOrders(lastOrders); } });
+  warmCards();
   const { db, fs } = FS;
   if (moUnsub) moUnsub();
   moUnsub = fs.onSnapshot(fs.query(fs.collection(db, "orders"), fs.where("uid", "==", acct.user.uid)),
@@ -803,6 +821,7 @@ function openCart(open) {
   d.setAttribute("aria-hidden", String(!open));
   $("#scrim").classList.toggle("open", open);
   document.body.style.overflow = open ? "hidden" : "";
+  if (open && MODE === "live") warmCards();
   if (open) setTimeout(() => $("#closeCart").focus({ preventScroll: true }), 60);
   else if (innerWidth >= 900) $("#cartBtn").focus({ preventScroll: true });
   paintDock();
@@ -887,7 +906,7 @@ function drawCheckout() {
     <div class="sum-row"><span>Subtotal</span><span>${money(sub)}</span></div>
     ${how === "delivery" ? `<div class="sum-row"><span>Delivery</span><span>${fee ? money(fee) : "Free"}</span></div>` : ""}
     <div class="sum-row total"><span>Total</span><span>${money(sub + fee)}</span></div>
-    <p class="sum-note">The shop confirms prices and stock when it accepts your order.</p>`;
+    <p class="sum-note">${cardsReady ? "You'll see the final price on the payment page." : "The shop confirms prices and stock when it accepts your order."}</p>`;
 
   const addr = acct?.profile.address;
   $("#coAddress").hidden = how !== "delivery";
@@ -903,6 +922,10 @@ function drawCheckout() {
     : !lines.length ? "Your basket is empty." : "";
   $("#coSubmit").disabled = !!blocked;
   $("#coSubmit").title = blocked;
+  $("#coSubmit").textContent = cardsReady ? `Pay ${money(sub + fee)} by card` : "Place test order";
+  $("#coNote").innerHTML = cardsReady
+    ? `<strong>Test mode.</strong> You pay by card on the next page, and the shop gets your order straight away. Nothing real is charged.`
+    : `<strong>Test checkout.</strong> Nothing is charged. The shop confirms your order, then you can pay at pick-up or delivery. Your order is marked as a test.`;
   if (blocked && MODE !== "live") showError("#coError", blocked);
 }
 
@@ -955,13 +978,13 @@ const makeRef = () => {
 };
 
 /** Writes the order + the rate-limit stamp in one batch. Prices are NOT sent: the owner re-prices on confirm. */
-async function writeOrder(p) {
+async function writeOrder(p, paymentStatus = "mock") {
   const { db, fs, auth } = FS;
   const user = auth.currentUser;
   const orderRef = fs.doc(db, "orders", `o_${p.requestId}`);
   const ref = makeRef();
   const doc = {
-    uid: user.uid, ref, requestId: p.requestId, status: "new", paymentStatus: "mock", isTest: true,
+    uid: user.uid, ref, requestId: p.requestId, status: "new", paymentStatus, isTest: true,
     fulfilment: p.fulfilment,
     items: p.items,
     customer: { name: p.customer.name, phone: p.customer.phone || "", email: p.customer.email },
@@ -998,8 +1021,16 @@ async function submitCheckout(e) {
   payload.requestId = requestIdFor(payload);
 
   const btn = $("#coSubmit");
+  let leaving = false;
   setBusy(co, btn, true);
   try {
+    if (cardsReady) {            // pay on the spot: save the order, then go straight to the card page
+      await writeOrder(payload, "awaiting");
+      const r = await callPay({ a: "pay", orderId: `o_${payload.requestId}` });
+      if (r.ok && r.url) { leaving = true; location.href = r.url; return; }       // (the basket is emptied when the payment comes back confirmed)
+      setCheckoutNote(payError(r));
+      return;
+    }
     const lines = cartLines();
     const ref = await writeOrder(payload);
     store.sset("pendingOrder", null);
@@ -1025,8 +1056,7 @@ async function submitCheckout(e) {
       setCheckoutNote("Something went wrong on our side. Please try again in a moment.");
     }
   } finally {
-    setBusy(co, btn, false);
-    drawCheckout();
+    if (!leaving) { setBusy(co, btn, false); drawCheckout(); }
   }
 }
 
@@ -1150,7 +1180,7 @@ function onAccountChange(a) {
   }
   // the owner gets the admin panel (loaded only for them) and live alerts
   if (a.isOwner && !adminMod) {
-    adminMod = import("./admin.js?v=7").then(m => { m.watchAlerts({ FS, acct: a, getSite: () => S.site }); return m; })
+    adminMod = import("./admin.js?v=8").then(m => { m.watchAlerts({ FS, acct: a, getSite: () => S.site }); return m; })
       .catch(err => { console.error("[admin]", err); adminMod = null; });
   } else if (!a.isOwner && adminMod) {
     const p = adminMod; adminMod = null;

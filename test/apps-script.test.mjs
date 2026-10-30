@@ -244,14 +244,19 @@ test("notify: refuses other links, empty lists, and respects the daily cap", () 
 });
 
 /* ── Stripe card payments ── */
-const fsDoc = o => ({ fields: Object.fromEntries(Object.entries(o).map(([k, v]) => [k, typeof v === "number" ? (Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v }) : { stringValue: v }])) });
-function payWorld({ order, key = "sk_test_x", stripeSession } = {}) {
+const enc = v => v === null ? { nullValue: null } : typeof v === "string" ? { stringValue: v } : typeof v === "boolean" ? { booleanValue: v }
+  : typeof v === "number" ? (Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v })
+  : Array.isArray(v) ? { arrayValue: { values: v.map(enc) } } : { mapValue: { fields: Object.fromEntries(Object.entries(v).map(([k, x]) => [k, enc(x)])) } };
+const fsDoc = o => ({ fields: Object.fromEntries(Object.entries(o).map(([k, v]) => [k, enc(v)])) });
+function payWorld({ order, key = "sk_test_x", stripeSession, docs = {}, lookup = {} } = {}) {
   const seen = { stripe: [], patch: [] };
   const hook = (url, opts) => {
     if (url.startsWith("https://oauth2.googleapis.com/token")) return { body: { access_token: "AT" } };
     if (url.includes("firestore.googleapis.com")) {
-      if (opts.method === "patch") { seen.patch.push({ url, body: JSON.parse(opts.payload) }); return { body: {} }; }
-      return order ? { body: fsDoc(order) } : { code: 404, body: {} };
+      const path = decodeURIComponent(url.split("/documents/")[1].split("?")[0]);
+      if (opts.method === "patch") { seen.patch.push({ url, path, body: JSON.parse(opts.payload) }); return { body: {} }; }
+      const d = path.startsWith("orders/") ? order : docs[path];
+      return d ? { body: fsDoc(d) } : { code: 404, body: {} };
     }
     if (url.startsWith("https://api.stripe.com")) {
       seen.stripe.push({ url, method: opts.method, auth: opts.headers.Authorization, form: opts.payload });
@@ -259,7 +264,7 @@ function payWorld({ order, key = "sk_test_x", stripeSession } = {}) {
     }
     return { code: 500, body: {} };
   };
-  const w = world(key ? { STRIPE_SECRET_KEY: key } : {}, { good: { localId: "u1", email: "a@b.co" }, other: { localId: "u2" } }, hook);
+  const w = world(key ? { STRIPE_SECRET_KEY: key } : {}, { good: { localId: "u1", email: "a@b.co" }, other: { localId: "u2" }, ...lookup }, hook);
   return { ...w, seen };
 }
 const ORDER = { uid: "u1", ref: "BH-ABC123", status: "confirmed", paymentStatus: "mock", total: 7.5 };
@@ -279,7 +284,7 @@ test("pay: the Stripe amount comes from the order, in pence, never from the brow
 test("pay: refuses someone else's order, unconfirmed orders, paid orders, bad logins and missing key", () => {
   assert.equal(payWorld({ order: ORDER }).call({ a: "pay", idToken: "other", orderId: "o_order12345" }).error, "not_found");
   assert.equal(payWorld({ order: ORDER }).call({ a: "pay", idToken: "nope", orderId: "o_order12345" }).error, "auth");
-  assert.equal(payWorld({ order: { ...ORDER, status: "new" } }).call({ a: "pay", idToken: "good", orderId: "o_order12345" }).error, "not_ready");
+  assert.equal(payWorld({ order: { ...ORDER, status: "completed" } }).call({ a: "pay", idToken: "good", orderId: "o_order12345" }).error, "not_ready");
   assert.equal(payWorld({ order: { ...ORDER, paymentStatus: "paid" } }).call({ a: "pay", idToken: "good", orderId: "o_order12345" }).error, "already_paid");
   assert.equal(payWorld({ order: ORDER, key: "" }).call({ a: "pay", idToken: "good", orderId: "o_order12345" }).error, "not_set_up");
   assert.equal(payWorld({ order: ORDER }).call({ a: "pay", idToken: "good", orderId: "../x" }).error, "auth");
@@ -302,4 +307,66 @@ test("paid: marks the order paid only when Stripe says paid for the same order a
 test("doGet reports whether card payments are set up", () => {
   const get = k => JSON.parse(vm.runInContext("doGet", payWorld({ key: k }).ctx)().s).pay;
   assert.equal(get("sk_test_x"), true); assert.equal(get(""), false);
+});
+
+/* ── pay at checkout: the server prices the order, then confirms it when Stripe says it is paid ── */
+const NEW = { uid: "u1", ref: "BH-NEW123", status: "new", paymentStatus: "awaiting", fulfilment: "delivery",
+  items: [{ productId: "p1", qty: 2, name: "Dates" }], customer: { name: "Gina", phone: "07123456789", email: "gina@example.com" },
+  address: { line1: "10 Road", line2: "", city: "London", postcode: "SW1A 1AA" }, estTotal: 1 };
+const SHOP = { "products/p1": { name: "Dates", price: 3, salePrice: 2.5, stock: 5, visible: true, archived: false }, "settings/site": { deliveryFee: 2, delivery: true, collection: true } };
+const PAY = { a: "pay", idToken: "good", orderId: "o_new1234567" };
+
+test("checkout pay: the shop prices the order itself (sale price + delivery), ignoring the browser's estimate", () => {
+  const w = payWorld({ order: NEW, docs: SHOP });
+  const r = w.call(PAY);
+  assert.equal(r.ok, true);
+  assert.equal(w.seen.stripe[0].form["line_items[0][price_data][unit_amount]"], "700");      // 2 x £2.50 + £2 delivery
+  const f = w.seen.patch[0].body.fields;
+  assert.equal(w.seen.patch[0].path, "orders/o_new1234567");
+  assert.equal(f.total.integerValue, "7"); assert.equal(f.deliveryFee.integerValue, "2");
+  assert.equal(f.lines.arrayValue.values[0].mapValue.fields.unitPrice.doubleValue, 2.5);
+  assert.equal(f.status, undefined, "still new until it is paid");
+});
+test("checkout pay: pick-up has no delivery fee; refuses empty stock, hidden products, switched-off delivery and tiny orders", () => {
+  const w = payWorld({ order: { ...NEW, fulfilment: "collection", address: null }, docs: SHOP });
+  w.call(PAY); assert.equal(w.seen.stripe[0].form["line_items[0][price_data][unit_amount]"], "500");
+  const err = (docs, order = NEW) => payWorld({ order, docs }).call(PAY);
+  assert.deepEqual([err({ ...SHOP, "products/p1": { ...SHOP["products/p1"], stock: 1 } }).error, err({ ...SHOP, "products/p1": { ...SHOP["products/p1"], stock: 1 } }).item], ["stock", "Dates"]);
+  assert.equal(err({ ...SHOP, "products/p1": { ...SHOP["products/p1"], visible: false } }).error, "stock");
+  assert.equal(err({ "settings/site": SHOP["settings/site"] }).error, "stock");
+  assert.equal(err({ ...SHOP, "settings/site": { delivery: false } }).error, "no_delivery");
+  assert.equal(err({ ...SHOP, "products/p1": { ...SHOP["products/p1"], price: 0.05, salePrice: null } }, { ...NEW, fulfilment: "collection" }).error, "too_small");
+  assert.equal(err(SHOP, { ...NEW, items: [{ productId: "p1", qty: 0 }] }).error, "stock");
+});
+test("checkout paid: confirms the order, takes the stock (never below 0) and emails owner + customer", () => {
+  const priced = { ...NEW, total: 7, lines: [{ productId: "p1", name: "Dates", qty: 2, unitPrice: 2.5, lineTotal: 5 }], deliveryFee: 2, subtotal: 5 };
+  const ok = { payment_status: "paid", client_reference_id: "o_new1234567", currency: "gbp", amount_total: 700 };
+  const w = payWorld({ order: priced, docs: SHOP, stripeSession: ok });
+  assert.deepEqual(w.call({ a: "paid", idToken: "good", orderId: "o_new1234567", sid: "cs_test_abc" }), { ok: true });
+  const byPath = Object.fromEntries(w.seen.patch.map(x => [x.path, x.body.fields]));
+  assert.equal(byPath["orders/o_new1234567"].status.stringValue, "confirmed");
+  assert.equal(byPath["orders/o_new1234567"].paymentStatus.stringValue, "paid");
+  assert.equal(byPath["products/p1"].stock.integerValue, "3");
+  assert.deepEqual(w.mails.map(m => m.to), ["housikiki@gmail.com", "gina@example.com"]);
+  assert.match(w.mails[0].subject, /New paid order BH-NEW123 \(DELIVERY, £7\.00\)/); assert.match(w.mails[0].body, /SW1A 1AA/);
+  const low = payWorld({ order: priced, docs: { ...SHOP, "products/p1": { ...SHOP["products/p1"], stock: 1 } }, stripeSession: ok });
+  low.call({ a: "paid", idToken: "good", orderId: "o_new1234567", sid: "cs_test_abc" });
+  assert.equal(low.seen.patch.find(x => x.path === "products/p1").body.fields.stock.integerValue, "0");
+  // an already-confirmed order paid later (old flow) takes no stock and sends no mail
+  const old = payWorld({ order: { ...priced, status: "confirmed" }, docs: SHOP, stripeSession: ok });
+  old.call({ a: "paid", idToken: "good", orderId: "o_new1234567", sid: "cs_test_abc" });
+  assert.equal(old.seen.patch.length, 1); assert.equal(old.mails.length, 0);
+});
+test("stage: only the owner can email 'on my way / arrived / ready', and only for the order's current step", () => {
+  const S = { a: "stage", idToken: "tok-owner", orderId: "o_new1234567" };
+  const world_ = status => payWorld({ order: { ...NEW, status }, lookup: { "tok-owner": OWNER } });
+  for (const [status, subject] of [["ontheway", /on its way/], ["arrived", /has arrived/], ["ready", /ready to collect/]]) {
+    const w = world_(status);
+    assert.deepEqual(w.call(S), { ok: true, sent: 1 });
+    assert.equal(w.mails[0].to, "gina@example.com"); assert.match(w.mails[0].subject, subject);
+  }
+  for (const status of ["new", "confirmed", "completed", "cancelled"]) { const w = world_(status); assert.equal(w.call(S).error, "bad_request"); assert.equal(w.mails.length, 0); }
+  const w = world_("arrived");
+  assert.equal(w.call({ ...S, idToken: "good" }).error, "not_owner");
+  assert.equal(w.mails.length, 0);
 });
