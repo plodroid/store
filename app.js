@@ -3,6 +3,7 @@
    Customers sign in (auth.js); orders, feedback and stock alerts are written straight to Firestore and
    locked down by firestore.rules, so the whole thing runs on the free Firebase plan. */
 
+import { startNativeDock } from "./nativedock.js?v=17";
 import { $, $$, esc, store, money, pence, reduced, uid, openDialog, closeDialog, wireDialogs,
          toast, showError, setBusy, priceOf, onSale, percentOff, millis } from "./ui.js?v=16";
 import { createAuth } from "./auth.js?v=16";
@@ -1267,6 +1268,18 @@ function init() {
   addEventListener("resize", () => { syncNavHeight(); moveIndicator(); paintDock(); });
   document.fonts?.ready.then(() => { syncNavHeight(); moveIndicator(); paintDock(); });
   document.addEventListener("dockchange", paintDock);
+  startNativeDock({     // inside the iPhone app the bottom bar is a real iOS tab bar (Liquid Glass on iOS 26+)
+    items: [{ id: "home", title: "Home", symbol: "house" }, { id: "saved", title: "Saved", symbol: "heart" }, { id: "cart", title: "Basket", symbol: "bag" }, { id: "acct", title: "Account", symbol: "person" }],
+    read() {
+      const d = $("#dock"), lab = id => { const t = d && d.querySelector(`[data-dock="${id}"] span`); return t && t.textContent.trim(); };
+      const num = el => (el && !el.hidden ? parseInt(el.textContent, 10) || 0 : 0);
+      const on = d && d.querySelector(".dock-item.on");
+      return { hidden: !d || getComputedStyle(d).display === "none", selected: on && on.dataset.dock, tintEl: on || undefined,
+        titles: { home: lab("home"), saved: lab("saved"), cart: lab("cart"), acct: lab("acct") }, badges: { saved: num($("#dockWish")), cart: num($("#dockCount")) } };
+    },
+    tap(id) { if (id === "home") location.hash = "#/"; else if (id === "saved") location.hash = "#/saved"; else if (id === "cart") $("#dockCart").click(); else if (id === "acct") $("#dockAcct").click(); },
+    watch: () => [[$("#dock"), { subtree: true, childList: true, attributes: true, characterData: true }], [document.body, { attributes: true, attributeFilter: ["data-view"] }]],
+  });
   $("#dockCart").addEventListener("click", () => openCart(!$("#drawer").classList.contains("open")));
 
   // connection status

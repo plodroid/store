@@ -1,6 +1,7 @@
 /* Owner page (plodroid.github.io/store/admin/). A page of its own: sign in with Google, then the admin panel.
    Only the owner's Google account gets past the gate, and the security rules decide who that is, not this file. */
 import { $, wireDialogs, toast } from "../ui.js?v=16";
+import { startNativeDock } from "../nativedock.js?v=17";
 
 const FB = "https://www.gstatic.com/firebasejs/10.12.2/";
 const cfg = window.FIREBASE_CONFIG || {};
@@ -87,3 +88,19 @@ main().catch(failed);
 addEventListener("error", ev => { if ($("#gateMsg").textContent === "Loading…") failed(ev.error || new Error(ev.message || "script error")); });
 addEventListener("unhandledrejection", ev => { if ($("#gateMsg").textContent === "Loading…") failed(ev.reason || new Error("rejected")); });
 setTimeout(() => { if ($("#gateMsg").textContent === "Loading…") failed(new Error("still loading after 12s (Firebase scripts blocked or no internet?)")); }, 12000);
+
+// inside the iPhone app the section tabs become a real iOS tab bar (Liquid Glass on iOS 26+); the last one opens a small "More" sheet
+{
+  const MORE = ["events", "categories", "settings"];
+  startNativeDock({
+    items: [{ id: "home", title: "Today", symbol: "house" }, { id: "products", title: "Products", symbol: "square.grid.2x2" }, { id: "orders", title: "Orders", symbol: "bag" }, { id: "feedback", title: "Messages", symbol: "bubble.left" },
+      { id: "more", title: "More", symbol: "ellipsis.circle", more: [{ id: "events", title: "Events" }, { id: "categories", title: "Categories" }, { id: "settings", title: "Settings" }] }],
+    read() {
+      const tabs = $("#admTabs"), cur = tabs && tabs.querySelector('[aria-pressed="true"]'), k = cur && cur.dataset.tab;
+      const n = t => { const b = tabs && tabs.querySelector(`[data-tab="${t}"] .adm-badge`); return b ? parseInt(b.textContent, 10) || 0 : 0; };
+      return { hidden: !tabs || $("#admin").hidden || innerWidth >= 900, selected: MORE.includes(k) ? "more" : k, badges: { orders: n("orders"), feedback: n("feedback") }, tintEl: cur || undefined };
+    },
+    tap(id) { const b = $(`#admTabs [data-tab="${id}"]`); if (b) b.click(); },
+    watch: () => [[$("#admin"), { subtree: true, childList: true, attributes: true, attributeFilter: ["hidden", "aria-pressed"] }]],
+  });
+}

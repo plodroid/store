@@ -293,6 +293,8 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; }
 }
 .dock-pip.bump { animation: bump .45s var(--ease); }
 @media (min-width: 900px) { .dock { display: none; } :root { --dock-h: 0px; } }
+/* iPhone app: the real iOS tab bar replaces this one (nativedock.js). Kept in the layout so the page still tracks the selected tab. */
+html.native-dock .dock { visibility: hidden; pointer-events: none; }
 
 /* back-in-stock banner */
 .restock { margin-top: 12px; }

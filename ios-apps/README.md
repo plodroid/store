@@ -30,5 +30,8 @@ The files are **unsigned**: Apple only lets a phone run an app signed by an Appl
 - Live location sharing works while the owner app is open. Keeping the screen awake while delivering needs **iOS 16.4+**; on older iOS keep the phone unlocked.
 - Safe areas: the app puts the page inside the notch/home-bar area (`contentInset: always`), like Android's non-overlay status bar.
 
+## Liquid Glass (native)
+The bottom bar in both iPhone apps is a **real iOS tab bar** (local plugin `ios-apps/native-dock`, driven by `nativedock.js`), not CSS. Built with Xcode 26 and run on iOS 26+ it floats in an Apple **Liquid Glass** capsule (`UIGlassEffect`); on iOS 13–25 it is the normal system tab bar. Customer: Home / Saved / Basket / Account (badges for saved + basket). Owner: Today / Products / Orders / Messages / More (Events, Categories, Settings). The website's own bar is hidden only while the native one answers, so an old IPA without the plugin keeps working. Everything inside the page (cards, header, drawers) is web content and can't be real Liquid Glass; only native controls can.
+
 ## How it's built
 `npx cap add ios` generates the Xcode project in CI, `patch.py` sets the name, icon, splash, location texts, iOS 13 target and the Google URL scheme, then `xcodebuild archive` with signing off, zipped into `Payload/*.app → .ipa`. Nothing generated is committed.

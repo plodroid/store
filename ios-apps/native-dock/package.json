@@ -1,0 +1,9 @@
+{
+  "name": "bee-native-dock",
+  "version": "1.0.0",
+  "description": "A real iOS tab bar (Liquid Glass on iOS 26+) driven by the web page. Local Capacitor plugin.",
+  "private": true,
+  "files": ["ios/Plugin", "BeeNativeDock.podspec"],
+  "peerDependencies": { "@capacitor/core": "^6.0.0" },
+  "capacitor": { "ios": { "src": "ios" } }
+}

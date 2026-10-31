@@ -28,11 +28,12 @@ async function mockNet(ctx, { street = { road: "Thoresby Street", suburb: "North
   return calls;
 }
 
-async function test(name, fn, { seed = seedWith(), viewport, path = "/index.html", ready = "[data-add]", geo } = {}) {
+async function test(name, fn, { seed = seedWith(), viewport, path = "/index.html", ready = "[data-add]", geo, init } = {}) {
   const t = await launch(url, { seed, viewport });
   try {
     t.page.setDefaultTimeout(8000);
     t.net = await mockNet(t.ctx);
+    if (init) await t.ctx.addInitScript(init);
     if (geo) { await t.ctx.grantPermissions(["geolocation"]); await t.ctx.setGeolocation(geo); }
     await t.page.goto(url + path);
     await t.page.waitForSelector(ready, { timeout: 8000 });
@@ -320,6 +321,45 @@ await test("footer: dark 'Let us help you' column with working links and 'All ri
   await p.keyboard.press("Escape");
   await p.click("#openFeedback"); await p.waitForSelector("dialog[open]");
 });
+/* ── iPhone app: native tab bar (Liquid Glass on iOS 26+) ── */
+const IOS = () => { const calls = []; window.__dock = { calls, tap: null }; window.Capacitor = { isNativePlatform: () => true, getPlatform: () => "ios", registerPlugin: n => { if (n !== "NativeDock") throw new Error("only the dock is faked"); return ({
+  update: async o => { calls.push(JSON.parse(JSON.stringify(o))); return { height: 82, glass: true }; }, addListener: (n, f) => { window.__dock.tap = f; return Promise.resolve({ remove() {} }); } }); } }; };
+await test("iPhone app: the page hands its bottom bar to the native tab bar and follows its taps", async ({ page: p }) => {
+  await p.waitForFunction(() => window.__dock.calls.length > 0);
+  const c = () => p.evaluate(() => window.__dock.calls[window.__dock.calls.length - 1]);
+  let a = await c();
+  assert.deepEqual(a.items.map(i => i.id), ["home", "saved", "cart", "acct"]);
+  assert.deepEqual(a.items.map(i => i.symbol), ["house", "heart", "bag", "person"]);
+  assert.equal(a.selected, "home"); assert.equal(a.hidden, false); assert.match(a.tint || "", /^#[0-9a-f]{6}$/);
+  assert.ok(await p.evaluate(() => document.documentElement.classList.contains("native-dock")));
+  assert.equal(await p.evaluate(() => getComputedStyle(document.querySelector("#dock")).visibility), "hidden");
+  assert.equal(await p.evaluate(() => document.documentElement.style.getPropertyValue("--dock-h")), "90px");   // 82 + 8: the page leaves room for the bar
+  await p.evaluate(() => window.__dock.tap({ id: "saved" })); await p.waitForFunction(() => location.hash === "#/saved");
+  await p.waitForFunction(() => window.__dock.calls[window.__dock.calls.length - 1].selected === "saved");
+  await p.locator("#grid [data-add]").first().click().catch(() => {});
+  await p.evaluate(() => window.__dock.tap({ id: "cart" })); await p.waitForSelector("#drawer.open");
+  await p.keyboard.press("Escape");
+  a = await c(); assert.ok(a.items.find(i => i.id === "cart"));
+  await p.evaluate(() => window.__dock.tap({ id: "home" })); await p.waitForFunction(() => window.__dock.calls[window.__dock.calls.length - 1].selected === "home");
+}, { viewport: { width: 390, height: 844 }, init: IOS });
+await test("iPhone app: an old build without the plugin keeps the web bar", async ({ page: p }) => {
+  await p.waitForTimeout(500);
+  assert.ok(!(await p.evaluate(() => document.documentElement.classList.contains("native-dock"))));
+  assert.equal(await p.evaluate(() => getComputedStyle(document.querySelector("#dock")).visibility), "visible");
+}, { viewport: { width: 390, height: 844 }, init: () => { window.Capacitor = { isNativePlatform: () => true, getPlatform: () => "ios", registerPlugin: () => ({ update: async () => { throw new Error("not implemented"); }, addListener: () => Promise.resolve({}) }) }; } });
+await test("iPhone app (owner): tabs become Today / Products / Orders / Messages / More and a tap switches the page", async ({ page: p }) => {
+  await p.evaluate(() => { window.__FAKE.nextGoogle = { email: "housikiki@gmail.com", name: "Owner", uid: "g_owner" }; });
+  await p.click("#gateGoogle"); await p.waitForSelector("#admin:not([hidden]) .adm-tab", { state: "attached" });
+  await p.waitForFunction(() => window.__dock.calls.some(c => !c.hidden));
+  const c = () => p.evaluate(() => window.__dock.calls[window.__dock.calls.length - 1]);
+  let a = await c(); assert.deepEqual(a.items.map(i => i.id), ["home", "products", "orders", "feedback", "more"]); assert.equal(a.selected, "home");
+  assert.deepEqual(a.items[4].more.map(m => m.id), ["events", "categories", "settings"]);
+  assert.equal(await p.locator("#admTabs").isHidden(), true, "web tabs hidden");
+  await p.evaluate(() => window.__dock.tap({ id: "orders" })); await p.waitForFunction(() => window.__dock.calls[window.__dock.calls.length - 1].selected === "orders");
+  assert.ok((await c()).items.find(i => i.id === "orders").badge >= 0);
+  await p.evaluate(() => window.__dock.tap({ id: "events" })); await p.waitForFunction(() => window.__dock.calls[window.__dock.calls.length - 1].selected === "more");
+}, { path: "/admin/index.html", ready: "#gateGoogle:not([hidden])", viewport: { width: 390, height: 844 }, init: IOS, seed: seedWith({ orders: { o1: DELIVERY({ status: "ontheway" }) } }) });
+
 /* ── language ────────────────────────────────────────── */
 const TAG = { en: "en-GB", us: "en-US", fr: "fr", ar: "ar", es: "es", de: "de", tr: "tr", it: "it", hi: "hi", ur: "ur", bn: "bn", pa: "pa", pl: "pl", ro: "ro", pt: "pt", nl: "nl", ru: "ru", zh: "zh-CN", ja: "ja", ko: "ko", id: "id" };
 const ALL = Object.keys(TAG);

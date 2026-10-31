@@ -38,6 +38,15 @@ jobs:
           cache: npm
           cache-dependency-path: ios-apps/${{ matrix.app }}/package-lock.json
 
+      # Liquid Glass (UIGlassEffect) needs the iOS 26 SDK, i.e. Xcode 26. Use it when the runner has it; older Xcode still builds (the glass code is skipped).
+      - name: Pick the newest Xcode
+        working-directory: .
+        run: |
+          X=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -n "$X" ]; then sudo xcode-select -s "$X/Contents/Developer"; fi
+          xcodebuild -version
+          echo "::notice title=Xcode (${{ matrix.app }})::$(xcodebuild -version | tr '\n' ' ')"
+
       - name: Install + create the Xcode project
         run: |
           npm ci

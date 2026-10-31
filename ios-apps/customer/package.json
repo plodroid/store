@@ -7,7 +7,10 @@
     "@capacitor/core": "^6.2.1",
     "@capacitor/ios": "^6.2.1",
     "@capacitor/splash-screen": "^6.0.3",
-    "@capacitor/status-bar": "^6.0.2"
+    "@capacitor/status-bar": "^6.0.2",
+    "bee-native-dock": "file:../native-dock"
   },
-  "devDependencies": { "@capacitor/cli": "^6.2.1" }
+  "devDependencies": {
+    "@capacitor/cli": "^6.2.1"
+  }
 }

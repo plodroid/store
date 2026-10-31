@@ -258,3 +258,7 @@ body.nav-open { overflow: hidden; }
 .dm-pin b { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); background: var(--text); color: var(--bg); border: 3px solid #fff; box-shadow: 0 4px 10px rgba(0,0,0,.35); }
 .dm-pin i { transform: rotate(45deg); font-style: normal; font-weight: 700; font-size: 14px; }
 .dm-pin.on b { background: var(--accent); color: var(--on-accent); width: 40px; height: 40px; margin: -3px 0 0 -3px; }
+
+/* iPhone app: the real iOS tab bar (nativedock.js) replaces the section tabs */
+html.native-dock .adm-tabs { display: none; }
+html.native-dock .adm-main { padding-bottom: calc(var(--dock-h, 0px) + 16px); }
