@@ -37,6 +37,10 @@ if app == "owner":
     if "CapacitorFirebaseAuthentication/Google" not in t:
         t = t.replace("  # Add your Pods here", "  pod 'CapacitorFirebaseAuthentication/Google', :path => '../../node_modules/@capacitor-firebase/authentication'")
         open(pf, "w").write(t)
+    # `cap add` already ran pod install without Google sign-in and locked GTMSessionFetcher 4.x, which GoogleSignIn 7.1 can't use → resolve again from scratch
+    for f in ("ios/App/Podfile.lock", "ios/App/Pods"):
+        if os.path.isdir(f): shutil.rmtree(f)
+        elif os.path.exists(f): os.remove(f)
 
 # ── icon + splash ──
 shutil.copy(f"{HERE}/assets/AppIcon-512@2x.png", f"{APP}/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png")
