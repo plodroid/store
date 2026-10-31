@@ -95,7 +95,7 @@ const orderFlow = async (t, how) => {
     await p.locator('#locForm [name="postcode"]').fill("SW1A 1AA");
     await p.waitForFunction(() => document.querySelector("#locStatus").classList.contains("ok"));
     await p.waitForFunction(() => document.querySelector('#locForm [name="line1"]').value.length > 0);
-    await p.locator('#locForm [name="line1"]').fill("10 Example Road");
+    await p.locator('#locForm [name="number"]').fill("10"); await p.locator('#locForm [name="line1"]').fill("Example Road");
     await p.click("#locSave"); await p.waitForFunction(() => !document.querySelector("#loc").open);
   }
   await p.click("#coSubmit"); await p.waitForSelector("#coDone:not([hidden])");
@@ -139,12 +139,14 @@ await test("postcode: typing a postcode fills the street and town, asks for the 
   await p.locator('#locForm [name="postcode"]').fill("SW1A 1AA");
   await p.waitForFunction(() => document.querySelector('#locForm [name="line1"]').value === "Thoresby Street");
   assert.equal(await p.locator('#locForm [name="city"]').inputValue(), "Leicester");
-  assert.match(await p.locator("#locStatus").innerText(), /Add your house number before “Thoresby Street”/);
-  assert.equal(await p.evaluate(() => document.activeElement.name), "line1");                     // cursor waits in front of the street
-  await p.keyboard.type("1 ");
-  assert.equal(await p.locator('#locForm [name="line1"]').inputValue(), "1 Thoresby Street");
+  assert.match(await p.locator("#locStatus").innerText(), /add your door number so the shop knows where to knock/i);
+  assert.equal(await p.evaluate(() => document.activeElement.name), "number");                    // cursor waits in the door-number box
+  await p.keyboard.type("1");
+  assert.equal(await p.locator('#locForm [name="number"]').inputValue(), "1");
+  assert.equal(await p.locator('#locForm [name="line1"]').inputValue(), "Thoresby Street");
   await p.locator('#locForm [name="postcode"]').fill("EH1 1YZ"); await p.waitForTimeout(900);
-  assert.equal(await p.locator('#locForm [name="line1"]').inputValue(), "1 Thoresby Street", "what he typed stays");
+  assert.equal(await p.locator('#locForm [name="number"]').inputValue(), "1", "what he typed stays");
+  assert.equal(await p.locator('#locForm [name="line1"]').inputValue(), "Thoresby Street", "street stays");
 });
 
 /* ── customer live map ───────────────────────────────── */
@@ -208,20 +210,26 @@ await test("owner: directions screen finds the route, shows the next turn + ETA,
   assert.match(await p.locator("#navEta").innerText(), /\d+ min/);
   assert.match(await p.locator(".nav-where").innerText(), /SW1A 1AA/);
   assert.match(await p.locator("#navG").getAttribute("href"), /google\.com\/maps/);
-  await p.waitForFunction(() => window.__FAKE.dump().tracking && window.__FAKE.dump().tracking.o1);   // position shared
+  assert.equal(await p.locator("#navShare").isChecked(), false);                                      // desktop: sharing starts off
+  assert.ok(!((await db(p)).tracking || {}).o1, "nothing shared until he switches it on");
+  await p.check("#navShare");
+  await p.waitForFunction(() => window.__FAKE.dump().tracking && window.__FAKE.dump().tracking.o1);   // position shared (order is on its way)
   const tr = (await db(p)).tracking.o1; assert.ok(Math.abs(tr.lat - 51.51) < 0.001 && Math.abs(tr.lng + 0.15) < 0.001);
-  // the primary button moves the order along (confirmed → on its way)
+  // the primary button moves the order along
   await p.waitForSelector("#navAct:not([hidden])");
   await p.click("#navAct");
-  await p.waitForFunction(() => window.__FAKE.dump().orders.o1.status === "preparing" || window.__FAKE.dump().orders.o1.status === "ontheway");
+  await p.waitForFunction(() => window.__FAKE.dump().orders.o1.status !== "ontheway");
   // turning sharing off removes the position straight away
   await p.uncheck("#navShare");
   await p.waitForFunction(() => !(window.__FAKE.dump().tracking || {}).o1);
   await p.check("#navShare");
   await p.waitForFunction(() => (window.__FAKE.dump().tracking || {}).o1);
+  // when the order is finished nobody is tracked any more
+  await p.evaluate(() => window.__FAKE.inject("orders", "o1", { ...window.__FAKE.dump().orders.o1, status: "delivered" }));
+  await p.waitForFunction(() => !(window.__FAKE.dump().tracking || {}).o1);
   await p.click("#navClose");
-  await p.waitForFunction(() => !document.querySelector(".nav-panel") && !(window.__FAKE.dump().tracking || {}).o1);
-}, { path: "/admin/index.html", ready: "#gateGoogle:not([hidden])", geo: { latitude: 51.51, longitude: -0.15 }, seed: seedWith({ orders: { o1: DELIVERY() } }) });
+  await p.waitForFunction(() => !document.querySelector(".nav-panel"));
+}, { path: "/admin/index.html", ready: "#gateGoogle:not([hidden])", geo: { latitude: 51.51, longitude: -0.15 }, seed: seedWith({ orders: { o1: DELIVERY({ status: "ontheway" }) } }) });
 await test("owner: if the phone can't share its position, he is told and Google Maps still works", async (t) => {
   const p = t.page; await ownerOpen(p);
   await p.click('[data-act="nav-order"]');
@@ -231,13 +239,96 @@ await test("owner: if the phone can't share its position, he is told and Google 
   await p.click("#navClose");
 }, { path: "/admin/index.html", ready: "#gateGoogle:not([hidden])", seed: seedWith({ orders: { o1: DELIVERY() } }) });
 
+/* ── door number ─────────────────────────────────────── */
+await test("door number: its own required box; saved address reads '10 Example Road'", async (t) => {
+  const p = t.page; await signedIn(p, t);
+  await p.click("[data-add]"); await p.click("#cartBtn"); await p.click("#checkout"); await p.waitForSelector("#co[open]");
+  await p.check('input[name="how"][value="delivery"]'); await p.click("#coAddrBtn"); await p.waitForSelector("#loc[open]");
+  await p.locator('#locForm [name="postcode"]').fill("SW1A 1AA");
+  await p.waitForFunction(() => document.querySelector('#locForm [name="line1"]').value.length > 0);
+  assert.equal(await p.locator("#locSave").isDisabled(), true, "no door number, no save");
+  await p.locator('#locForm [name="number"]').fill("10");
+  await p.waitForFunction(() => !document.querySelector("#locSave").disabled);
+  await p.locator('#locForm [name="line1"]').fill("Example Road");
+  await p.click("#locSave"); await p.waitForSelector("#loc", { state: "hidden" });
+  const a = (await db(p)).users; const addr = Object.values(a)[0].address; assert.equal(addr.line1, "10 Example Road");
+  await p.click("#coAddrBtn"); await p.waitForSelector("#loc[open]");                       // reopening splits it back into the two boxes
+  assert.equal(await p.locator('#locForm [name="number"]').inputValue(), "10");
+  assert.equal(await p.locator('#locForm [name="line1"]').inputValue(), "Example Road");
+});
+
+/* ── owner: deliveries map + automatic location sharing ── */
+const signOwner = async p => { await p.evaluate(() => { window.__FAKE.nextGoogle = { email: "housikiki@gmail.com", name: "Owner", uid: "g_owner" }; }); await p.click("#gateGoogle"); await p.waitForSelector("#admin:not([hidden]) .adm-tab"); };
+const TWO = () => ({ o1: DELIVERY({ status: "preparing" }), o2: DELIVERY({ ref: "BH-SECOND", status: "confirmed", customer: { name: "Sam Second", phone: "07000", email: "s@example.com" }, address: { ...ADDR, line1: "12 Other Road", lat: 51.52, lng: -0.12 } }), o3: DELIVERY({ ref: "BH-PICKUP", fulfilment: "collection", address: undefined }) });
+await test("owner: Today has a big deliveries map with numbered pins, chips and one big button that opens the directions", async ({ page: p }) => {
+  await signOwner(p);
+  await p.waitForSelector(".dm .leaflet-container");
+  assert.equal(await p.locator(".dm .dm-pin").count(), 2, "only the delivery orders are pinned");
+  assert.equal(await p.locator(".dm .dm-chip").count(), 2);
+  const box = await p.locator(".dm-map").boundingBox(); assert.ok(box.height >= 220, "map is big: " + box.height);
+  const btn = await p.locator(".dm-go").boundingBox(); assert.ok(btn.height >= 48, "button is big: " + btn.height);
+  await p.locator(".dm-chip").nth(1).click();
+  assert.equal(await p.locator(".dm-chip").nth(1).getAttribute("aria-selected"), "true");
+  assert.match(await p.locator(".dm-go").innerText(), /Start directions · 12 Other Road, SW1A 1AA/);
+  await p.click(".dm-go"); await p.waitForSelector(".nav-panel .leaflet-container");
+  assert.match(await p.locator(".nav-where").innerText(), /12 Other Road/);
+}, { path: "/admin/index.html", ready: "#gateGoogle:not([hidden])", seed: seedWith({ orders: TWO() }) });
+await test("owner: no delivery out → no map and nothing tracked; stale position docs are cleaned up", async ({ page: p }) => {
+  await signOwner(p);
+  await p.waitForFunction(() => !(window.__FAKE.dump().tracking || {}).stale);
+  assert.equal(await p.locator(".dm").count(), 0);
+}, { path: "/admin/index.html", ready: "#gateGoogle:not([hidden])", seed: seedWith({ orders: { o3: DELIVERY({ ref: "BH-PICKUP", fulfilment: "collection", address: undefined }) }, tracking: { stale: { lat: 1, lng: 1, updatedAt: { __ts: Date.now() } } } }) });
+await test("owner: location is only shared while a delivery is on its way, and stops by itself", async (t) => {
+  const p = t.page;
+  await p.evaluate(() => localStorage.setItem("shareLoc", "1")); await p.reload(); await p.waitForSelector("#gateGoogle:not([hidden])");
+  await signOwner(p);
+  await p.waitForSelector(".locbar");
+  await p.waitForTimeout(500);
+  assert.ok(!((await db(p)).tracking || {}).o1, "confirmed: nobody is tracked");
+  await p.evaluate(() => window.__FAKE.inject("orders", "o1", { ...window.__FAKE.dump().orders.o1, status: "ontheway" }));
+  await p.waitForFunction(() => (window.__FAKE.dump().tracking || {}).o1);
+  const tr = (await db(p)).tracking.o1; assert.ok(Math.abs(tr.lat - 51.51) < 0.001);
+  assert.match(await p.locator(".locbar").innerText(), /Sharing your location/);
+  await p.click('[data-act="loc-off"]');                                                    // pause
+  await p.waitForFunction(() => !(window.__FAKE.dump().tracking || {}).o1);
+  await p.click('[data-act="loc-on"]');
+  await p.waitForFunction(() => (window.__FAKE.dump().tracking || {}).o1);
+  await p.evaluate(() => window.__FAKE.inject("orders", "o1", { ...window.__FAKE.dump().orders.o1, status: "delivered" }));
+  await p.waitForFunction(() => !(window.__FAKE.dump().tracking || {}).o1);
+  assert.match(await p.locator(".locbar").innerText(), /only shared while a delivery is on its way/);
+}, { path: "/admin/index.html", ready: "#gateGoogle:not([hidden])", geo: { latitude: 51.51, longitude: -0.15 }, seed: seedWith({ orders: { o1: DELIVERY({ status: "confirmed" }) } }) });
+await test("owner: when location is blocked he is told how to fix it", async ({ page: p }) => {
+  await p.evaluate(() => localStorage.setItem("shareLoc", "1")); await p.reload(); await p.waitForSelector("#gateGoogle:not([hidden])");
+  await signOwner(p);
+  await p.waitForSelector(".locbar");
+  assert.match(await p.locator(".locbar").innerText(), /Location is blocked|Let customers see you|Allow location/);
+}, { path: "/admin/index.html", ready: "#gateGoogle:not([hidden])", seed: seedWith({ orders: { o1: DELIVERY({ status: "ontheway" }) } }) });
+
+/* ── footer ──────────────────────────────────────────── */
+await test("footer: dark 'Let us help you' column with working links and 'All rights reserved' at the very bottom", async (t) => {
+  const p = t.page;
+  assert.match(await p.locator(".foot-col").first().innerText(), /Let us help you/i);
+  assert.match(await p.locator(".foot-base-bar").innerText(), /© \d{4} .*All rights reserved\./);
+  const last = await p.evaluate(() => { const f = document.querySelector("footer").getBoundingClientRect(), b = document.querySelector(".foot-base-bar").getBoundingClientRect(); return Math.abs(f.bottom - b.bottom) < 80; });
+  assert.ok(last, "rights line is the last thing on the page");
+  await p.click("#footDelivery"); await p.waitForSelector("#info[open]");
+  assert.match(await p.locator("#infoBody").innerText(), /Pick up from the shop/);
+  await p.keyboard.press("Escape");
+  await p.click("#footSaved"); await p.waitForFunction(() => location.hash === "#/saved");
+  await p.goto(p.url().split("#")[0]); await p.waitForSelector("[data-add]");
+  await p.click("#footAcct"); await p.waitForSelector("#acct[open], #auth[open], dialog[open]");   // asks him to sign in first
+  await p.keyboard.press("Escape");
+  await p.click("#openFeedback"); await p.waitForSelector("dialog[open]");
+});
 /* ── language ────────────────────────────────────────── */
-const TAG = { en: "en-GB", us: "en-US", fr: "fr", ar: "ar", es: "es", de: "de", tr: "tr", it: "it" };
+const TAG = { en: "en-GB", us: "en-US", fr: "fr", ar: "ar", es: "es", de: "de", tr: "tr", it: "it", hi: "hi", ur: "ur", bn: "bn", pa: "pa", pl: "pl", ro: "ro", pt: "pt", nl: "nl", ru: "ru", zh: "zh-CN", ja: "ja", ko: "ko", id: "id" };
+const ALL = Object.keys(TAG);
 const langPick = async (p, code) => { await p.click("#langBtn"); await p.click(`#langMenu [data-lang="${code}"]`); await p.waitForFunction(t => document.documentElement.lang === t && document.querySelector("#langBtn .lang-code").textContent !== "", TAG[code]); await p.waitForTimeout(60); };
 await test("language: button sits next to the basket and lists every language with a flag", async ({ page: p }) => {
   const rows = await p.locator("#langMenu [data-lang]").evaluateAll(b => b.map(x => [x.dataset.lang, x.querySelector("b").textContent, !!x.querySelector("svg.fl")]));
-  assert.deepEqual(rows.map(r => r[0]), ["en", "us", "fr", "ar", "es", "de", "tr", "it"]);
-  assert.deepEqual(rows.map(r => r[1]), ["EN", "US", "FR", "AR", "ES", "DE", "TR", "IT"]);
+  assert.deepEqual(rows.map(r => r[0]), ALL);
+  assert.deepEqual(rows.map(r => r[1]), ALL.map(c => c.toUpperCase()));
+  assert.equal(rows[0][0], "en", "English is first and the default");
   assert.ok(rows.every(r => r[2]));
   assert.ok(await p.locator("#langMenu").isHidden());
   await p.click("#langBtn"); assert.ok(await p.locator("#langMenu").isVisible());
@@ -290,8 +381,23 @@ await test("language: US English says cart; ticker + tracker text follow the lan
   await langPick(p, "tr");
   await p.waitForFunction(() => /Iftar Week için %20 indirim/.test(document.querySelector("#announce").innerText));
 }, { seed: seedWith({ events: { e1: EV() } }) });
+await test("language: Hindi, Chinese and Urdu translate the page; Urdu is right-to-left; menu scrolls", async ({ page: p }) => {
+  await langPick(p, "hi");
+  assert.match(await p.locator("#cartBtn").innerText(), /टोकरी/);
+  assert.equal(await p.locator("#q").getAttribute("placeholder"), "उत्पाद खोजें");
+  assert.equal(await p.locator("#grid .tile-name").first().innerText(), "Medjool Dates 500g");
+  await langPick(p, "zh"); assert.equal(await p.locator("#q").getAttribute("placeholder"), "搜索商品");
+  await langPick(p, "ur");
+  assert.equal(await p.locator("html").getAttribute("dir"), "rtl");
+  assert.equal(await p.locator("#q").getAttribute("placeholder"), "مصنوعات تلاش کریں");
+  await p.click("#langBtn");
+  const m = await p.locator("#langMenu").evaluate(e => [e.scrollHeight > e.clientHeight, e.getBoundingClientRect().bottom <= innerHeight]);
+  assert.deepEqual(m, [true, true], "21 languages scroll inside the viewport");
+  await p.keyboard.press("Escape");
+  await langPick(p, "en"); assert.equal(await p.locator("html").getAttribute("dir"), "ltr");
+});
 await test("language: the menu works on a phone and nothing overflows in any language", async ({ page: p }) => {
-  for (const c of ["fr", "ar", "es", "de", "tr", "it", "us", "en"]) {
+  for (const c of [...ALL.filter(x => x !== "en"), "en"]) {
     await langPick(p, c);
     await p.waitForTimeout(80);
     const o = await p.evaluate(() => document.documentElement.scrollWidth - innerWidth);
@@ -299,18 +405,19 @@ await test("language: the menu works on a phone and nothing overflows in any lan
   }
 }, { viewport: { width: 390, height: 800 } });
 await test("language: every translated string keeps its {placeholders} and no two languages are missing keys", async ({ page: p }) => {
-  const r = await p.evaluate(async () => {
-    const codes = ["fr", "ar", "es", "de", "tr", "it"], D = {};
-    for (const c of codes) D[c] = (await import(`/lang/${c}.js?v=15`)).default;
-    const keys = Object.keys(D.fr), out = { missing: [], badVars: [] };
-    for (const c of codes) for (const k of keys) {
-      if (!(k in D[c])) out.missing.push(c + ":" + k);
-      const want = (k.match(/\{\w+\}/g) || []).sort().join(), got = ((D[c][k] || "").match(/\{\w+\}/g) || []).sort().join();
-      if (want !== got) out.badVars.push(c + ":" + k);
+  const r = await p.evaluate(async codes => {
+    const D = {};
+    for (const c of codes) D[c] = (await import(`/lang/${c}.js?v=16`)).default;
+    const keys = Object.keys(D.fr), out = { missing: [], badVars: [], extra: [] };
+    const vars = x => ((x || "").match(/\{\w+\}/g) || []).sort().join();
+    for (const c of codes.slice(0, 6)) for (const k of keys) if (!(k in D[c])) out.missing.push(c + ":" + k);
+    for (const c of codes) for (const [k, v] of Object.entries(D[c])) {
+      if (c !== "us" && !(k in D.fr)) out.extra.push(c + ":" + k);
+      if (vars(k) !== vars(v)) out.badVars.push(c + ":" + k);
     }
-    return { ...out, n: keys.length };
-  });
-  assert.deepEqual(r.missing, []); assert.deepEqual(r.badVars, []); assert.ok(r.n > 250);
+    return { ...out, n: keys.length, small: codes.slice(6, -1).filter(c => Object.keys(D[c]).length < 190) };
+  }, ["fr", "ar", "es", "de", "tr", "it", ...ALL.slice(8), "us"]);
+  assert.deepEqual(r.missing, []); assert.deepEqual(r.badVars, []); assert.deepEqual(r.extra, []); assert.deepEqual(r.small, []); assert.ok(r.n > 280);
 });
 
 console.log(results.map(r => (r[0] ? "PASS " : "FAIL ") + r[1] + (r[0] ? "" : "\n     " + r[2] + (r[3] ? "\n     shot: " + r[3] : ""))).join("\n"));

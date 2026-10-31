@@ -29,8 +29,8 @@
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js">
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js">
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js">
-<link rel="stylesheet" href="./styles.css?v=15">
-<link rel="stylesheet" href="./events.css?v=15">
+<link rel="stylesheet" href="./styles.css?v=16">
+<link rel="stylesheet" href="./events.css?v=16">
 </head>
 
 <body>
@@ -174,16 +174,25 @@
 </main>
 
 <footer class="footer">
-  <div class="wrap footer-in">
-    <div class="footer-links">
-      <button class="footer-link" id="footOrders" type="button">My orders</button>
-      <button class="footer-link" id="openFeedback" type="button">Feedback</button>
-      <a id="contact" class="footer-link" href="#" target="_blank" rel="noopener" hidden>WhatsApp</a>
-      <button class="footer-link" id="themeBtn2" type="button">Dark mode</button>
+  <div class="foot-main">
+    <div class="wrap foot-cols">
+      <nav class="foot-col" aria-labelledby="footHelp">
+        <h3 id="footHelp">Let us help you</h3>
+        <button class="footer-link" id="footAcct" type="button">Your account</button>
+        <button class="footer-link" id="footOrders" type="button">Your orders</button>
+        <button class="footer-link" id="footSaved" type="button">Saved items</button>
+        <button class="footer-link" id="footDelivery" type="button">Delivery &amp; pick-up</button>
+        <button class="footer-link" id="openFeedback" type="button">Help &amp; feedback</button>
+        <a id="contact" class="footer-link" href="#" target="_blank" rel="noopener" hidden>WhatsApp</a>
+      </nav>
+      <div class="foot-col foot-about">
+        <h3>About the shop</h3>
+        <p class="footer-note"><span id="footerBlurb"></span><span id="footerHow"></span></p>
+        <button class="footer-link" id="themeBtn2" type="button">Dark mode</button>
+      </div>
     </div>
-    <p class="footer-note"><span id="footerBlurb"></span><span id="footerHow"></span></p>
-    <p class="footer-base">© <span id="yr"></span> <span data-bind="storeName">Bee Hive</span></p>
   </div>
+  <div class="foot-base-bar"><p class="footer-base wrap">© <span id="yr"></span> <span data-bind="storeName">Bee Hive</span>. All rights reserved.</p></div>
 </footer>
 
 <!-- phone tab bar (liquid glass) -->
@@ -357,6 +366,13 @@
 </dialog>
 
 <!-- account page -->
+<dialog class="pd modal" id="info" aria-labelledby="infoTitle">
+  <button class="icon-btn pd-close" type="button" data-close aria-label="Close">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+  </button>
+  <div class="modal-body" id="infoBody"></div>
+</dialog>
+
 <dialog class="pd modal" id="acct" aria-labelledby="acctTitle">
   <button class="icon-btn pd-close" type="button" data-close aria-label="Close">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
@@ -374,7 +390,7 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="./firebase-config.js?v=15"></script>
-<script type="module" src="./app.js?v=15"></script>
+<script src="./firebase-config.js?v=16"></script>
+<script type="module" src="./app.js?v=16"></script>
 </body>
 </html>

@@ -281,5 +281,18 @@ export default {
   "We couldn't get your location. You can allow it in your browser, or just type your postcode.": "Impossibile ottenere la posizione. Puoi consentirla nel browser o digitare il codice postale.",
   "Your browser can't share its location. Please type your postcode instead.": "Il browser non può condividere la posizione. Digita il codice postale.",
   "We couldn't match your position to a UK postcode. Please type it in.": "Non siamo riusciti ad associare la posizione a un codice postale britannico. Digitalo.",
-  "Enter UK postcode": "Inserisci un codice postale britannico"
+  "Enter UK postcode": "Inserisci un codice postale britannico",
+  "Door no.*": "N. civico*",
+  "Street*": "Via*",
+  "Now add your door number so the shop knows where to knock.": "Aggiungi ora il numero civico così il negozio sa dove bussare.",
+  "Please fill in the door number, street and town.": "Inserisci numero civico, via e città.",
+  "Let us help you": "Siamo qui per aiutarti",
+  "Your orders": "I tuoi ordini",
+  "Delivery & pick-up": "Consegna e ritiro",
+  "Help & feedback": "Aiuto e feedback",
+  "About the shop": "Il negozio",
+  ". All rights reserved.": ". Tutti i diritti riservati.",
+  "Door number or house name": "Numero civico o nome della casa",
+  "Street": "Via",
+  "Pick up from the shop once it's confirmed. Free.": "Ritira in negozio dopo la conferma. Gratis."
 };

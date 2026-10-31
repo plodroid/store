@@ -1,8 +1,8 @@
 /* Owner: turn-by-turn directions to a delivery, and (if he leaves it on) the customer sees him coming on their map.
    Opens full screen over the admin. Uses the phone's GPS (watchPosition), OSRM for the route and OpenStreetMap for the map. */
-import { makeMap, icon, drive, geocodeAddress, fmtDist, fmtTime, metres, arrowSvg } from "./geo.js?v=15";
-import { esc } from "./ui.js?v=15";
-import { lookupPostcode } from "./uk.js?v=15";
+import { makeMap, icon, drive, geocodeAddress, fmtDist, fmtTime, metres, arrowSvg } from "./geo.js?v=16";
+import { esc } from "./ui.js?v=16";
+import { lookupPostcode } from "./uk.js?v=16";
 
 /** ctx: { FS, order, getAction: () => ({label, run}) | null, onClose } */
 export async function openNav(ctx) {
@@ -15,7 +15,7 @@ export async function openNav(ctx) {
       <button type="button" class="nav-x" id="navClose" aria-label="Close directions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
     <div class="nav-sheet" id="navSheet">
       <div class="nav-eta"><div><b id="navEta">–</b><span id="navEtaSub">to ${esc(o.customer?.name || "the customer")}</span></div><div class="nav-where">${[a.line1, a.postcode].filter(Boolean).map(esc).join(", ")}</div></div>
-      <label class="check nav-share"><input type="checkbox" id="navShare" checked><span>Let the customer watch me arrive</span></label>
+      <label class="check nav-share"><input type="checkbox" id="navShare"><span>Let customers watch me arrive (only while I deliver)</span></label>
       <p class="nav-note" id="navNote" role="status"></p>
       <div class="nav-btns"><button class="btn-primary" type="button" id="navAct" hidden></button>
         <a class="btn-ghost" id="navG" target="_blank" rel="noopener">Open in Google Maps</a>
@@ -27,7 +27,7 @@ export async function openNav(ctx) {
   const $ = s => root.querySelector(s), note = t => { $("#navNote").textContent = t || ""; };
 
   let dest = typeof a.lat === "number" && typeof a.lng === "number" ? { lat: a.lat, lng: a.lng } : null;
-  let me = null, route = null, routeFrom = null, routeAt = 0, idx = 1, map, L, meM, destM, line, watch = null, shareAt = 0, stopped = false, fitted = false;
+  let me = null, route = null, routeFrom = null, routeAt = 0, idx = 1, map, L, meM, destM, line, watch = null, stopped = false, fitted = false;
 
   const gmaps = () => { $("#navG").href = dest ? `https://www.google.com/maps/dir/?api=1&destination=${dest.lat},${dest.lng}&travelmode=driving` : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([a.line1, a.city, a.postcode].filter(Boolean).join(", "))}`; };
   gmaps();
@@ -81,19 +81,15 @@ export async function openNav(ctx) {
     $("#navEtaSub").textContent = near ? "Tap the green button when you hand it over" : `${fmtDist(left)} to ${o.customer?.name || "the customer"}`;
   }
 
-  async function share(pos) {
-    if (!$("#navShare").checked || Date.now() - shareAt < 5000) return;
-    shareAt = Date.now();
-    try { await fs.setDoc(fs.doc(db, "tracking", o.id), { lat: pos.lat, lng: pos.lng, ...(Number.isFinite(pos.heading) ? { heading: Math.round(pos.heading) } : {}), updatedAt: fs.serverTimestamp() }); }
-    catch (e) { console.warn("[nav] share", e && e.code); }
-  }
-  $("#navShare").addEventListener("change", e => { if (!e.target.checked) fs.deleteDoc(fs.doc(db, "tracking", o.id)).catch(() => {}); else { shareAt = 0; if (me) share(me); } });
+  // sharing is done for the whole app by track.js (it starts when the order goes "on its way"); this box just switches it on or off
+  const tr = ctx.tracker;
+  if (tr) { $("#navShare").checked = tr.state().wants; $("#navShare").addEventListener("change", e => tr.setShare(e.target.checked)); }
+  else $("#navShare").closest("label").hidden = true;
 
   if (!navigator.geolocation) note("This phone can't share its position. Use “Open in Google Maps”.");
   else watch = navigator.geolocation.watchPosition(p => {
     me = { lat: p.coords.latitude, lng: p.coords.longitude };
     if (map) { if (!meM) meM = L.marker([me.lat, me.lng], { icon: icon(L, "me"), zIndexOffset: 500 }).addTo(map); else meM.setLatLng([me.lat, me.lng]); }
-    share({ ...me, heading: p.coords.heading });
     refresh(!route);
   }, err => note(err && err.code === 1 ? "Location is switched off for this app. Allow it in the phone's settings, or use “Open in Google Maps”." : "Waiting for a GPS signal…"),
   { enableHighAccuracy: true, maximumAge: 4000, timeout: 20000 });
@@ -103,7 +99,6 @@ export async function openNav(ctx) {
   const close = async () => {
     stopped = true; clearInterval(actTimer);
     if (watch != null) navigator.geolocation.clearWatch(watch);
-    fs.deleteDoc(fs.doc(db, "tracking", o.id)).catch(() => {});       // stop sharing
     if (map) map.remove();
     root.remove(); document.body.classList.remove("nav-open");
     ctx.onClose && ctx.onClose();

@@ -4,9 +4,9 @@ How the code login works: the browser asks a tiny Google Apps Script (see apps-s
 to email a random 4-digit code. The script remembers only a hash of the code, checks it, and hands back a
 Firebase sign-in token. Firebase itself can't email codes on the free plan, so the script does that part. */
 
-import { $, $$, esc, openDialog, closeDialog, showError, setBusy, toast } from "./ui.js?v=15";
-import { streetFor } from "./geo.js?v=15";
-import { normalisePostcode, normaliseUkPhone, showUkPhone, lookupPostcode, nearestPostcode, townMatches, REASONS } from "./uk.js?v=15";
+import { $, $$, esc, openDialog, closeDialog, showError, setBusy, toast } from "./ui.js?v=16";
+import { streetFor } from "./geo.js?v=16";
+import { normalisePostcode, normaliseUkPhone, showUkPhone, lookupPostcode, nearestPostcode, townMatches, REASONS } from "./uk.js?v=16";
 
 const GOOGLE = `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.4h6.5a5.6 5.6 0 0 1-2.4 3.7v3h3.9c2.3-2.1 3.5-5.2 3.5-8.8z"/><path fill="#34A853" d="M12 24c3.2 0 6-1.1 7.9-2.9l-3.9-3c-1.1.7-2.5 1.2-4 1.2-3.1 0-5.7-2.1-6.6-4.9H1.4v3.1A12 12 0 0 0 12 24z"/><path fill="#FBBC05" d="M5.4 14.3a7.2 7.2 0 0 1 0-4.6V6.6H1.4a12 12 0 0 0 0 10.8z"/><path fill="#EA4335" d="M12 4.8c1.8 0 3.3.6 4.6 1.8l3.4-3.4A12 12 0 0 0 1.4 6.6l4 3.1C6.3 6.9 8.9 4.8 12 4.8z"/></svg>`;
 
@@ -412,6 +412,9 @@ export function createAuth({ FS, onChange = () => {} }) {
   /* ── location picker (shared by account + checkout) ── */
   let locDone = null, locCheck = null, locSeq = 0, locTimer;
 
+  /** "1 Thoresby Street" → { number: "1", street: "Thoresby Street" } (a house name stays in the street box). */
+  const split = line => { const m = /^(\d+[A-Za-z]?(?:\s?[-–/]\s?\d+[A-Za-z]?)?)\s+(.+)$/.exec(String(line || "").trim()); return m ? { number: m[1], street: m[2] } : { number: "", street: String(line || "") }; };
+
   function openLocation(done) {
     locDone = done || null;
     const a = st.profile.address || {};
@@ -424,7 +427,10 @@ export function createAuth({ FS, onChange = () => {} }) {
           Use my current location</button>
         <label class="inp"><span>Postcode*</span><input name="postcode" autocomplete="postal-code" autocapitalize="characters" placeholder="Postcode" maxlength="9" required value="${esc(a.postcode || "")}"></label>
         <p class="pc-status" id="locStatus" role="status" aria-live="polite"></p>
-        <label class="inp"><span>House number and street*</span><input name="line1" autocomplete="address-line1" placeholder="House number and street" maxlength="120" required value="${esc(a.line1 || "")}"></label>
+        <div class="inp-row">
+          <label class="inp num"><span>Door no.*</span><input name="number" autocomplete="off" placeholder="1" maxlength="20" required value="${esc(split(a.line1).number)}" aria-label="Door number or house name"></label>
+          <label class="inp"><span>Street*</span><input name="line1" autocomplete="address-line1" placeholder="Street" maxlength="100" required value="${esc(split(a.line1).street)}"></label>
+        </div>
         <label class="inp"><span>Flat, building or area <em>(optional)</em></span><input name="line2" autocomplete="address-line2" maxlength="120" value="${esc(a.line2 || "")}"></label>
         <label class="inp"><span>Town or city*</span><input name="city" autocomplete="address-level2" maxlength="60" required value="${esc(a.city || "")}"></label>
         <label class="inp ro"><span>Country</span><input value="United Kingdom" readonly tabindex="-1"></label>
@@ -439,7 +445,7 @@ export function createAuth({ FS, onChange = () => {} }) {
 
   function paintLoc() {
     const f = $("#locForm"); if (!f) return;
-    const ok = locCheck && locCheck.ok && f.elements.line1.value.trim() && f.elements.city.value.trim();
+    const ok = locCheck && locCheck.ok && f.elements.number.value.trim() && f.elements.line1.value.trim() && f.elements.city.value.trim();
     $("#locSave").disabled = !ok;
   }
 
@@ -482,8 +488,8 @@ export function createAuth({ FS, onChange = () => {} }) {
     if (s.street && mayLine) { line1.value = s.street; line1.dataset.auto = "1"; }
     if ((s.town || info.district) && mayCity) { city.value = s.town || info.district; city.dataset.auto = "1"; }
     if (s.street && line1.dataset.auto === "1") {
-      setStatus("ok", `${$("#locStatus").innerHTML} <span class="hl">Add your house number before “${esc(s.street)}”.</span>`);
-      if (document.activeElement === f.elements.postcode || document.activeElement === document.body) { line1.focus({ preventScroll: true }); line1.setSelectionRange(0, 0); }
+      if (!f.elements.number.value.trim()) setStatus("ok", `${$("#locStatus").innerHTML} <span class="hl">Now add your door number so the shop knows where to knock.</span>`);
+      if (!f.elements.number.value.trim() && (document.activeElement === f.elements.postcode || document.activeElement === document.body)) f.elements.number.focus({ preventScroll: true });
     }
     paintLoc();
   }
@@ -517,7 +523,7 @@ export function createAuth({ FS, onChange = () => {} }) {
       f.elements.postcode.value = hit.postcode;
       if (!f.elements.city.value.trim() && hit.district) f.elements.city.value = hit.district;
       runCheck();
-      f.elements.line1.focus({ preventScroll: true });
+      (f.elements.number.value.trim() ? f.elements.line1 : f.elements.number).focus({ preventScroll: true });
     }, () => {
       setBusy(null, btn, false);
       showError(err, "We couldn't get your location. You can allow it in your browser, or just type your postcode.");
@@ -529,10 +535,10 @@ export function createAuth({ FS, onChange = () => {} }) {
     const f = e.target, err = $("#locErr"), btn = $("#locSave");
     if (!(locCheck && locCheck.ok)) return showError(err, "Please enter a valid UK postcode first.");
     const address = {
-      line1: f.elements.line1.value.trim(), line2: f.elements.line2.value.trim(), city: f.elements.city.value.trim(),
+      line1: `${f.elements.number.value.trim()} ${f.elements.line1.value.trim()}`.trim(), line2: f.elements.line2.value.trim(), city: f.elements.city.value.trim(),
       postcode: locCheck.postcode, lat: locCheck.lat, lng: locCheck.lng, verified: true,
     };
-    if (!address.line1 || !address.city) return showError(err, "Please fill in the house number, street and town.");
+    if (!f.elements.number.value.trim() || !f.elements.line1.value.trim() || !address.city) return showError(err, "Please fill in the door number, street and town.");
     showError(err, "");
     setBusy(loc, btn, true);
     try {

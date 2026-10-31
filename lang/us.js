@@ -14,5 +14,8 @@ export default {
   "Pick up from the shop": "Pick up from the store",
   "Pick-up": "Pickup",
   "Postcode": "Postal code",
-  "Postcode*": "Postal code*"
+  "Postcode*": "Postal code*",
+  "Pick up from the shop once it's confirmed. Free.": "Pick up from the store once it's confirmed. Free.",
+  "Door no.*": "Apt/house no.*",
+  "Street*": "Street*"
 };

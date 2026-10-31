@@ -3,18 +3,42 @@
    Free-plan design: orders arrive as requests, and "Confirm" re-prices and re-checks stock in a
    transaction (so customers can never choose their own price). */
 
-import { $, $$, esc, money, openDialog, closeDialog, showError, setBusy, toast, millis, timeAgo, store, priceOf, onSale } from "./ui.js?v=15";
-import { lookupPostcode } from "./uk.js?v=15";
-import { trackerHtml } from "./flow.js?v=15";
-import { LOOKS, SWATCHES, isLive, todayUK, heroHtml, heroVars } from "./events.js?v=15";
+import { $, $$, esc, money, openDialog, closeDialog, showError, setBusy, toast, millis, timeAgo, store, priceOf, onSale } from "./ui.js?v=16";
+import { lookupPostcode } from "./uk.js?v=16";
+import { trackerHtml } from "./flow.js?v=16";
+import { createTracker } from "./track.js?v=16";
+import { createDeliveryMap, deliveries } from "./dmap.js?v=16";
+import { LOOKS, SWATCHES, isLive, todayUK, heroHtml, heroVars } from "./events.js?v=16";
 
 const css = document.createElement("link");
 css.rel = "stylesheet"; css.href = new URL("./admin.css", import.meta.url).href;
 const css2 = document.createElement("link");
-css2.rel = "stylesheet"; css2.href = new URL("./events.css?v=15", import.meta.url).href;
+css2.rel = "stylesheet"; css2.href = new URL("./events.css?v=16", import.meta.url).href;
 document.head.append(css, css2);
 
 let X = null;                 // { FS, acct, getSite }
+
+/* ── his position, shared with customers only while a delivery is out ── */
+const tracker = createTracker(() => X && X.FS, () => { const el = $("#locBar"); if (el) el.innerHTML = locBarHtml(); dm && dm.update(A.orders, tracker.state().last); });
+let dm = null;                // the deliveries map (built once, moved back into the page after each redraw)
+function locBarHtml() {
+  const t = tracker.state();
+  if (!t.supported) return "";
+  let cls = "ready", head, sub, btn = "";
+  if (!t.wants) { cls = "off"; head = "Location sharing is off"; sub = "Customers can't see where you are on their deliveries."; btn = `<button class="btn-ghost tight" type="button" data-act="loc-on">Turn on</button>`; }
+  else if (t.perm === "denied") { cls = "bad"; head = "Location is blocked"; sub = "Allow location for this app in your phone's settings so customers can watch you arrive."; }
+  else if (t.perm !== "granted") { cls = "ask"; head = "Let customers see you on the way"; sub = "Allow location. It is only used while you're out delivering."; btn = `<button class="btn-primary tight" type="button" data-act="loc-allow">Allow location</button>`; }
+  else if (t.tracking) { cls = "on"; head = "Sharing your location"; sub = `${t.n} deliver${t.n === 1 ? "y is" : "ies are"} out. It stops by itself when you finish.`; btn = `<button class="btn-quiet" type="button" data-act="loc-off">Pause</button>`; }
+  else { head = "Location is ready"; sub = "It is only shared while a delivery is on its way, never otherwise."; btn = `<button class="btn-quiet" type="button" data-act="loc-off">Turn off</button>`; }
+  return `<div class="locbar ${cls}"><i class="lb-dot" aria-hidden="true"></i><div class="adm-grow"><b>${head}</b><span>${sub}</span></div>${btn}</div>`;
+}
+function syncDeliveryMap() {
+  const ph = $("[data-dmap]", $("#admMain"));
+  if (!ph) { if (dm) { dm.destroy(); dm = null; } return; }
+  if (!dm) dm = createDeliveryMap({ onGo: id => navigateTo(id), created });
+  if (dm.box.parentNode !== ph.parentNode || !dm.box.isConnected) { ph.replaceWith(dm.box); dm.refit(); }
+  dm.update(A.orders, tracker.state().last);
+}
 const A = {
   products: [], categories: [], orders: [], feedback: [], alerts: [], events: [],
   loaded: { products: false, categories: false, orders: false, feedback: false, alerts: false, events: false },
@@ -54,6 +78,7 @@ export function watchAlerts(ctx) {
       const docs = snap.docs.filter(x => keep(x.data()));
       A[key] = docs.map(x => ({ id: x.id, ...x.data() }));
       A.loaded[key] = true; delete A.errors[key];
+      if (key === "orders") tracker.sync(A.orders);
       if (!first && onAdd) docs.forEach(x => { if (!had.has(x.id) && !x.metadata.hasPendingWrites) onAdd({ id: x.id, ...x.data() }); });
       first = false;
       paintDot(); if (A.open) paint();
@@ -71,6 +96,11 @@ export function watchAlerts(ctx) {
   sub("orders", fs.query(fs.collection(d, "orders"), fs.orderBy("createdAt", "desc"), fs.limit(300)),
     o => alertMe("New order " + (o.ref || ""), `${(o.items || []).reduce((n, i) => n + (i.qty || 0), 0)} items · ${o.fulfilment === "delivery" ? "Delivery" : "Pick-up"}`),
     o => !(o.status === "new" && o.paymentStatus === "awaiting"));      // a checkout the customer hasn't paid yet isn't an order
+  tracker.readPerm().then(() => {            // the first time on a phone: ask for location up front, with the banner explaining why
+    let asked = false; try { asked = localStorage.getItem("locAsked") === "1"; } catch {}
+    const t = tracker.state();
+    if (!asked && t.supported && t.wants && t.perm !== "granted" && t.perm !== "denied") { try { localStorage.setItem("locAsked", "1"); } catch {} tracker.ask(); }
+  });
   sub("feedback", fs.query(fs.collection(d, "feedback"), fs.orderBy("createdAt", "desc"), fs.limit(200)),
     f => alertMe(f.kind === "bug" ? "New problem report" : f.kind === "question" ? "New question" : "New feedback", (f.message || "").slice(0, 80)));
 }
@@ -78,7 +108,7 @@ export function watchAlerts(ctx) {
 /** Owner signed out (or someone else signed in): stop listening and drop the shop data from memory. */
 export function stopAlerts() {
   A.unsubs.forEach(u => { try { u(); } catch {} });
-  A.unsubs = []; A.started = false;
+  A.unsubs = []; A.started = false; tracker.stop(); if (dm) { dm.destroy(); dm = null; }
   for (const k of ["products", "categories", "orders", "feedback", "alerts", "events"]) { A[k] = []; A.loaded[k] = false; }
   A.errors = {};
   if (A.open) close();
@@ -166,6 +196,7 @@ function paint() {
   const keep = main.scrollTop, focused = document.activeElement;
   const refocus = focused && main.contains(focused) && focused.matches("input[type=search]") ? { sel: "#" + focused.id, pos: focused.selectionStart } : null;
   main.innerHTML = VIEW[A.tab]();
+  syncDeliveryMap();
   main.scrollTop = keep;
   if (refocus) { const f = $(refocus.sel, main); if (f) { f.focus(); try { f.setSelectionRange(refocus.pos, refocus.pos); } catch {} } }
 }
@@ -208,6 +239,8 @@ function homeView() {
   ];
 
   return `${errorBanner(["products", "orders", "feedback"])}
+    <div id="locBar">${locBarHtml()}</div>
+    ${deliveries(A.orders, created).length ? `<div data-dmap></div>` : ""}
     <section class="adm-card"><h3>Orders to do${jobs.length ? ` <span class="adm-badge">${jobs.length}</span>` : ""}</h3>
       ${jobs.length ? jobs.slice(0, 12).map(orderCard).join("") : `<p class="adm-empty small">No orders waiting. When a customer pays, you get an email and a beep here, and the order shows up on this screen.</p>`}
     </section>
@@ -689,8 +722,8 @@ async function navigateTo(id) {
   const o = A.orders.find(x => x.id === id); if (!o) return;
   closeDialog($("#admDlg"));
   try {
-    const { openNav } = await import("./nav.js?v=15");
-    await openNav({ FS: X.FS, order: o,
+    const { openNav } = await import("./nav.js?v=16");
+    await openNav({ FS: X.FS, order: o, tracker,
       getAction: () => { const cur = A.orders.find(x => x.id === id), st = cur && stepOf(cur); return st ? { label: st.label, run: async () => toast(await advance(cur), 3500) } : null; } });
   } catch (e) { console.error("[admin] nav", e); toast("Couldn't open the map. Check your connection."); }
 }
@@ -978,6 +1011,9 @@ async function onClick(e) {
     case "sale-off": return endSale(id);
     case "notify-stock": return notifyWaiting(id);
     case "nav-order": return navigateTo(id);
+    case "loc-allow": return void tracker.ask().then(r => { if (r === "denied") toast("Location is blocked. Allow it in your phone's settings.", 4000); tracker.sync(); });
+    case "loc-on": return tracker.setShare(true);
+    case "loc-off": return tracker.setShare(false);
     case "new-event": return eventDialog(null);
     case "edit-event": return eventDialog(id);
     case "delete-event": return deleteEvent(id);

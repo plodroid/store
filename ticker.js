@@ -1,6 +1,6 @@
 /* The scrolling bar at the top of the shop: live event offers first, then the owner's own messages.
    Plain CSS animation (transform only, so it stays smooth on phones); paused on hover/focus and still for people who asked for less motion. */
-import { esc } from "./ui.js?v=15";
+import { esc } from "./ui.js?v=16";
 
 let last = "";
 export const resetTicker = () => { last = ""; };

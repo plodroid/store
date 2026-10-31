@@ -46,7 +46,7 @@ const googleIn = async (p, g) => {
 const setLocation = async p => {
   await p.locator('#locForm [name="postcode"]').fill("SW1A 1AA");
   await p.waitForFunction(() => document.querySelector("#locStatus").textContent.length > 0);
-  await p.locator('#locForm [name="line1"]').fill("10 Example Road");
+  await p.locator('#locForm [name="number"]').fill("10"); await p.locator('#locForm [name="line1"]').fill("Example Road");
   await p.locator('#locForm [name="city"]').fill("London");
 };
 
@@ -203,7 +203,7 @@ await test("town that doesn't match the postcode gets a soft warning (still save
   const p = t.page; await signedIn(p, t);
   await p.click("#acctBtn"); await p.click("#menuAcct"); await p.click("#acctLoc");
   await p.locator('#locForm [name="postcode"]').fill("SW1A 1AA");
-  await p.locator('#locForm [name="line1"]').fill("10 Example Road");
+  await p.locator('#locForm [name="number"]').fill("10"); await p.locator('#locForm [name="line1"]').fill("Example Road");
   await p.locator('#locForm [name="city"]').fill("Manchester");
   await p.waitForFunction(() => /double-check your town/i.test(document.querySelector("#locStatus").textContent));
   assert.ok(await p.locator("#locSave").isEnabled());

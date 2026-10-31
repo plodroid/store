@@ -315,6 +315,7 @@
     getFirestore: () => ({}), collection: col, doc: docRef, query, where, orderBy, limit,
     serverTimestamp: () => SV, Timestamp,
     getDoc: async ref => getDocSnap(ref),
+    getDocs: async target => { const q = target.type === "col" ? query(target) : target, rows = runQuery(q), docs = rows.map(r => mkDoc(q.col, r.id, r.d)); return { docs, size: docs.length, empty: !docs.length, forEach: f => docs.forEach(f) }; },
     setDoc: async (ref, data, opts) => commit([{ op: "set", col: ref.col, id: ref.id, data, merge: !!(opts && opts.merge) }]),
     updateDoc: async (ref, data) => commit([{ op: "update", col: ref.col, id: ref.id, data }]),
     deleteDoc: async ref => commit([{ op: "delete", col: ref.col, id: ref.id }]),

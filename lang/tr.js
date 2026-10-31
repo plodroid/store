@@ -281,5 +281,18 @@ export default {
   "We couldn't get your location. You can allow it in your browser, or just type your postcode.": "Konumun alınamadı. Tarayıcıda izin verebilir ya da sadece posta kodunu yazabilirsin.",
   "Your browser can't share its location. Please type your postcode instead.": "Tarayıcın konumu paylaşamıyor. Bunun yerine posta kodunu yaz.",
   "We couldn't match your position to a UK postcode. Please type it in.": "Konumunu bir Birleşik Krallık posta koduyla eşleştiremedik. Lütfen kendin yaz.",
-  "Enter UK postcode": "Birleşik Krallık posta kodunu gir"
+  "Enter UK postcode": "Birleşik Krallık posta kodunu gir",
+  "Door no.*": "Kapı no*",
+  "Street*": "Sokak*",
+  "Now add your door number so the shop knows where to knock.": "Şimdi kapı numaranızı ekleyin; dükkân nereye kapı çalacağını bilsin.",
+  "Please fill in the door number, street and town.": "Lütfen kapı numarası, sokak ve şehri doldurun.",
+  "Let us help you": "Size yardımcı olmak için buradayız",
+  "Your orders": "Siparişleriniz",
+  "Delivery & pick-up": "Teslimat ve gel-al",
+  "Help & feedback": "Yardım ve geri bildirim",
+  "About the shop": "Dükkân hakkında",
+  ". All rights reserved.": ". Tüm hakları saklıdır.",
+  "Door number or house name": "Kapı numarası veya ev adı",
+  "Street": "Sokak",
+  "Pick up from the shop once it's confirmed. Free.": "Onaylandıktan sonra dükkândan teslim alın. Ücretsiz."
 };

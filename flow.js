@@ -1,6 +1,6 @@
 /* The steps of an order, shared by the customer's "My orders" and the owner's panel: one bar, one idea.
    Delivery: Confirmed & paid > Preparing > On its way > Outside > Delivered.  Pick-up: Confirmed & paid > Preparing > Ready > Collected. */
-import { esc } from "./ui.js?v=15";
+import { esc } from "./ui.js?v=16";
 
 export const stepsOf = o => o.fulfilment === "delivery"
   ? [o.paymentStatus === "paid" ? "Confirmed & paid" : "Confirmed", "Preparing", "On its way", "Outside", "Delivered"]

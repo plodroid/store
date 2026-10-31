@@ -1,7 +1,7 @@
 /* Events: the owner's own sales + seasonal looks (Ramadan, Eid, or a plain colour for anything he names himself).
    Shared by the shop (app.js) and the owner page (admin.js). The pricing here MUST match liveEvents_/quote_ in
    apps-script/Code.gs: the basket shows what the payment script then charges. The art is drawn here, all original SVG. */
-import { priceOf, millis } from "./ui.js?v=15";
+import { priceOf, millis } from "./ui.js?v=16";
 
 /* ── the looks an owner can pick ────────────────────── */
 export const LOOKS = {

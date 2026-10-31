@@ -1,6 +1,6 @@
 /* Customer: the map on a delivery order while it's on its way. Shows the shop's van coming and how long it will take.
    The shop only shares its position while the owner is on a delivery, and stops when he finishes. */
-import { makeMap, icon, drive, fmtDist, fmtTime, metres } from "./geo.js?v=15";
+import { makeMap, icon, drive, fmtDist, fmtTime, metres } from "./geo.js?v=16";
 
 const LIVE_MS = 3 * 60 * 1000;           // a position older than this means "not sharing right now"
 
@@ -23,10 +23,10 @@ export function mountTracker(order, FS) {
     if (!map) return;
     if (pos) { const ll = [pos.lat, pos.lng]; if (!van) van = L.marker(ll, { icon: icon(L, "van"), zIndexOffset: 400 }).addTo(map); else van.setLatLng(ll); }
     else if (van) { van.remove(); van = null; }
-    if (!fitted || pos) { const pts = pos ? [[pos.lat, pos.lng], [dest.lat, dest.lng]] : [[dest.lat, dest.lng]]; if (pts.length > 1) map.fitBounds(pts, { padding: [40, 40], maxZoom: 16 }); else map.setView(pts[0], 15); fitted = !!pos; }
+    if (!fitted || pos) { const pts = pos ? [[pos.lat, pos.lng], [dest.lat, dest.lng]] : [[dest.lat, dest.lng]]; if (pts.length > 1) map.fitBounds(pts, { padding: [40, 40], maxZoom: 16, animate: false }); else map.setView(pts[0], 15, { animate: false }); fitted = !!pos; }
   };
 
-  makeMap(mapEl).then(m => { if (dead) return m.map.remove(); ({ L, map } = m); pin = L.marker([dest.lat, dest.lng], { icon: icon(L, "dest") }).addTo(map); draw(); setTimeout(() => map.invalidateSize(), 60); })
+  makeMap(mapEl).then(m => { if (dead) return m.map.remove(); ({ L, map } = m); pin = L.marker([dest.lat, dest.lng], { icon: icon(L, "dest") }).addTo(map); draw(); setTimeout(() => { if (!dead) try { map.invalidateSize(); } catch {} }, 60); })
     .catch(() => { cap.textContent = say(); mapEl.hidden = true; });
 
   const unsub = fs.onSnapshot(fs.doc(db, "tracking", order.id), snap => {
@@ -42,7 +42,7 @@ export function mountTracker(order, FS) {
   return {
     box,
     update(o) { status = o.status; cap.textContent = say(); },
-    refit() { if (map) { map.invalidateSize(); fitted = false; draw(); } },
+    refit() { if (map && !dead) { try { map.invalidateSize(); } catch {} fitted = false; draw(); } },
     destroy() { dead = true; unsub(); if (map) map.remove(); box.remove(); },
   };
 }

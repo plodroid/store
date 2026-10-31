@@ -281,5 +281,18 @@ export default {
   "We couldn't get your location. You can allow it in your browser, or just type your postcode.": "تعذّر تحديد موقعك. يمكنك السماح به في المتصفح أو كتابة الرمز البريدي ببساطة.",
   "Your browser can't share its location. Please type your postcode instead.": "لا يستطيع متصفحك مشاركة الموقع. يرجى كتابة الرمز البريدي بدلًا من ذلك.",
   "We couldn't match your position to a UK postcode. Please type it in.": "تعذّر مطابقة موقعك برمز بريدي بريطاني. يرجى كتابته.",
-  "Enter UK postcode": "أدخل رمزًا بريديًا بريطانيًا"
+  "Enter UK postcode": "أدخل رمزًا بريديًا بريطانيًا",
+  "Door no.*": "رقم الباب*",
+  "Street*": "الشارع*",
+  "Now add your door number so the shop knows where to knock.": "أضف الآن رقم بابك ليعرف المتجر أين يطرق.",
+  "Please fill in the door number, street and town.": "يرجى إدخال رقم الباب والشارع والمدينة.",
+  "Let us help you": "نحن هنا لمساعدتك",
+  "Your orders": "طلباتك",
+  "Delivery & pick-up": "التوصيل والاستلام",
+  "Help & feedback": "المساعدة والملاحظات",
+  "About the shop": "عن المتجر",
+  ". All rights reserved.": ". جميع الحقوق محفوظة.",
+  "Door number or house name": "رقم الباب أو اسم المنزل",
+  "Street": "الشارع",
+  "Pick up from the shop once it's confirmed. Free.": "الاستلام من المتجر بعد تأكيد الطلب. مجاني."
 };

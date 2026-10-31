@@ -226,3 +226,35 @@ body.nav-open { overflow: hidden; }
 @media (hover: hover) { .owrap .orow:hover { background: var(--surface-2); } }
 .owrap .trk { margin: 2px 14px 0; }
 .owrap .nav-btn { margin: 6px 14px 0; width: calc(100% - 28px); }
+
+/* location bar (top of Today) */
+.locbar { display: flex; align-items: center; gap: 12px; margin: 0 0 12px; padding: 12px 14px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); font-size: 14px; }
+.locbar .adm-grow b { display: block; font-size: 14.5px; }
+.locbar .adm-grow span { display: block; margin-top: 2px; font-size: 13px; color: var(--muted); line-height: 1.35; }
+.locbar .lb-dot { flex: none; width: 12px; height: 12px; border-radius: 50%; background: var(--faint); }
+.locbar.on { background: color-mix(in srgb, #1E8E4A 10%, var(--surface)); border-color: color-mix(in srgb, #1E8E4A 35%, transparent); }
+.locbar.on .lb-dot { background: #1E8E4A; box-shadow: 0 0 0 0 rgba(30,142,74,.5); animation: me-pulse 2s ease-in-out infinite; }
+.locbar.ask { background: color-mix(in srgb, var(--accent) 14%, var(--surface)); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.locbar.ask .lb-dot { background: var(--accent); }
+.locbar.bad .lb-dot { background: var(--coral, #D93025); }
+.locbar.ready .lb-dot { background: #1E8E4A; opacity: .55; }
+@media (max-width: 480px) { .locbar { flex-wrap: wrap; } .locbar .btn-primary, .locbar .btn-ghost, .locbar .btn-quiet { margin-left: 24px; } }
+
+/* deliveries map (top of Today) */
+.dm { padding-bottom: 14px; }
+.dm-map { height: min(46vh, 320px); min-height: 230px; border-radius: 16px; overflow: hidden; margin: 8px 0 10px; border: 1px solid var(--line); background: var(--surface-2); position: relative; z-index: 0; }
+.dm-chips { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0 10px; scrollbar-width: none; }
+.dm-chips::-webkit-scrollbar { display: none; }
+.dm-chip { flex: none; display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 14px 0 6px; border-radius: 999px; font-size: 14px; font-weight: 550; background: var(--surface); border: 1px solid var(--line-2); }
+.dm-chip b { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; background: var(--fill-2); }
+.dm-chip[aria-selected="true"] { background: var(--text); color: var(--bg); border-color: transparent; }
+.dm-chip[aria-selected="true"] b { background: var(--accent); color: var(--on-accent); }
+.dm-go { min-height: 56px; font-size: 16px; gap: 10px; display: flex; align-items: center; justify-content: center; text-align: left; }
+.dm-go svg { width: 22px; height: 22px; flex: none; }
+.dm-go span { min-width: 0; line-height: 1.25; overflow-wrap: anywhere; }
+.dm .pin-me i { display: block; box-sizing: content-box; }
+.dm-hint { margin: 8px 2px 0; text-align: center; }
+.dm-pin { background: none; border: 0; }
+.dm-pin b { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); background: var(--text); color: var(--bg); border: 3px solid #fff; box-shadow: 0 4px 10px rgba(0,0,0,.35); }
+.dm-pin i { transform: rotate(45deg); font-style: normal; font-weight: 700; font-size: 14px; }
+.dm-pin.on b { background: var(--accent); color: var(--on-accent); width: 40px; height: 40px; margin: -3px 0 0 -3px; }

@@ -2,7 +2,7 @@
    English text to its translation. A tiny translator walks the page (and watches for changes), so every label,
    toast and message follows the language with no per-string code. Product names and descriptions are the owner's
    own words and are left alone (translate="no"). Arabic flips the page right-to-left. */
-import { flag } from "./flags.js?v=15";
+import { flag } from "./flags.js?v=16";
 
 export const LANGS = [
   { code: "en", tag: "en-GB", short: "EN", name: "English", flag: "gb" },
@@ -13,6 +13,19 @@ export const LANGS = [
   { code: "de", tag: "de", short: "DE", name: "Deutsch", flag: "de" },
   { code: "tr", tag: "tr", short: "TR", name: "Türkçe", flag: "tr" },
   { code: "it", tag: "it", short: "IT", name: "Italiano", flag: "it" },
+  { code: "hi", tag: "hi", short: "HI", name: "हिन्दी", flag: "in" },
+  { code: "ur", tag: "ur", short: "UR", name: "اردو", flag: "pk", dir: "rtl" },
+  { code: "bn", tag: "bn", short: "BN", name: "বাংলা", flag: "bd" },
+  { code: "pa", tag: "pa", short: "PA", name: "ਪੰਜਾਬੀ", flag: "in" },
+  { code: "pl", tag: "pl", short: "PL", name: "Polski", flag: "pl" },
+  { code: "ro", tag: "ro", short: "RO", name: "Română", flag: "ro" },
+  { code: "pt", tag: "pt", short: "PT", name: "Português", flag: "pt" },
+  { code: "nl", tag: "nl", short: "NL", name: "Nederlands", flag: "nl" },
+  { code: "ru", tag: "ru", short: "RU", name: "Русский", flag: "ru" },
+  { code: "zh", tag: "zh-CN", short: "ZH", name: "中文", flag: "cn" },
+  { code: "ja", tag: "ja", short: "JA", name: "日本語", flag: "jp" },
+  { code: "ko", tag: "ko", short: "KO", name: "한국어", flag: "kr" },
+  { code: "id", tag: "id", short: "ID", name: "Bahasa Indonesia", flag: "id" },
 ];
 const ATTRS = ["placeholder", "aria-label", "title", "alt"];
 const SKIP = "SCRIPT,STYLE,TEXTAREA,CODE,NOSCRIPT";
@@ -71,7 +84,7 @@ export async function setLang(code, { save = true } = {}) {
   const l = LANGS.find(x => x.code === code) || LANGS[0];
   dict = Object.create(null); tpl = [];
   if (l.code !== "en") {
-    try { dict = Object.assign(Object.create(null), (await import(`./lang/${l.code}.js?v=15`)).default); } catch { dict = {}; }
+    try { dict = Object.assign(Object.create(null), (await import(`./lang/${l.code}.js?v=16`)).default); } catch { dict = {}; }
     tpl = compile(dict);
   }
   cur = l;

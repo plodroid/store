@@ -4,14 +4,14 @@
    locked down by firestore.rules, so the whole thing runs on the free Firebase plan. */
 
 import { $, $$, esc, store, money, pence, reduced, uid, openDialog, closeDialog, wireDialogs,
-         toast, showError, setBusy, priceOf, onSale, percentOff, millis } from "./ui.js?v=15";
-import { createAuth } from "./auth.js?v=15";
-import { normaliseUkPhone, showUkPhone } from "./uk.js?v=15";
-import { liveEvents, withEvents, applyTheme, paintMeta, heroHtml, heroVars, tickerText } from "./events.js?v=15";
-import { paintTicker, splitMessages, resetTicker } from "./ticker.js?v=15";
-import { initI18n } from "./i18n.js?v=15";
-import { trackerHtml } from "./flow.js?v=15";
-import { mountTracker } from "./trackview.js?v=15";
+         toast, showError, setBusy, priceOf, onSale, percentOff, millis } from "./ui.js?v=16";
+import { createAuth } from "./auth.js?v=16";
+import { normaliseUkPhone, showUkPhone } from "./uk.js?v=16";
+import { liveEvents, withEvents, applyTheme, paintMeta, heroHtml, heroVars, tickerText } from "./events.js?v=16";
+import { paintTicker, splitMessages, resetTicker } from "./ticker.js?v=16";
+import { initI18n } from "./i18n.js?v=16";
+import { trackerHtml } from "./flow.js?v=16";
+import { mountTracker } from "./trackview.js?v=16";
 
 const DEF = window.STORE_DEFAULTS;
 const PATHS = window.STORE_PATHS;
@@ -223,6 +223,17 @@ function renderSite() {
 
 function syncNavHeight() {
   document.documentElement.style.setProperty("--nav-h", `${$("#nav").offsetHeight}px`);
+}
+
+/** "Delivery & pick-up": what this shop actually offers right now, from its own settings. */
+function openInfo() {
+  const f = fulfil();
+  $("#infoBody").innerHTML = `<h2 id="infoTitle">Delivery &amp; pick-up</h2>
+    ${f.collection ? `<h3 class="info-h">Pick up from the shop</h3><p class="muted">Pick up from the shop once it's confirmed. Free.</p>` : ""}
+    ${f.delivery ? `<h3 class="info-h">Delivery (UK)</h3><p class="muted">${f.fee ? `UK delivery from ${money(f.fee)}.` : "Free UK delivery."} The shop checks your postcode, confirms your order, then brings it to your door. Follow it live in My orders.</p>` : ""}
+    ${!f.collection && !f.delivery ? `<p class="muted">Online ordering is paused right now.</p>` : ""}
+    <button class="btn-primary wide" type="button" data-close>Done</button>`;
+  openDialog($("#info"));
 }
 
 function renderFoot() {
@@ -1358,6 +1369,9 @@ function init() {
   $("#menuOrders").addEventListener("click", () => { menuDone(); openMyOrders(); });
   $("#menuSaved").addEventListener("click", () => { menuDone(); location.hash = "#/saved"; });
   $("#footOrders").addEventListener("click", openMyOrders);
+  $("#footSaved").addEventListener("click", () => { location.hash = "#/saved"; });
+  $("#footAcct").addEventListener("click", async () => { if (acct && await acct.requireLogin("Sign in to see your account.")) acct.openAccount(); });
+  $("#footDelivery").addEventListener("click", openInfo);
 
   // checkout
   coForm.addEventListener("change", e => { if (e.target.name === "how") drawCheckout(); });
