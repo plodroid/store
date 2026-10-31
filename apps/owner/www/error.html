@@ -1,4 +1,9 @@
-<!DOCTYPE html><html lang="en-GB"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Bee Hive</title>
+<!DOCTYPE html><html lang="en-GB"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#FFF8E6"><title>Bee Hive</title>
 <style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#FFF8E6;color:#2A2008;font:16px/1.5 system-ui,sans-serif;text-align:center;padding:24px}
-h1{font-size:22px;margin:0 0 8px}p{margin:0 0 20px;color:#5b625e}button{height:48px;padding:0 28px;border:0;border-radius:999px;background:#F5B800;color:#2A1D00;font:600 16px system-ui,sans-serif}</style></head>
-<body><div><h1>You're offline</h1><p>Bee Hive needs the internet. Check your connection and try again.</p><button onclick="location.href='https://plodroid.github.io/store/admin/'">Try again</button></div></body></html>
+svg{width:84px;height:84px;margin-bottom:18px}h1{font-size:23px;margin:0 0 8px;letter-spacing:-.02em}p{margin:0 auto 22px;max-width:30ch;color:#5b625e}
+button{height:50px;padding:0 32px;border:0;border-radius:999px;background:#F5B800;color:#2A1D00;font:600 16px system-ui,sans-serif}button:active{transform:scale(.97)}
+small{display:block;margin-top:16px;color:#8a8470;font-size:13px}@media(prefers-color-scheme:dark){body{background:#17110A;color:#F6EBD2}p{color:#B8AE95}}</style></head>
+<body><div><svg viewBox="0 0 56 64" fill="none" stroke="#F5B800" stroke-width="3" stroke-linejoin="round" aria-hidden="true"><path d="M28 3 52 17v30L28 61 4 47V17z"/><path d="M18 40c4 5 16 5 20 0M20 28h.01M36 28h.01" stroke-linecap="round" stroke-width="4"/></svg>
+<h1>You're offline</h1><p>Bee Hive Owner needs the internet. Check your Wi-Fi or mobile data.</p><button id="b">Try again</button><small id="s">We'll reconnect automatically.</small></div>
+<script>var U="https://plodroid.github.io/store/admin/",go=function(){location.href=U};document.getElementById("b").onclick=function(){this.textContent="Trying…";fetch(U,{mode:"no-cors",cache:"no-store"}).then(go,function(){document.getElementById("b").textContent="Try again";document.getElementById("s").textContent="Still no connection."})};
+addEventListener("online",go);setInterval(function(){navigator.onLine&&fetch(U,{mode:"no-cors",cache:"no-store"}).then(go,function(){})},6000)</script></body></html>
