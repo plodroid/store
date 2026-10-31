@@ -49,10 +49,8 @@ jobs:
 
       - name: Install + create the Xcode project
         run: |
-          npm ci
-          npx cap add ios
-          python3 ../patch.py ${{ matrix.app }}
-          npx cap sync ios
+          set -o pipefail
+          { npm ci && npx cap add ios && python3 ../patch.py ${{ matrix.app }} && npx cap sync ios; } 2>&1 | tee install.log
 
       - name: Build (unsigned)
         working-directory: ios-apps/${{ matrix.app }}/ios/App
@@ -76,9 +74,9 @@ jobs:
       # If the build fails, surface the compiler errors as run annotations (readable through the GitHub API).
       - name: Report build errors
         if: failure()
-        working-directory: ios-apps/${{ matrix.app }}/ios/App
+        working-directory: ios-apps/${{ matrix.app }}
         run: |
-          grep -E "error:|\*\* ARCHIVE FAILED|fatal|Could not|ERROR" -B1 -A3 build.log 2>/dev/null | grep -v "^--$" | head -80 > errors.txt || true
+          { tail -n 40 install.log 2>/dev/null; grep -E "error:|\*\* ARCHIVE FAILED|fatal|Could not|ERROR" -B1 -A3 ios/App/build.log 2>/dev/null; } | grep -v "^--$" | head -80 > errors.txt || true
           split -l 8 errors.txt chunk_ || true
           for f in chunk_*; do
             [ -f "$f" ] || continue
