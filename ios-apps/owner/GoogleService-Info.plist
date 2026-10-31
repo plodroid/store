@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- PLACEHOLDER. Replace this whole file with the one Firebase gives you:
+	     Firebase console → Project settings → Your apps → Add app → iOS, bundle id com.plodroid.beehive.owner → download GoogleService-Info.plist.
+	     Until then the owner app opens fine but "Sign in with Google" says it isn't set up. -->
+	<key>API_KEY</key>
+	<string>AIzaSyAyEC7cTlTsNibzK7zVFm3NTds1ezcJDa0</string>
+	<key>GCM_SENDER_ID</key>
+	<string>696286412872</string>
+	<key>BUNDLE_ID</key>
+	<string>com.plodroid.beehive.owner</string>
+	<key>PROJECT_ID</key>
+	<string>asimsstore</string>
+	<key>STORAGE_BUCKET</key>
+	<string>asimsstore.firebasestorage.app</string>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:696286412872:ios:0000000000000000000000</string>
+	<key>CLIENT_ID</key>
+	<string>PASTE_IOS_CLIENT_ID</string>
+	<key>REVERSED_CLIENT_ID</key>
+	<string>PASTE_REVERSED_CLIENT_ID</string>
+</dict>
+</plist>

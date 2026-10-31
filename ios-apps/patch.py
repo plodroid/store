@@ -31,6 +31,13 @@ if os.path.exists(gsi):
     print("GoogleService-Info.plist:", "real" if rev and "PASTE" not in rev else "placeholder (Google sign-in disabled)")
 plistlib.dump(d, open(p, "wb"))
 
+# ── owner: add the Google sign-in part of the Firebase plugin (it is an optional CocoaPods subspec) ──
+if app == "owner":
+    pf = "ios/App/Podfile"; t = open(pf).read()
+    if "CapacitorFirebaseAuthentication/Google" not in t:
+        t = t.replace("  # Add your Pods here", "  pod 'CapacitorFirebaseAuthentication/Google', :path => '../../node_modules/@capacitor-firebase/authentication'")
+        open(pf, "w").write(t)
+
 # ── icon + splash ──
 shutil.copy(f"{HERE}/assets/AppIcon-512@2x.png", f"{APP}/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png")
 for f in ("splash-2732x2732.png", "splash-2732x2732-1.png", "splash-2732x2732-2.png"):
