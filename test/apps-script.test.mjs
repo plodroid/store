@@ -35,7 +35,7 @@ function world(props = {}, lookup = null, hook = null) {
       computeRsaSha256Signature: (input, key) => signed(crypto.sign("RSA-SHA256", Buffer.from(input), key)),
       base64Encode: x => bytes(x).toString("base64"),
       base64EncodeWebSafe: x => bytes(x).toString("base64").replace(/\+/g, "-").replace(/\//g, "_"),   // padded, like the real one
-      formatDate: d => d.toISOString().slice(0, 10).replace(/-/g, ""),
+      formatDate: (d, tz, fmt) => { const s = d.toISOString().slice(0, 10); return fmt && fmt.includes("-") ? s : s.replace(/-/g, ""); },
     },
     CacheService: { getScriptCache: () => cache },
     PropertiesService: { getScriptProperties: () => ({
@@ -252,6 +252,7 @@ function payWorld({ order, key = "sk_test_x", stripeSession, docs = {}, lookup =
   const seen = { stripe: [], patch: [] };
   const hook = (url, opts) => {
     if (url.startsWith("https://oauth2.googleapis.com/token")) return { body: { access_token: "AT" } };
+    if (url.endsWith(":runQuery")) return { body: (docs.__events || []).map(e => ({ document: fsDoc(e) })).concat([{ readTime: "x" }]) };
     if (url.includes("firestore.googleapis.com")) {
       const path = decodeURIComponent(url.split("/documents/")[1].split("?")[0]);
       if (opts.method === "patch") { seen.patch.push({ url, path, body: JSON.parse(opts.payload) }); return { body: {} }; }
@@ -326,6 +327,20 @@ test("checkout pay: the shop prices the order itself (sale price + delivery), ig
   assert.equal(f.total.integerValue, "7"); assert.equal(f.deliveryFee.integerValue, "2");
   assert.equal(f.lines.arrayValue.values[0].mapValue.fields.unitPrice.doubleValue, 2.5);
   assert.equal(f.status, undefined, "still new until it is paid");
+});
+test("checkout pay: a live event takes its % off the chosen products (never above the sale price); expired/other events do nothing", () => {
+  const ev = (o = {}) => ({ name: "Eid", active: true, percentOff: 20, productIds: ["p1"], look: "eid", ...o });
+  const pay = events => { const w = payWorld({ order: { ...NEW, fulfilment: "collection", address: null }, docs: { ...SHOP, "products/p1": { ...SHOP["products/p1"], salePrice: null }, __events: events } }); w.call(PAY); return w.seen.stripe[0].form["line_items[0][price_data][unit_amount]"]; };
+  assert.equal(pay([]), "600");                                                       // 2 x £3
+  assert.equal(pay([ev()]), "480");                                                   // 2 x £2.40
+  assert.equal(pay([ev(), ev({ percentOff: 50 })]), "300");                           // best deal wins, they don't stack
+  assert.equal(pay([ev({ productIds: ["other"] })]), "600");
+  assert.equal(pay([ev({ endsAt: "2020-01-01" })]), "600");                           // finished
+  assert.equal(pay([ev({ startsAt: "2999-01-01" })]), "600");                         // not started
+  assert.equal(pay([ev({ startsAt: "2000-01-01", endsAt: "2999-01-01" })]), "480");
+  assert.equal(pay([ev({ percentOff: 0 })]), "600");                                  // look-only event
+  const w = payWorld({ order: { ...NEW, fulfilment: "collection", address: null }, docs: { ...SHOP, __events: [ev({ percentOff: 10 })] } });   // product already on sale at £2.50 -> 2.70 loses
+  w.call(PAY); assert.equal(w.seen.stripe[0].form["line_items[0][price_data][unit_amount]"], "500");
 });
 test("checkout pay: pick-up has no delivery fee; refuses empty stock, hidden products, switched-off delivery and tiny orders", () => {
   const w = payWorld({ order: { ...NEW, fulfilment: "collection", address: null }, docs: SHOP });

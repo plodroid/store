@@ -118,6 +118,7 @@
     if (c === "orders") return w.owner || (w.uid && d && d.uid === w.uid);
     if (c === "stockAlerts") return w.owner || (w.uid && d && d.uid === w.uid);
     if (c === "feedback" || c === "productPrivate") return w.owner;
+    if (c === "events") return w.owner || (d && d.active === true);
     if (c === "settings" && id === "owner") return w.owner;
     return true;
   }
@@ -125,6 +126,7 @@
     const w = who();
     if (["orders", "stockAlerts"].includes(q.col) && !w.owner && !(w.uid && q.where.some(x => x.f === "uid" && x.v === w.uid))) throw err("permission-denied", "query on " + q.col);
     if (q.col === "feedback" && !w.owner) throw err("permission-denied", "query on " + q.col);
+    if (q.col === "events" && !w.owner && !q.where.some(x => x.f === "active" && x.v === true)) throw err("permission-denied", "unfiltered events query");
     if (q.col === "products" && !w.owner && !(q.where.some(x => x.f === "visible" && x.v === true) && q.where.some(x => x.f === "archived" && x.v === false))) throw err("permission-denied", "unfiltered products query");
     if (q.col === "categories" && !w.owner && !q.where.some(x => x.f === "visible" && x.v === true)) throw err("permission-denied", "unfiltered categories query");
     let rows = Object.entries(db()[q.col] || {}).map(([id, d]) => ({ id, d }));
@@ -256,6 +258,14 @@
       const d = raw;
       if (!hasOnly(d, ["name", "description", "image", "imagePath", "sortOrder", "visible", "createdAt", "updatedAt"]) || !hasAll(d, ["name", "visible", "sortOrder", "updatedAt"])) deny("categories: keys");
       if (!isStr(d.name, 60) || !d.name.length || typeof d.visible !== "boolean" || !Number.isInteger(d.sortOrder)) deny("categories: values");
+    }
+    if (c === "events" && op !== "delete") {
+      const d = raw;
+      if (!hasOnly(d, ["name", "tagline", "look", "color", "active", "startsAt", "endsAt", "percentOff", "productIds", "createdAt", "updatedAt"]) || !hasAll(d, ["name", "look", "active", "percentOff", "productIds", "updatedAt"])) deny("events: keys " + Object.keys(d));
+      if (!isStr(d.name, 60) || !d.name.length || !["plain", "ramadan", "eid"].includes(d.look) || typeof d.active !== "boolean") deny("events: values");
+      if (!Number.isInteger(d.percentOff) || d.percentOff < 0 || d.percentOff > 90 || !Array.isArray(d.productIds) || d.productIds.length > 300) deny("events: sale");
+      if (!optStr(d, "tagline", 120) || !optStr(d, "color", 7) || !optStr(d, "startsAt", 10) || !optStr(d, "endsAt", 10)) deny("events: strings");
+      if (!isSV(d.updatedAt)) deny("events: updatedAt");
     }
     if (c === "settings" && id === "site") {
       if (!hasOnly(raw, ["storeName", "heroTitle", "heroSubtitle", "announcement", "whatsapp", "collection", "delivery", "deliveryFee", "collectionNote", "deliveryNote", "currency", "updatedAt"])) deny("settings: keys " + Object.keys(raw));

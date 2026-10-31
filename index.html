@@ -16,20 +16,21 @@
 <meta name="twitter:card" content="summary_large_image">
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./icon-192.png">
-<script>function native(){try{if(window.Capacitor&&Capacitor.isNativePlatform&&Capacitor.isNativePlatform())document.documentElement.dataset.native="1"}catch(e){}}native();addEventListener("DOMContentLoaded",native);try{var t=localStorage.getItem("theme");if(t==="dark"){document.documentElement.dataset.theme="dark";document.querySelector('meta[name="theme-color"]').content="#161616"}}catch(e){}</script>
+<script>function native(){try{if(window.Capacitor&&Capacitor.isNativePlatform&&Capacitor.isNativePlatform())document.documentElement.dataset.native="1"}catch(e){}}native();addEventListener("DOMContentLoaded",native);try{var t=localStorage.getItem("theme");if(t==="dark"){document.documentElement.dataset.theme="dark";document.querySelector('meta[name="theme-color"]').content="#161616"}}catch(e){}try{var c=JSON.parse(localStorage.getItem("shopCache")||"{}"),n=new Date().toLocaleDateString("en-CA",{timeZone:"Europe/London"}),v=(c.e||[]).filter(function(e){return e.active&&(!e.startsAt||e.startsAt<=n)&&(!e.endsAt||e.endsAt>=n)}).sort(function(a,b){return(b.createdAt||0)-(a.createdAt||0)})[0];if(v&&/^(ramadan|eid|plain)$/.test(v.look)){document.documentElement.dataset.event=v.look;if(v.look==="plain"&&/^#[0-9a-f]{6}$/i.test(v.color||"")){var r=document.documentElement.style;r.setProperty("--accent",v.color)}}}catch(e){}</script>
 <link rel="icon" type="image/svg+xml" href="./icon.svg">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&display=swap" media="print" onload="this.media='all'">
-<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&display=swap"></noscript>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&family=Dancing+Script:wght@700&display=swap" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&family=Dancing+Script:wght@700&display=swap"></noscript>
 <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
 <link rel="preconnect" href="https://upload.wikimedia.org" crossorigin>
 <link rel="preconnect" href="https://hamoud-boualem.com" crossorigin>
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js">
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js">
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js">
-<link rel="stylesheet" href="./styles.css?v=13">
+<link rel="stylesheet" href="./styles.css?v=14">
+<link rel="stylesheet" href="./events.css?v=14">
 </head>
 
 <body>
@@ -88,6 +89,7 @@
   <!-- ═════ shop ═════ -->
   <div id="vShop">
     <div class="restock" id="restock" role="status" hidden></div>
+    <section class="ev-hero" id="evHero" aria-label="Current event" hidden></section>
 
     <section id="shop" class="shop" aria-labelledby="shopTitle">
       <div class="toolbar">
@@ -368,7 +370,7 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="./firebase-config.js?v=13"></script>
-<script type="module" src="./app.js?v=13"></script>
+<script src="./firebase-config.js?v=14"></script>
+<script type="module" src="./app.js?v=14"></script>
 </body>
 </html>

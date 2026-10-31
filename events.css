@@ -1,0 +1,80 @@
+/* Event looks. Loaded by the shop and the owner page. Everything hangs off html[data-event], so with no live event
+   the shop is exactly the honey Bee Hive. Dark mode has its own set for each look. */
+
+/* ── banner at the top of the shop ───────────────────── */
+.ev-hero {
+  --ev-bg: var(--accent); --ev-ink: var(--on-accent); --ev-gold: var(--accent); --ev-gold2: var(--honey);
+  position: relative; overflow: hidden; margin: 14px auto 6px; border-radius: 26px;
+  width: calc(100% - 32px); max-width: 1168px;
+  background: var(--ev-bg); color: var(--ev-ink);
+  box-shadow: var(--shadow-m);
+}
+@media (min-width: 768px) { .ev-hero { width: calc(100% - 64px); margin-top: 18px; } }
+.ev-art { height: clamp(224px, 31vw, 330px); }
+.ev-art svg { display: block; width: 100%; height: 100%; }
+.ev-copy { position: relative; padding: 4px 20px 24px; text-align: center; display: grid; justify-items: center; gap: 6px; }
+.ev-kicker { font-size: 12px; font-weight: 650; letter-spacing: .09em; text-transform: uppercase; padding: 5px 12px; border-radius: 999px; background: color-mix(in srgb, var(--ev-ink) 14%, transparent); }
+.ev-name { font-size: clamp(28px, 6.4vw, 46px); line-height: 1.08; letter-spacing: -.02em; font-weight: 650; }
+.ev-tag { max-width: 36ch; font-size: 15px; opacity: .86; }
+.ev-cta { margin-top: 8px; min-height: 44px; padding: 0 22px; border-radius: 999px; font-weight: 600; background: var(--ev-ink); color: var(--ev-bg); transition: transform .16s var(--ease); }
+.ev-cta:active { transform: scale(.97); }
+@media (min-width: 900px) { .ev-copy { padding-bottom: 30px; } }
+
+/* ── Ramadan: night sky, gold ───────────────────────── */
+html[data-event="ramadan"] {
+  --bg: #EDF4F3; --surface: #FFFFFF; --surface-2: #E1EDEB; --surface-3: #CFE1DE;
+  --line: rgba(12, 44, 59, .12); --line-2: rgba(12, 44, 59, .2); --fill-1: rgba(12, 44, 59, .045); --fill-2: rgba(12, 44, 59, .08);
+  --text: #0D2631; --muted: #3F5F6B; --faint: #7C97A0;
+  --accent: #D4A63A; --accent-hi: #BF922B; --on-accent: #1A1303; --blue: #7A5A0C; --honey: #EBCF85; --honey-ink: #2B1F00; --banner: #D4A63A;
+  --scrim: rgba(5, 25, 35, .45);
+  --star: #C9A24A;
+}
+html[data-event="ramadan"][data-theme="dark"] {
+  --bg: #07161E; --surface: #0E2430; --surface-2: #143242; --surface-3: #1B4155;
+  --line: rgba(255, 255, 255, .09); --line-2: rgba(255, 255, 255, .16); --fill-1: rgba(255, 255, 255, .04); --fill-2: rgba(255, 255, 255, .07);
+  --text: #EAF2F0; --muted: #A5BDC2; --faint: #6F8D96;
+  --accent: #E3BE62; --accent-hi: #F0D07F; --on-accent: #1A1303; --blue: #EBCB74; --honey-ink: #2B1F00; --banner: #7A5C14;
+  --glass-fill: rgba(14, 36, 48, .58); --glass-strong: rgba(10, 28, 38, .86);
+}
+.ev-hero[data-look="ramadan"], .ev-hero[data-look="eid"] {
+  --ev-bg: #0C2C3B; --ev-bg2: #10394C; --ev-cloud1: #1B5A6C; --ev-cloud2: #2F7585; --ev-sil: #0A2230; --ev-cut: #8A6A22;
+  --ev-gold: #DDB75F; --ev-gold2: #F3DC9C; --ev-moon: #F7E3A2; --ev-glow: #FFF1BE; --ev-ink: #F7EBCB;
+}
+html[data-theme="dark"] .ev-hero[data-look="ramadan"] { --ev-bg: #091F2B; --ev-bg2: #0E3042; --ev-cloud1: #154B5C; --ev-cloud2: #236576; --ev-sil: #071A24; }
+
+/* ── Eid: cream and gold ────────────────────────────── */
+html[data-event="eid"] {
+  --bg: #FCF5E3; --surface: #FFFFFF; --surface-2: #F7EBCB; --surface-3: #EFDCA8;
+  --line: rgba(72, 44, 12, .12); --line-2: rgba(72, 44, 12, .2); --fill-1: rgba(72, 44, 12, .045); --fill-2: rgba(72, 44, 12, .08);
+  --text: #3A2412; --muted: #6E5238; --faint: #9C8465;
+  --accent: #D9A93F; --accent-hi: #C4952F; --on-accent: #2B1A06; --blue: #8A5F0A; --honey: #F1D58A; --honey-ink: #2F1D05; --banner: #D9A93F;
+}
+html[data-event="eid"][data-theme="dark"] {
+  --bg: #17110A; --surface: #221A10; --surface-2: #2E2314; --surface-3: #3B2D19;
+  --text: #F8EEDB; --muted: #C7B591; --faint: #8F7F5E;
+  --accent: #E6BB52; --accent-hi: #F2CB6E; --on-accent: #231500; --blue: #F0C860; --banner: #6F5214;
+  --glass-fill: rgba(40, 30, 16, .58); --glass-strong: rgba(32, 24, 12, .86);
+}
+.ev-hero[data-look="eid"] {
+  --ev-bg: #FBF1D9; --ev-sil: #EFDDAA; --ev-cut: #A9791C; --ev-gold: #C9972F; --ev-gold2: #E8C25A; --ev-moon: #FFFFFF; --ev-glow: #FFF4CC; --ev-ink: #4A2A12;
+}
+html[data-theme="dark"] .ev-hero[data-look="eid"] {
+  --ev-bg: #1D150C; --ev-sil: #33261A; --ev-cut: #7A5612; --ev-gold: #E0B24C; --ev-gold2: #F3D58A; --ev-moon: #FFF1C9; --ev-ink: #FBEBC8;
+}
+.ev-hero[data-look="eid"] .ev-name { font-family: "Dancing Script", "Snell Roundhand", "Segoe Script", "Brush Script MT", cursive; font-weight: 700; font-size: clamp(38px, 9vw, 64px); letter-spacing: 0; line-height: 1; padding-top: 4px; }
+.ev-hero[data-look="eid"] .ev-kicker { font-size: 11px; }
+.ev-hero[data-look="eid"] .ev-copy { padding-top: 14px; }
+
+/* ── a plain colour event ───────────────────────────── */
+html[data-event="plain"] { --blue: color-mix(in srgb, var(--accent) 62%, #000); --honey: color-mix(in srgb, var(--accent) 38%, #fff); --honey-ink: #231800; --banner: var(--accent); }
+html[data-event="plain"][data-theme="dark"] { --blue: color-mix(in srgb, var(--accent) 70%, #fff); --honey: color-mix(in srgb, var(--accent) 55%, #000); --honey-ink: #fff; }
+.ev-hero[data-look="plain"] { --ev-bg: var(--accent); --ev-ink: var(--on-accent); --ev-gold2: var(--on-accent); }
+
+/* ── background pattern: stars for Ramadan / Eid instead of honeycomb ── */
+html[data-event="ramadan"] .ambient::before, html[data-event="eid"] .ambient::before {
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72'%3E%3Cg fill='none' stroke='%23C9A24A' stroke-opacity='.17' stroke-width='1.3' stroke-linejoin='round'%3E%3Cpath d='M36 6l9.2 11.6L60 14.8 57.2 29.6 70 36 57.2 42.4 60 57.2 45.2 54.4 36 66l-9.2-11.6L12 57.2l2.8-14.8L2 36l12.8-6.4L12 14.8l14.8 2.8z'/%3E%3C/g%3E%3C/svg%3E") 0 0 / 72px 72px;
+}
+html[data-event="ramadan"][data-theme="dark"] .ambient::before, html[data-event="eid"][data-theme="dark"] .ambient::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72'%3E%3Cg fill='none' stroke='%23E3BE62' stroke-opacity='.11' stroke-width='1.3' stroke-linejoin='round'%3E%3Cpath d='M36 6l9.2 11.6L60 14.8 57.2 29.6 70 36 57.2 42.4 60 57.2 45.2 54.4 36 66l-9.2-11.6L12 57.2l2.8-14.8L2 36l12.8-6.4L12 14.8l14.8 2.8z'/%3E%3C/g%3E%3C/svg%3E");
+}
+html[data-event="plain"] .ambient::before { opacity: .35; }

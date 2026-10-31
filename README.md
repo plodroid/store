@@ -150,3 +150,11 @@ The four test products point at free Wikimedia Commons photos (hot-linked): *DAT
 
 ## Demo products (temporary)
 For the owner demo there are 15 extra products (Hamoud Selecto/Cola, Slim, Freez, Monster, Coke, Fanta, Deglet Nour, baklava, honey, olive oil) plus the categories *Snacks & Sweets* and *Pantry*. Their document ids all start with `demo-` (categories `demo-snacks`, `demo-pantry`), with product photos hot-linked from the brands' sites and Wikimedia Commons (`img/freez.svg` is our own drawing). To remove them: Manage → Products → delete each one, or delete the `demo-*` documents in the Firebase console (Firestore → products / categories).
+
+
+## Events (owner-made sales + seasonal looks)
+Owner page → **Events** → *New event*. He types his own event name (Halloween Week, Black Friday, anything), picks the items and a % off, optional start/end dates (UK time), then switches it on.
+- **Look**: *Plain colour* (any colour, for his own events), or the *Ramadan* / *Eid* templates (original SVG art in `events.js`, colours in `events.css`). A template only suggests wording; he can type whatever he wants. Light + dark mode are both handled.
+- **Prices are real**: `events.js` (shop) and `liveEvents_`/`quote_` in `apps-script/Code.gs` use the same maths, so the basket and the Stripe charge always match. Best price wins (a product's own sale price, or the event's, never stacked).
+- Data: `events/{id}` (owner write, customers can read only `active == true`), rules in `firestore.rules` (`validEvent`). Publish the rules in the Firebase console and make a **new version** of the Apps Script web app after changing them.
+- Several live events: the newest decides the page look; every event's prices apply.

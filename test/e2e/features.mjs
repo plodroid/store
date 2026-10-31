@@ -312,6 +312,36 @@ await test("brand: no 'Plodroid', no real-looking postcode example anywhere on t
   assert.match(await p.title(), /Bee Hive/);
 });
 
+/* ── events: the live one dresses the shop and prices the chosen items; drafts and finished ones do nothing ── */
+const EV = (o = {}) => ({ name: "Iftar Week", tagline: "Blessed nights", look: "ramadan", active: true, percentOff: 20, productIds: ["p1"], createdAt: T, updatedAt: T, ...o });
+await test("event: live Ramadan event → banner, theme, event price on the chosen item only", async ({ page: p }) => {
+  assert.equal(await p.locator("html").getAttribute("data-event"), "ramadan");
+  assert.match(await p.locator("#evHero h2").innerText(), /Iftar Week/);
+  assert.ok(await p.locator("#evHero svg").count());
+  const tile = n => p.locator("#grid .tile", { hasText: n });
+  assert.match(await tile("Medjool").innerText(), /£5\.20/);          // 6.50 - 20%
+  assert.match(await tile("Medjool").innerText(), /−20%/);
+  assert.doesNotMatch(await tile("Sparkling").innerText(), /−/);       // not chosen
+  await p.click("#evCta");
+  assert.equal(await p.locator("#fSale").isChecked(), true);
+  assert.deepEqual((await names(p)).sort(), ["Ajwa Dates 250g", "Medjool Dates 500g"]);   // only items on sale (event + the owner's own sale)
+}, { seed: withProducts({ events: { e1: EV() } }) });
+await test("event: switched off, not started and finished events change nothing; his own sale price still wins if lower", async ({ page: p }) => {
+  assert.equal(await p.locator("html").getAttribute("data-event"), null);
+  assert.ok(await p.locator("#evHero").isHidden());
+  assert.match(await p.locator("#grid .tile", { hasText: "Medjool" }).innerText(), /£6\.50/);
+}, { seed: withProducts({ events: { e1: EV({ active: false }), e2: EV({ startsAt: "2999-01-01" }), e3: EV({ endsAt: "2001-01-01" }) } }) });
+await test("event: plain colour event uses the chosen colour; never beats a lower sale price", async ({ page: p }) => {
+  assert.equal(await p.locator("html").getAttribute("data-event"), "plain");
+  assert.equal((await p.evaluate(() => document.documentElement.style.getPropertyValue("--accent"))).toLowerCase(), "#e8590c");
+  assert.match(await p.locator("#grid .tile", { hasText: "Ajwa" }).innerText(), /£3\.50/);   // already £3.50, 10% off £5 = £4.50 is worse
+}, { seed: withProducts({ events: { e1: EV({ look: "plain", color: "#E8590C", name: "Halloween Week", percentOff: 10, productIds: ["p4"] }) } }) });
+await test("event: a customer can read live events only (rules replica)", async ({ page: p }) => {
+  const r = await p.evaluate(() => { const f = window.__FAKE.fs; const ask = q => new Promise(res => { f.onSnapshot(q, () => res("allowed"), e => res(e.code)); });
+    return Promise.all([ask(f.query(f.collection({}, "events"))), ask(f.query(f.collection({}, "events"), f.where("active", "==", true)))]).then(([all, live]) => ({ all, live })); });
+  assert.deepEqual(r, { all: "permission-denied", live: "allowed" });
+}, { seed: withProducts({ events: { e1: EV() } }) });
+
 console.log(results.map(r => (r[0] ? "PASS " : "FAIL ") + r[1] + (r[0] ? "" : "\n     " + r[2] + (r[3] ? "\n     shot: " + r[3] : ""))).join("\n"));
 console.log(`\n${results.filter(r => r[0]).length}/${results.length} passed`);
 await closeAll(); srv.close();

@@ -3,17 +3,20 @@
    Free-plan design: orders arrive as requests, and "Confirm" re-prices and re-checks stock in a
    transaction (so customers can never choose their own price). */
 
-import { $, $$, esc, money, openDialog, closeDialog, showError, setBusy, toast, millis, timeAgo, store, priceOf, onSale } from "./ui.js?v=13";
-import { lookupPostcode } from "./uk.js?v=13";
+import { $, $$, esc, money, openDialog, closeDialog, showError, setBusy, toast, millis, timeAgo, store, priceOf, onSale } from "./ui.js?v=14";
+import { lookupPostcode } from "./uk.js?v=14";
+import { LOOKS, SWATCHES, isLive, todayUK, heroHtml, heroVars } from "./events.js?v=14";
 
 const css = document.createElement("link");
 css.rel = "stylesheet"; css.href = new URL("./admin.css", import.meta.url).href;
-document.head.append(css);
+const css2 = document.createElement("link");
+css2.rel = "stylesheet"; css2.href = new URL("./events.css?v=14", import.meta.url).href;
+document.head.append(css, css2);
 
 let X = null;                 // { FS, acct, getSite }
 const A = {
-  products: [], categories: [], orders: [], feedback: [], alerts: [],
-  loaded: { products: false, categories: false, orders: false, feedback: false, alerts: false },
+  products: [], categories: [], orders: [], feedback: [], alerts: [], events: [],
+  loaded: { products: false, categories: false, orders: false, feedback: false, alerts: false, events: false },
   errors: {}, tab: "home", open: false, started: false, unsubs: [],
   pf: "all", pq: "", of: "active", ff: "inbox",
 };
@@ -62,6 +65,7 @@ export function watchAlerts(ctx) {
   sub("products", fs.collection(d, "products"));
   sub("categories", fs.collection(d, "categories"));
   sub("alerts", fs.collection(d, "stockAlerts"));
+  sub("events", fs.collection(d, "events"));
   sub("orders", fs.query(fs.collection(d, "orders"), fs.orderBy("createdAt", "desc"), fs.limit(300)),
     o => alertMe("New order " + (o.ref || ""), `${(o.items || []).reduce((n, i) => n + (i.qty || 0), 0)} items · ${o.fulfilment === "delivery" ? "Delivery" : "Pick-up"}`),
     o => !(o.status === "new" && o.paymentStatus === "awaiting"));      // a checkout the customer hasn't paid yet isn't an order
@@ -73,7 +77,7 @@ export function watchAlerts(ctx) {
 export function stopAlerts() {
   A.unsubs.forEach(u => { try { u(); } catch {} });
   A.unsubs = []; A.started = false;
-  for (const k of ["products", "categories", "orders", "feedback", "alerts"]) { A[k] = []; A.loaded[k] = false; }
+  for (const k of ["products", "categories", "orders", "feedback", "alerts", "events"]) { A[k] = []; A.loaded[k] = false; }
   A.errors = {};
   if (A.open) close();
   paintDot();
@@ -115,7 +119,7 @@ function alertMe(title, body) {
 }
 
 /* ── shell ───────────────────────────────────────────── */
-const TABS = [["home", "Today"], ["products", "Products"], ["orders", "Orders"], ["feedback", "Messages"], ["categories", "Categories"], ["settings", "Settings"]];
+const TABS = [["home", "Today"], ["products", "Products"], ["orders", "Orders"], ["feedback", "Messages"], ["events", "Events"], ["categories", "Categories"], ["settings", "Settings"]];
 
 /** Page mode: the settings doc changed, so redraw what is showing. */
 export function refresh() { if (A.open) paint(); }
@@ -514,6 +518,127 @@ async function deleteCategory(id) {
 }
 const stripId = o => { const { id, ...rest } = o; return rest; };
 
+/* ═════════ EVENTS ═════════ */
+const fmtDay = d => new Date(d + "T12:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+const evState = e => !e.active ? ["Off", ""]
+  : isLive(e) ? ["Live now", "ready"]
+  : e.startsAt && e.startsAt > todayUK() ? [`Starts ${fmtDay(e.startsAt)}`, "info"] : ["Finished", "warn"];
+function eventsView() {
+  if (loading(["events", "products"])) return `<p class="adm-empty">Loading…</p>`;
+  const list = A.events.slice().sort((a, b) => millis(b.createdAt) - millis(a.createdAt));
+  return `${errorBanner(["events"])}
+    <div class="adm-bar"><span class="muted">Your own sales and seasons, like “Halloween Week”. Pick what goes on sale and the shop dresses up for it.</span>
+      <button class="btn-primary sm" type="button" data-act="new-event">${ICON.plus} New event</button></div>
+    ${list.length ? `<div class="adm-list">${list.map(e => {
+      const [label, cls] = evState(e), n = (e.productIds || []).length;
+      const bits = [LOOKS[e.look]?.label, e.percentOff > 0 ? `${e.percentOff}% off ${n} item${n === 1 ? "" : "s"}` : "look only",
+        e.startsAt || e.endsAt ? `${e.startsAt ? fmtDay(e.startsAt) : "now"} – ${e.endsAt ? fmtDay(e.endsAt) : "no end"}` : ""].filter(Boolean);
+      return `<div class="prow">
+        <div class="pmain"><button class="pname" type="button" data-act="edit-event" data-id="${esc(e.id)}">${esc(e.name)}</button>
+          <div class="muted pmeta">${esc(bits.join(" · "))}</div></div>
+        <span class="chip ${cls}">${esc(label)}</span>
+        <button class="btn-quiet sm" type="button" data-act="edit-event" data-id="${esc(e.id)}">Edit</button>
+        <label class="switch"><input type="checkbox" data-act="ev-live" data-id="${esc(e.id)}" ${e.active ? "checked" : ""} aria-label="Show ${esc(e.name)} in the shop"><span></span></label>
+      </div>`;
+    }).join("")}</div>
+    <p class="hint">If two events are on at once, the newest one decides how the shop looks. A product in both gets the better price.</p>`
+    : `<p class="adm-empty">No events yet. Tap “New event”, type your own name (Halloween, Black Friday, anything) and pick the items to put on sale.</p>`}`;
+}
+
+function eventDialog(id) {
+  const e = id ? A.events.find(x => x.id === id) : null;
+  const look = e?.look || "plain", color = e?.color || SWATCHES[0], picked = new Set(e?.productIds || []);
+  const prods = A.products.filter(p => !p.archived).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  $("#admDlgBody").innerHTML = `
+    <h2>${e ? "Edit event" : "New event"}</h2>
+    <form id="evForm" novalidate data-id="${esc(id || "")}" data-last="${look}">
+      <div class="ev-preview ev-hero" id="evPreview" aria-label="Preview"></div>
+      <p class="hint ev-hint">This is how the top of your shop will look.</p>
+      <fieldset class="ev-looks"><legend>Look</legend>
+        ${Object.entries(LOOKS).map(([k, l]) => `<label class="ev-look"><input type="radio" name="look" value="${k}" ${k === look ? "checked" : ""}><span><b>${esc(l.label)}</b><small>${esc(l.blurb)}</small></span></label>`).join("")}
+      </fieldset>
+      <label class="inp"><span>Event name*</span><input name="name" maxlength="60" required placeholder="e.g. Halloween Week" value="${esc(e?.name || "")}"></label>
+      <label class="inp"><span>Line under the name (optional)</span><input name="tagline" maxlength="120" placeholder="e.g. Spooky savings on sweets" value="${esc(e?.tagline || "")}"></label>
+      <div class="inp" id="evColor" ${look === "plain" ? "" : "hidden"}><span>Colour</span>
+        <div class="ev-swatches">${SWATCHES.map(c => `<label class="ev-sw" style="--c:${c}"><input type="radio" name="color" value="${c}" ${c.toLowerCase() === color.toLowerCase() ? "checked" : ""} aria-label="Colour ${c}"><span></span></label>`).join("")}
+          <label class="ev-sw custom" title="Pick any colour"><input type="color" name="colorCustom" value="${/^#[0-9a-f]{6}$/i.test(color) ? color : SWATCHES[0]}" aria-label="Custom colour"><span></span></label></div></div>
+      <div class="ev-two">
+        <label class="inp"><span>Discount (% off)</span><input name="pct" inputmode="numeric" maxlength="2" placeholder="0" value="${e?.percentOff ? e.percentOff : ""}"></label>
+        <div class="fchips ev-pcts">${[10, 20, 30, 50].map(n => `<button type="button" class="fchip" data-act="ev-pct" data-pct="${n}">${n}%</button>`).join("")}</div>
+      </div>
+      <p class="hint">Leave empty if the event is just a look with no sale prices.</p>
+      <div class="ev-two">
+        <label class="inp"><span>Starts (optional)</span><input type="date" name="startsAt" value="${esc(e?.startsAt || "")}"></label>
+        <label class="inp"><span>Ends (optional)</span><input type="date" name="endsAt" value="${esc(e?.endsAt || "")}"></label>
+      </div>
+      <p class="hint">With dates it switches on and off by itself (UK time). Without them it runs until you turn it off.</p>
+      <div class="inp ev-prodbox"><span>Items on sale <b id="evCount"></b></span>
+        <div class="ev-prodbar"><input type="search" id="evQ" placeholder="Search items" aria-label="Search items"><button type="button" class="fchip" data-act="ev-all">All</button><button type="button" class="fchip" data-act="ev-none">None</button></div>
+        <div class="ev-prods">${prods.length ? prods.map(p => `<label class="check ev-prod" data-n="${esc(String(p.name).toLowerCase())}"><input type="checkbox" name="p" value="${esc(p.id)}" ${picked.has(p.id) ? "checked" : ""}><span class="ev-pname">${esc(p.name)}</span><span class="muted">${money(p.price)}</span></label>`).join("") : `<p class="muted">Add products first.</p>`}</div>
+      </div>
+      <label class="check"><input type="checkbox" name="active" ${e ? (e.active ? "checked" : "") : "checked"}><span>Show this event in the shop</span></label>
+      <p class="form-error" id="evErr" role="alert" hidden></p>
+      <button class="btn-primary wide" id="evSave" type="submit">${e ? "Save changes" : "Create event"}</button>
+      ${e ? `<div class="adm-danger"><button class="btn-quiet danger" type="button" data-act="delete-event" data-id="${esc(id)}">Delete event</button></div>` : ""}
+    </form>`;
+  openDialog($("#admDlg"));
+  evSync($("#evForm"));
+}
+
+/** Read the form into the event it describes (also used for the live preview). */
+function evRead(form) {
+  const f = form.elements, look = f.look.value;
+  const custom = f.colorCustom.dataset.on === "1" ? f.colorCustom.value : null;
+  const swatch = [...form.querySelectorAll('input[name="color"]')].find(r => r.checked)?.value;
+  const raw = f.pct.value.trim();
+  return { look, name: f.name.value.trim(), tagline: f.tagline.value.trim(), color: custom || swatch || SWATCHES[0],
+    percentOff: raw === "" ? 0 : /^\d{1,2}$/.test(raw) ? Number(raw) : NaN, startsAt: f.startsAt.value, endsAt: f.endsAt.value,
+    productIds: [...form.querySelectorAll('input[name="p"]:checked')].map(c => c.value), active: f.active.checked };
+}
+function evSync(form, changed) {
+  const f = form.elements;
+  if (changed === "look") {            // suggest the template's wording, but never overwrite what he typed himself
+    const was = LOOKS[form.dataset.last] || LOOKS.plain, now = LOOKS[f.look.value];
+    if (!f.name.value.trim() || f.name.value === was.name) f.name.value = now.name;
+    if (!f.tagline.value.trim() || f.tagline.value === was.tagline) f.tagline.value = now.tagline;
+    form.dataset.last = f.look.value;
+  }
+  $("#evColor").hidden = f.look.value !== "plain";
+  const ev = evRead(form), pv = $("#evPreview");
+  pv.dataset.look = ev.look; pv.style.cssText = heroVars(ev);
+  pv.innerHTML = heroHtml({ ...ev, name: ev.name || "Your event name", percentOff: Number.isFinite(ev.percentOff) ? ev.percentOff : 0 }, { cta: false });
+  $("#evCount").textContent = `(${ev.productIds.length} picked)`;
+}
+async function saveEvent(form) {
+  const err = $("#evErr"), id = form.dataset.id || null, ev = evRead(form);
+  const bad = (msg, field) => { if (field) form.elements[field].setAttribute("aria-invalid", "true"); showError(err, msg); };
+  form.querySelectorAll("[aria-invalid]").forEach(x => x.removeAttribute("aria-invalid"));
+  if (!ev.name) return bad("Please type a name for your event.", "name");
+  if (!Number.isInteger(ev.percentOff) || ev.percentOff < 0 || ev.percentOff > 90) return bad("The discount must be a whole number from 1 to 90, or empty.", "pct");
+  if (ev.percentOff > 0 && !ev.productIds.length) return bad("Pick at least one item for the sale, or empty the discount.");
+  if (ev.startsAt && ev.endsAt && ev.endsAt < ev.startsAt) return bad("The end date can't be before the start date.", "endsAt");
+  const { fs } = X.FS, old = id ? A.events.find(x => x.id === id) : null;
+  const doc = { name: ev.name, look: ev.look, active: ev.active, percentOff: ev.percentOff, productIds: ev.productIds,
+    updatedAt: fs.serverTimestamp(), createdAt: old?.createdAt || fs.serverTimestamp() };
+  if (ev.tagline) doc.tagline = ev.tagline;
+  if (ev.look === "plain") doc.color = ev.color;
+  if (ev.startsAt) doc.startsAt = ev.startsAt;
+  if (ev.endsAt) doc.endsAt = ev.endsAt;
+  const btn = $("#evSave"), dlg = $("#admDlg");
+  setBusy(dlg, btn, true);
+  try {
+    await fs.setDoc(id ? fs.doc(db(), "events", id) : fs.doc(fs.collection(db(), "events")), doc);
+    closeDialog(dlg); toast(id ? "Event saved" : ev.active ? "Event is live" : "Event saved (switched off)");
+  } catch (e) { console.error("[admin] event", e); showError(err, "Couldn't save. Please try again."); }
+  finally { setBusy(dlg, btn, false); }
+}
+async function deleteEvent(id) {
+  const e = A.events.find(x => x.id === id); if (!e) return;
+  if (!(await confirmBox({ title: `Delete “${e.name}”?`, text: "The shop goes back to normal and the sale prices end. This can't be undone.", ok: "Delete", danger: true }))) return;
+  const { fs } = X.FS;
+  try { await fs.deleteDoc(fs.doc(db(), "events", id)); closeDialog($("#admDlg")); toast("Event deleted"); } catch (err) { console.error(err); toast("Couldn't delete that."); }
+}
+
 /* ═════════ ORDERS ═════════ */
 const STATUS = { new: "New", confirmed: "Paid", preparing: "Preparing", ontheway: "On the way", arrived: "Arrived", ready: "Ready to collect", completed: "Done", cancelled: "Cancelled" };
 const statusLabel = o => o.status === "confirmed" && o.paymentStatus !== "paid" ? "Confirmed" : STATUS[o.status] || o.status;
@@ -767,7 +892,7 @@ async function saveSettings(form) {
   finally { setBusy(null, btn, false); }
 }
 
-const VIEW = { home: homeView, products: productsView, orders: ordersView, feedback: feedbackView, categories: categoriesView, settings: settingsView };
+const VIEW = { home: homeView, products: productsView, orders: ordersView, feedback: feedbackView, categories: categoriesView, events: eventsView, settings: settingsView };
 
 /* ── dialogs: confirm + choose ───────────────────────── */
 function confirmBox({ title, text, ok = "Confirm", danger = false }) {
@@ -806,6 +931,7 @@ function onInput(e) {
   const { fs } = X.FS;
   if (t.dataset.act === "toggle-visible") fs.updateDoc(fs.doc(db(), "products", t.dataset.id), { visible: t.checked, updatedAt: fs.serverTimestamp() }).catch(() => { toast("Couldn't change that."); paint(); });
   if (t.dataset.act === "cat-visible") fs.updateDoc(fs.doc(db(), "categories", t.dataset.id), { visible: t.checked, updatedAt: fs.serverTimestamp() }).catch(() => { toast("Couldn't change that."); paint(); });
+  if (t.dataset.act === "ev-live") fs.updateDoc(fs.doc(db(), "events", t.dataset.id), { active: t.checked, updatedAt: fs.serverTimestamp() }).then(() => toast(t.checked ? "Event is live" : "Event switched off")).catch(() => { toast("Couldn't change that."); paint(); });
   if (t.dataset.act === "sound") store.set("adm.sound", t.checked);
 }
 
@@ -826,6 +952,11 @@ async function onClick(e) {
     case "sale-pct": { const f = $("#saleForm"), p = A.products.find(x => x.id === f.dataset.id); if (p) f.elements.sale.value = (Math.round(p.price * (1 - Number(t.dataset.pct) / 100) * 100) / 100).toFixed(2); return; }
     case "sale-off": return endSale(id);
     case "notify-stock": return notifyWaiting(id);
+    case "new-event": return eventDialog(null);
+    case "edit-event": return eventDialog(id);
+    case "delete-event": return deleteEvent(id);
+    case "ev-pct": { const f = $("#evForm"); f.elements.pct.value = t.dataset.pct; return evSync(f); }
+    case "ev-all": case "ev-none": { const f = $("#evForm"); f.querySelectorAll('input[name="p"]').forEach(c => { if (!c.closest("[hidden]")) c.checked = act === "ev-all"; }); return evSync(f); }
     case "new-cat": return catDialog(null);
     case "edit-cat": return catDialog(id);
     case "open-order": return orderDialog(id);
@@ -899,7 +1030,17 @@ document.addEventListener("submit", e => {
   else if (f.id === "catForm") { e.preventDefault(); saveCategory(f); }
   else if (f.id === "setForm") { e.preventDefault(); saveSettings(f); }
   else if (f.id === "saleForm") { e.preventDefault(); saveSale(f); }
+  else if (f.id === "evForm") { e.preventDefault(); saveEvent(f); }
 });
+// the event form: keep the preview + wording in step as he types, filter the item list
+document.addEventListener("input", e => {
+  const f = e.target.closest("#evForm"); if (!f) return;
+  if (e.target.id === "evQ") { const q = e.target.value.trim().toLowerCase(); f.querySelectorAll(".ev-prod").forEach(r => { r.hidden = !!q && !r.dataset.n.includes(q); }); return; }
+  if (e.target.name === "colorCustom") { e.target.dataset.on = "1"; f.querySelectorAll('input[name="color"]').forEach(r => { r.checked = false; }); }
+  if (e.target.name === "color") f.elements.colorCustom.dataset.on = "";
+  evSync(f, e.target.name === "look" ? "look" : "");
+});
+document.addEventListener("change", e => { const f = e.target.closest("#evForm"); if (f && e.target.name === "look") evSync(f, "look"); });
 document.addEventListener("click", e => {          // buttons inside #admDlg (dialog is outside #admin)
   const dlg = e.target.closest("#admDlg");
   if (dlg && e.target.closest("[data-act]")) onClick(e);

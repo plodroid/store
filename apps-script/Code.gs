@@ -207,13 +207,19 @@ function quote_(o) {
   const site = firestore_('get', 'settings/site'), st = site ? fsFields_(site.fields || {}) : {};
   if (o.fulfilment === 'delivery' && st.delivery === false) return { ok: false, error: 'no_delivery' };
   if (o.fulfilment !== 'delivery' && st.collection === false) return { ok: false, error: 'no_collection' };
-  const items = Array.isArray(o.items) ? o.items : [], lines = [];
+  const items = Array.isArray(o.items) ? o.items : [], lines = [], events = liveEvents_();
   let pence = 0;
   for (let i = 0; i < items.length; i++) {
     const qty = Number(items[i].qty), d = qty >= 1 && qty <= 99 && Math.floor(qty) === qty ? firestore_('get', 'products/' + String(items[i].productId).replace(/[^A-Za-z0-9_-]/g, '')) : null;
     const p = d ? fsFields_(d.fields || {}) : null;
     if (!p || p.archived || !p.visible || !(Number(p.stock) >= qty)) return { ok: false, error: 'stock', item: String((p && p.name) || items[i].name || 'An item') };
-    const unit = typeof p.salePrice === 'number' && p.salePrice >= 0 && p.salePrice < p.price ? p.salePrice : Number(p.price) || 0;
+    let unit = typeof p.salePrice === 'number' && p.salePrice >= 0 && p.salePrice < p.price ? p.salePrice : Number(p.price) || 0;
+    const pid = String(items[i].productId);
+    events.forEach(function (e) {        // owner's events: same maths as events.js in the shop, so the basket and the charge always agree
+      if (e.productIds.indexOf(pid) < 0) return;
+      const ev = Math.round(Math.round((Number(p.price) || 0) * 100) * (100 - e.percentOff) / 100) / 100;
+      if (ev < unit) unit = ev;
+    });
     const line = Math.round(unit * 100) * qty;
     pence += line;
     lines.push({ productId: String(items[i].productId), name: p.name, unit: p.unit || null, unitPrice: unit, qty: qty, lineTotal: line / 100 });
@@ -221,6 +227,22 @@ function quote_(o) {
   const fee = o.fulfilment === 'delivery' ? Math.round((Number(st.deliveryFee) || 0) * 100) : 0;
   if (!lines.length || pence + fee < 30) return { ok: false, error: 'too_small' };   // Stripe's minimum is 30p
   return { ok: true, lines: lines, subtotal: pence / 100, deliveryFee: fee / 100, total: (pence + fee) / 100 };
+}
+
+/** Events the owner has switched on and whose dates include today (UK time). */
+function liveEvents_() {
+  const res = UrlFetchApp.fetch('https://firestore.googleapis.com/v1/projects/' + SETTINGS.PROJECT_ID + '/databases/(default)/documents:runQuery', {
+    method: 'post', contentType: 'application/json', muteHttpExceptions: true, headers: { Authorization: 'Bearer ' + accessToken_() },
+    payload: JSON.stringify({ structuredQuery: { from: [{ collectionId: 'events' }], limit: 50,
+      where: { fieldFilter: { field: { fieldPath: 'active' }, op: 'EQUAL', value: { booleanValue: true } } } } }),
+  });
+  if (res.getResponseCode() >= 300) throw new Error('Firestore events ' + res.getResponseCode());
+  const today = Utilities.formatDate(new Date(), 'Europe/London', 'yyyy-MM-dd');
+  return JSON.parse(res.getContentText()).filter(function (r) { return r.document; }).map(function (r) { return fsFields_(r.document.fields || {}); })
+    .filter(function (e) {
+      return Array.isArray(e.productIds) && Number(e.percentOff) > 0 && Number(e.percentOff) <= 90 &&
+        (!e.startsAt || e.startsAt <= today) && (!e.endsAt || e.endsAt >= today);
+    });
 }
 
 function pay_(b) {

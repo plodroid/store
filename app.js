@@ -4,9 +4,10 @@
    locked down by firestore.rules, so the whole thing runs on the free Firebase plan. */
 
 import { $, $$, esc, store, money, pence, reduced, uid, openDialog, closeDialog, wireDialogs,
-         toast, showError, setBusy, priceOf, onSale, percentOff, millis } from "./ui.js?v=13";
-import { createAuth } from "./auth.js?v=13";
-import { normaliseUkPhone, showUkPhone } from "./uk.js?v=13";
+         toast, showError, setBusy, priceOf, onSale, percentOff, millis } from "./ui.js?v=14";
+import { createAuth } from "./auth.js?v=14";
+import { normaliseUkPhone, showUkPhone } from "./uk.js?v=14";
+import { liveEvents, withEvents, applyTheme, paintMeta, heroHtml, heroVars } from "./events.js?v=14";
 
 const DEF = window.STORE_DEFAULTS;
 const PATHS = window.STORE_PATHS;
@@ -16,7 +17,7 @@ function paintTheme() {
   const dark = document.documentElement.dataset.theme === "dark";
   $("#themeBtn").setAttribute("aria-label", dark ? "Switch to light mode" : "Switch to dark mode");
   $("#themeBtn2").textContent = $("#menuTheme").textContent = dark ? "Light mode" : "Dark mode";
-  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#161616" : "#FFF8E6");
+  paintMeta();
 }
 
 /* ── mode ────────────────────────────────────────────── */
@@ -75,6 +76,7 @@ const S = {
   products: [],       // raw docs from the backend
   categories: [],     // visible categories, ordered
   site: { ...DEF },
+  events: [],         // events the owner has switched on (customers can't read drafts)
   state: MODE === "unconfigured" ? "unconfigured" : "loading",   // loading | ready | error | unconfigured
   cat: "All", q: "", sort: "feat", f: noFilters(),
   cart: store.get("cart", {}),
@@ -92,9 +94,9 @@ const catMap = () => new Map(S.categories.map(c => [c.id, c]));
 /** Products customers may see: visible, not archived, and not inside a hidden/removed category. */
 function shopProducts() {
   const cats = catMap();
-  return S.products
+  return withEvents(S.products
     .filter(p => p.visible === true && p.archived !== true && (!p.categoryId || cats.has(p.categoryId)))
-    .map(p => ({ ...p, category: p.categoryId ? cats.get(p.categoryId).name : "" }));
+    .map(p => ({ ...p, category: p.categoryId ? cats.get(p.categoryId).name : "" })), liveEvents(S.events));
 }
 let SHOP = [];
 const find = id => SHOP.find(p => p.id === id);
@@ -137,7 +139,7 @@ async function connect() {
     // paint the last known shop straight away; the live data below replaces it a moment later
     const warm = store.get("shopCache", null);
     if (warm && Array.isArray(warm.p) && Array.isArray(warm.c)) {
-      Object.assign(S, { products: warm.p, categories: warm.c, site: { ...DEF, ...(warm.s || {}) }, state: "ready" });
+      Object.assign(S, { products: warm.p, categories: warm.c, site: { ...DEF, ...(warm.s || {}) }, events: Array.isArray(warm.e) ? warm.e : [], state: "ready" });
       renderSite(); render(false);
     }
     const app = initializeApp(window.FIREBASE_CONFIG);
@@ -151,7 +153,7 @@ async function connect() {
     let first = true, haveProducts = false, haveCats = false;
     const flat = d => Object.fromEntries(Object.entries(d).map(([k, v]) => [k, v && typeof v.toMillis === "function" ? v.toMillis() : v]));
     let saveT;
-    const remember = () => { clearTimeout(saveT); saveT = setTimeout(() => store.set("shopCache", { p: S.products.map(flat), c: S.categories.map(flat), s: flat(S.site) }), 300); };
+    const remember = () => { clearTimeout(saveT); saveT = setTimeout(() => store.set("shopCache", { p: S.products.map(flat), c: S.categories.map(flat), s: flat(S.site), e: S.events.map(flat) }), 300); };
     const ready = () => {
       if (!haveProducts || !haveCats) return;
       clearTimeout(slow);
@@ -180,6 +182,11 @@ async function connect() {
         .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || String(a.name).localeCompare(String(b.name)));
       haveCats = true; ready();
     }, onErr);
+
+    fs.onSnapshot(fs.query(fs.collection(db, "events"), fs.where("active", "==", true)), snap => {
+      S.events = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (haveProducts && haveCats) { render(false); remember(); }
+    }, err => console.warn("[shop] events", err && err.code));
 
     fs.onSnapshot(fs.doc(db, PATHS.settings, PATHS.siteDoc), snap => {
       S.site = { ...DEF, ...(snap.exists() ? snap.data() : {}) };
@@ -356,8 +363,29 @@ function reveal(root, animate) {
   $$("img[data-fallback]", root).forEach(img => img.addEventListener("error", onImgError, { once: true }));
 }
 
+/** The live event's banner + page look. Only repaints when the event itself changed. */
+let heroKey = null;
+function renderEvent() {
+  const ev = liveEvents(S.events)[0] || null, el = $("#evHero");
+  const key = ev ? JSON.stringify([ev.id, ev.name, ev.tagline, ev.look, ev.color, ev.percentOff, ev.productIds]) : "";
+  if (key === heroKey) return;
+  heroKey = key;
+  applyTheme(ev);
+  el.hidden = !ev;
+  el.dataset.look = ev ? ev.look : ""; el.style.cssText = ev ? heroVars(ev) : "";
+  el.innerHTML = ev ? heroHtml(ev) : "";
+  const cta = $("#evCta");
+  if (cta) cta.addEventListener("click", () => {
+    $("#fSale").checked = true; $("#filters").hidden = false; $("#filterBtn").setAttribute("aria-expanded", "true");
+    $("#fSale").dispatchEvent(new Event("change", { bubbles: true }));
+    $("#shop").scrollIntoView({ behavior: reduced.matches ? "auto" : "smooth" });
+  });
+  syncNavHeight();
+}
+
 function render(animate = true) {
   SHOP = shopProducts();
+  renderEvent();
   renderCats();
   renderFilters();
   renderRestock();

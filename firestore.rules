@@ -135,6 +135,25 @@ service cloud.firestore {
       allow delete: if isOwner();
     }
 
+    // ── events (the owner's own sales + seasonal looks) ──────
+    // Customers can only read the ones switched on; drafts stay private. The same percentage is applied by
+    // the shop (events.js) and by the payment script (Code.gs), so what the basket shows is what is charged.
+    function validEvent(d) {
+      return d.keys().hasOnly(['name', 'tagline', 'look', 'color', 'active', 'startsAt', 'endsAt', 'percentOff', 'productIds', 'createdAt', 'updatedAt'])
+        && d.keys().hasAll(['name', 'look', 'active', 'percentOff', 'productIds', 'updatedAt'])
+        && d.name is string && d.name.size() >= 1 && d.name.size() <= 60
+        && d.look in ['plain', 'ramadan', 'eid'] && d.active is bool
+        && d.percentOff is int && d.percentOff >= 0 && d.percentOff <= 90
+        && d.productIds is list && d.productIds.size() <= 300
+        && optStr(d, 'tagline', 120) && optStr(d, 'color', 7) && optStr(d, 'startsAt', 10) && optStr(d, 'endsAt', 10);
+    }
+    match /events/{id} {
+      allow read: if isOwner() || resource.data.active == true;
+      allow create: if isOwner() && validEvent(request.resource.data) && stamped(true);
+      allow update: if isOwner() && validEvent(request.resource.data) && stamped(false);
+      allow delete: if isOwner();
+    }
+
     // ── settings ─────────────────────────────────────────────
     match /settings/site {
       allow read: if true;

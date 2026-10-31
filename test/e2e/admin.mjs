@@ -190,6 +190,71 @@ await test("owner panel is usable on a phone (390px) with no sideways scroll", a
   assert.ok(w[0] <= w[1] + 1, w.join(" > "));
 }, {}, { width: 390, height: 800 });
 
+await test("events: Ramadan template suggests its wording, owner types his own name, items + % saved", async ({ page: p }) => {
+  await openAdmin(p); await tab(p, "events");
+  await p.click('[data-act="new-event"]');
+  const f = p.locator("#evForm");
+  assert.equal(await f.locator('[name="look"]:checked').inputValue(), "plain");
+  assert.equal(await f.locator('[name="name"]').inputValue(), "", "no preset name for his own events");
+  await f.locator('[name="look"][value="ramadan"]').check({ force: true });
+  assert.equal(await f.locator('[name="name"]').inputValue(), "Ramadan Kareem");
+  assert.ok(await p.locator("#evPreview[data-look=ramadan] svg").count(), "art drawn in the preview");
+  await f.locator('[name="name"]').fill("Iftar Week");                         // his own words win over the template
+  await f.locator('[name="look"][value="eid"]').check({ force: true });
+  assert.equal(await f.locator('[name="name"]').inputValue(), "Iftar Week", "typed name is never overwritten");
+  await f.locator('[name="look"][value="ramadan"]').check({ force: true });
+  await p.click('[data-act="ev-pct"][data-pct="20"]');
+  await f.locator('[name="p"][value="p1"]').check({ force: true });
+  await p.click("#evSave");
+  await p.waitForFunction(() => Object.keys(window.__FAKE.dump().events || {}).length === 1);
+  const e = Object.values((await db(p)).events)[0];
+  assert.deepEqual([e.name, e.look, e.percentOff, e.active, e.productIds], ["Iftar Week", "ramadan", 20, true, ["p1"]]);
+  assert.equal(e.color, undefined);
+  await p.waitForSelector('.prow:has-text("Iftar Week") .chip.ready');
+});
+
+await test("events: plain colour event, bad input is stopped with a clear message, switch off / delete", async ({ page: p }) => {
+  await openAdmin(p); await tab(p, "events");
+  await p.click('[data-act="new-event"]');
+  const f = p.locator("#evForm");
+  await p.click("#evSave");
+  assert.match(await p.locator("#evErr").innerText(), /type a name/);
+  await f.locator('[name="name"]').fill("Halloween Week");
+  await f.locator('[name="pct"]').fill("30");
+  await p.click("#evSave");
+  assert.match(await p.locator("#evErr").innerText(), /at least one item/);
+  await f.locator('[name="pct"]').fill("95");
+  await f.locator('[name="p"][value="p2"]').check({ force: true });
+  await p.click("#evSave");
+  assert.match(await p.locator("#evErr").innerText(), /1 to 90/);
+  await f.locator('[name="pct"]').fill("30");
+  await f.locator('[name="startsAt"]').fill("2026-10-31"); await f.locator('[name="endsAt"]').fill("2026-10-01");
+  await p.click("#evSave");
+  assert.match(await p.locator("#evErr").innerText(), /end date/);
+  await f.locator('[name="endsAt"]').fill("2026-11-02");
+  await p.locator('input[name="color"][value="#E8590C"]').check({ force: true });
+  await p.click("#evSave");
+  await p.waitForFunction(() => Object.keys(window.__FAKE.dump().events || {}).length === 1);
+  await p.waitForFunction(() => !document.querySelector("#admDlg").open);
+  const [id, e] = Object.entries((await db(p)).events)[0];
+  assert.deepEqual([e.name, e.look, e.color, e.percentOff, e.startsAt, e.endsAt], ["Halloween Week", "plain", "#E8590C", 30, "2026-10-31", "2026-11-02"]);
+  await p.click(`[data-act="ev-live"][data-id="${id}"]`, { force: true });
+  await p.waitForFunction(i => window.__FAKE.dump().events[i].active === false, id);
+  await p.click(`[data-act="edit-event"][data-id="${id}"] >> nth=0`);
+  await p.click('[data-act="delete-event"]');
+  await p.click("#admConfirm [data-yes]");
+  await p.waitForFunction(() => Object.keys(window.__FAKE.dump().events || {}).length === 0);
+});
+
+await test("events: owner event form is usable on a phone (390px)", async ({ page: p }) => {
+  await openAdmin(p); await tab(p, "events");
+  await p.click('[data-act="new-event"]');
+  await p.locator('#evForm [name="look"][value="eid"]').check({ force: true });
+  const w = await p.evaluate(() => [document.querySelector("#admDlg").scrollWidth, document.querySelector("#admDlg").clientWidth]);
+  assert.ok(w[0] <= w[1] + 1, w.join(" > "));
+  await p.screenshot({ path: "/tmp/claude-0/-home-claude/fa786b1c-808f-5474-a40b-c6b83a368183/scratchpad/ev-admin-eid.png" });
+}, {}, { width: 390, height: 800 });
+
 console.log(results.map(r => (r[0] ? "PASS " : "FAIL ") + r[1] + (r[0] ? "" : "\n     " + r[2] + (r[3] ? "\n     shot: " + r[3] : ""))).join("\n"));
 console.log(`\n${results.filter(r => r[0]).length}/${results.length} passed`);
 await closeAll(); srv.close();
