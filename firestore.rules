@@ -90,7 +90,7 @@ service cloud.firestore {
     function validProduct(d) {
       return d.keys().hasOnly(['name', 'price', 'stock', 'categoryId', 'image', 'imagePath', 'description',
                                'unit', 'visible', 'archived', 'featured', 'sortOrder', 'lowStockThreshold', 'salePrice',
-                               'createdAt', 'updatedAt'])
+                               'imageCount', 'createdAt', 'updatedAt'])
         && d.keys().hasAll(['name', 'price', 'stock', 'visible', 'archived', 'updatedAt'])
         && d.name is string && d.name.size() >= 1 && d.name.size() <= 120
         && d.price is number && d.price >= 0 && d.price <= 100000
@@ -100,13 +100,29 @@ service cloud.firestore {
         && optStr(d, 'categoryId', 64) && optStr(d, 'image', 60000) && optStr(d, 'imagePath', 300)
         && optStr(d, 'description', 2000) && optStr(d, 'unit', 30)
         && optBool(d, 'featured') && optInt(d, 'sortOrder', -1000000, 1000000)
-        && optInt(d, 'lowStockThreshold', 0, 100000);
+        && optInt(d, 'lowStockThreshold', 0, 100000) && optInt(d, 'imageCount', 0, 5);
     }
     match /products/{id} {
       allow read: if isOwner() || (resource.data.visible == true && resource.data.archived == false);
       allow create: if isOwner() && validProduct(request.resource.data) && stamped(true);
       allow update: if isOwner() && validProduct(request.resource.data) && stamped(false);
       allow delete: if isOwner();
+    }
+
+    // Extra photos for the swipe gallery. Kept apart so the shop list stays small: customers only fetch
+    // one of these when they open that product. Up to 5 photos, each a compressed data URL.
+    match /productImages/{id} {
+      allow read: if true;
+      allow delete: if isOwner();
+      allow write: if isOwner()
+        && request.resource.data.keys().hasOnly(['images', 'updatedAt'])
+        && request.resource.data.images is list && request.resource.data.images.size() <= 5
+        && (request.resource.data.images.size() < 1 || (request.resource.data.images[0] is string && request.resource.data.images[0].size() <= 140000))
+        && (request.resource.data.images.size() < 2 || (request.resource.data.images[1] is string && request.resource.data.images[1].size() <= 140000))
+        && (request.resource.data.images.size() < 3 || (request.resource.data.images[2] is string && request.resource.data.images[2].size() <= 140000))
+        && (request.resource.data.images.size() < 4 || (request.resource.data.images[3] is string && request.resource.data.images[3].size() <= 140000))
+        && (request.resource.data.images.size() < 5 || (request.resource.data.images[4] is string && request.resource.data.images[4].size() <= 140000))
+        && request.resource.data.updatedAt == request.time;
     }
 
     // Owner-only product fields (cost price, SKU, barcode) live apart from the public doc.

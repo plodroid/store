@@ -541,7 +541,7 @@ function renderProduct() {
   root.innerHTML = `
     ${back}${p.category ? `<a href="#shop" data-c="${esc(p.categoryId)}" data-scroll>${esc(p.category)}</a><span aria-hidden="true">/</span>` : ""}<span aria-current="page">${esc(p.name)}</span></nav>
     <article class="pp">
-      <div class="pp-media">${media(p)}${out ? `<span class="flag">Sold out</span>` : onSale(p) ? `<span class="flag sale">−${percentOff(p)}%</span>` : ""}
+      <div class="pp-media">${galleryHtml(p)}${out ? `<span class="flag">Sold out</span>` : onSale(p) ? `<span class="flag sale">−${percentOff(p)}%</span>` : ""}
         <div class="pp-float">
           <a class="icon-btn glass-s" href="#/" aria-label="Back to the shop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="m15 5-7 7 7 7"/></svg></a>
           <span class="grp">
@@ -577,7 +577,51 @@ function renderProduct() {
     ${more.length ? `<section class="rail-sec"><h2>You may also like</h2><div class="grid rail" id="ppMore">${more.map(tile).join("")}</div></section>` : ""}
     ${seen.length ? `<section class="rail-sec"><h2>Recently viewed</h2><div class="grid rail" id="ppSeen">${seen.map(tile).join("")}</div></section>` : ""}`;
   reveal(root, false);
+  loadGallery(p);
 }
+
+/* ── product photos: the shop list only carries a small cover; the full set is fetched when a product opens ── */
+const gallery = new Map();                       // productId → [photo urls]
+function galleryHtml(p) {
+  const imgs = gallery.get(p.id);
+  if (!imgs || imgs.length < 2) {
+    const one = imgs && imgs[0] && imgs[0].startsWith("data:") ? { ...p, image: imgs[0] } : p;
+    return media(one, true);
+  }
+  const alt = esc(p.name || "Product");
+  return `<div class="gal" role="group" aria-roledescription="carousel" aria-label="Photos of ${alt}">
+    <div class="gal-track" tabindex="0">${imgs.map((src, i) => `<div class="gal-s" role="group" aria-roledescription="slide" aria-label="Photo ${i + 1} of ${imgs.length}"><img src="${esc(src)}" alt="${alt}, photo ${i + 1}" ${i ? 'loading="lazy"' : 'loading="eager"'} decoding="async" draggable="false" data-fallback="${esc((p.name || "?").trim()[0])}"></div>`).join("")}</div>
+    <button class="gal-nav prev" type="button" data-gal="-1" aria-label="Previous photo" hidden>‹</button>
+    <button class="gal-nav next" type="button" data-gal="1" aria-label="Next photo">›</button>
+    <div class="gal-dots" aria-hidden="true">${imgs.map((_, i) => `<i class="${i ? "" : "on"}"></i>`).join("")}</div>
+    <span class="gal-n" aria-live="polite">1 / ${imgs.length}</span>
+  </div>`;
+}
+async function loadGallery(p) {
+  if (!p.imageCount || gallery.has(p.id) || !FS || MODE !== "live") return;
+  gallery.set(p.id, null);                       // in flight
+  try {
+    const { db, fs } = FS, snap = await fs.getDoc(fs.doc(db, "productImages", p.id));
+    const imgs = snap.exists() && Array.isArray(snap.data().images) ? snap.data().images.filter(x => typeof x === "string").slice(0, 5) : [];
+    gallery.set(p.id, imgs);
+    const box = $("#pp .pp-media");
+    if (box && $("#pp").dataset.id === p.id && imgs.length) {
+      const old = box.querySelector(".gal, img, .ph"), tmp = document.createElement("div");
+      tmp.innerHTML = galleryHtml(p);
+      if (old) old.replaceWith(...tmp.childNodes);
+    }
+  } catch (e) { gallery.delete(p.id); console.warn("[shop] photos", e); }
+}
+const galGo = (g, dir) => { const t = g.querySelector(".gal-track"); t.scrollBy({ left: dir * t.clientWidth, behavior: "smooth" }); };
+document.addEventListener("click", e => { const b = e.target.closest("[data-gal]"); if (b) galGo(b.closest(".gal"), +b.dataset.gal); });
+document.addEventListener("keydown", e => { const t = e.target.closest?.(".gal-track"); if (t && (e.key === "ArrowRight" || e.key === "ArrowLeft")) { e.preventDefault(); galGo(t.closest(".gal"), e.key === "ArrowRight" ? 1 : -1); } });
+document.addEventListener("scroll", e => {
+  const t = e.target; if (!t.classList || !t.classList.contains("gal-track")) return;
+  const g = t.parentElement, n = t.children.length, i = Math.max(0, Math.min(n - 1, Math.round(t.scrollLeft / t.clientWidth)));
+  g.querySelectorAll(".gal-dots i").forEach((d, k) => d.classList.toggle("on", k === i));
+  g.querySelector(".gal-n").textContent = `${i + 1} / ${n}`;
+  g.querySelector(".prev").hidden = i === 0; g.querySelector(".next").hidden = i === n - 1;
+}, true);
 
 async function shareProduct() {
   const p = find(route().id); if (!p) return;

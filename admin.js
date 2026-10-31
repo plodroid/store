@@ -7,6 +7,7 @@ import { $, $$, esc, money, openDialog, closeDialog, showError, setBusy, toast, 
 import { lookupPostcode } from "./uk.js?v=16";
 import { trackerHtml } from "./flow.js?v=16";
 import { createTracker } from "./track.js?v=16";
+import { analyticsHtml, wireAnalytics } from "./analytics.js?v=16";
 import { createDeliveryMap, deliveries } from "./dmap.js?v=16";
 import { LOOKS, SWATCHES, isLive, todayUK, heroHtml, heroVars } from "./events.js?v=16";
 
@@ -43,7 +44,7 @@ const A = {
   products: [], categories: [], orders: [], feedback: [], alerts: [], events: [],
   loaded: { products: false, categories: false, orders: false, feedback: false, alerts: false, events: false },
   errors: {}, tab: "home", open: false, started: false, unsubs: [],
-  pf: "all", pq: "", of: "active", ff: "inbox",
+  pf: "all", pq: "", range: 30, of: "active", ff: "inbox",
 };
 
 /* ── small helpers ───────────────────────────────────── */
@@ -197,6 +198,7 @@ function paint() {
   const refocus = focused && main.contains(focused) && focused.matches("input[type=search]") ? { sel: "#" + focused.id, pos: focused.selectionStart } : null;
   main.innerHTML = VIEW[A.tab]();
   syncDeliveryMap();
+  if (A.tab === "home") wireAnalytics(main);
   main.scrollTop = keep;
   if (refocus) { const f = $(refocus.sel, main); if (f) { f.focus(); try { f.setSelectionRange(refocus.pos, refocus.pos); } catch {} } }
 }
@@ -221,16 +223,6 @@ function homeView() {
   const low = sellable.filter(p => stockState(p) === "low"), out = sellable.filter(p => stockState(p) === "out");
   const a = attention();
 
-  const days = Array.from({ length: 14 }, (_, i) => {
-    const t = now - (13 - i) * DAY;
-    return { t, n: live.filter(o => dayKey(created(o)) === dayKey(t)).length };
-  });
-  const max = Math.max(1, ...days.map(d => d.n));
-  const bars = days.map((d, i) => {
-    const h = Math.round((d.n / max) * 92);
-    return `<g><rect x="${i * 28 + 4}" y="${100 - h}" width="20" height="${Math.max(h, d.n ? 3 : 1)}" rx="5" class="${d.n ? "bar" : "bar zero"}"><title>${new Date(d.t).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}: ${d.n} order${d.n === 1 ? "" : "s"}</title></rect></g>`;
-  }).join("");
-
   const todo = [
     ...A.feedback.filter(f => !f.read && !f.archived).slice(0, 3).map(f => `<button class="adm-row" data-act="tab" data-tab="feedback"><span class="chip ${f.kind === "bug" ? "bad" : "info"}">${KIND[f.kind] || "Feedback"}</span><span class="adm-grow adm-clip">${esc(f.message)}</span><span class="muted">${timeAgo(millis(f.createdAt))}</span></button>`),
     ...out.slice(0, 4).map(p => `<button class="adm-row" data-act="edit-product" data-id="${esc(p.id)}"><span class="chip bad">Out of stock</span><span class="adm-grow">${esc(p.name)}</span></button>`),
@@ -252,9 +244,7 @@ function homeView() {
       <button class="stat ${a.unread ? "hot" : ""}" data-act="tab" data-tab="feedback"><span>New messages</span><b>${a.unread}</b></button>
       <button class="stat" data-act="tab" data-tab="products"><span>Low or out of stock</span><b>${low.length + out.length}</b></button>
     </div>
-    <section class="adm-card"><h3>Orders, last 14 days</h3>
-      <svg class="chart" viewBox="0 0 392 108" role="img" aria-label="Orders per day over the last 14 days: ${days.map(d => d.n).join(", ")}" preserveAspectRatio="none">${bars}</svg>
-    </section>
+    ${analyticsHtml(A.orders, A.products, A.range)}
     <section class="adm-card"><h3>Also worth a look</h3>
       ${todo.length ? `<div class="adm-list">${todo.join("")}</div>` : `<p class="adm-empty small">All clear. Nothing else needs you right now.</p>`}
     </section>
@@ -313,7 +303,7 @@ function productRow(p) {
   </div>`;
 }
 
-async function shrinkImage(file, max = 360) {
+async function shrinkImage(file, max = 360, limit = 55000) {
   const bmp = await createImageBitmap(file);
   let side = Math.min(max, Math.max(bmp.width, bmp.height));
   for (let tries = 0; tries < 6; tries++, side = Math.round(side * 0.8)) {
@@ -323,16 +313,29 @@ async function shrinkImage(file, max = 360) {
     c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
     for (const q of [0.82, 0.7, 0.58, 0.46]) {
       const url = c.toDataURL("image/jpeg", q);
-      if (url.length <= 55000) return url;
+      if (url.length <= limit) return url;
     }
   }
   throw new Error("image too large");
 }
 
-let draft = null;       // the product being edited
+const MAXPH = 5;
+let draft = null;       // the product being edited: draft.photos = [cover, ...more] (data URLs or https links)
+const photosHtml = () => `<div class="phs">${draft.photos.map((src, i) => `<div class="ph-t"><img src="${esc(src)}" alt="Photo ${i + 1}">${i === 0 ? `<span class="cov">Cover</span>` : `<button type="button" class="mk" data-act="img-cover" data-i="${i}">Make cover</button>`}
+  <div class="ph-b"><button type="button" data-act="img-left" data-i="${i}" aria-label="Move photo ${i + 1} earlier" ${i === 0 ? "disabled" : ""}>‹</button><button type="button" data-act="img-del" data-i="${i}" aria-label="Remove photo ${i + 1}">✕</button><button type="button" data-act="img-right" data-i="${i}" aria-label="Move photo ${i + 1} later" ${i === draft.photos.length - 1 ? "disabled" : ""}>›</button></div></div>`).join("")}
+  ${draft.photos.length < MAXPH ? `<label class="ph-add"><b>+</b><span>Add photos</span><input type="file" id="imgFile" accept="image/*" multiple hidden></label>` : ""}</div>`;
+const repaintPhotos = () => { const el = $("#photos"); if (el) el.innerHTML = photosHtml(); };
+async function loadGallery(id) {
+  try {
+    const { fs } = X.FS, snap = await fs.getDoc(fs.doc(db(), "productImages", id));
+    if (draft && draft.id === id && snap.exists() && Array.isArray(snap.data().images) && snap.data().images.length) { draft.photos = snap.data().images.slice(0, MAXPH); repaintPhotos(); }
+  } catch (e) { console.error("[admin] gallery", e); }
+}
+const moveTo = (arr, from, to) => { const [x] = arr.splice(from, 1); arr.splice(to, 0, x); };
 function productDialog(id) {
   const p = id ? A.products.find(x => x.id === id) : null;
-  draft = { id: p?.id || null, image: p?.image || "", createdAt: p?.createdAt || null };
+  draft = { id: p?.id || null, photos: p?.image ? [p.image] : [], createdAt: p?.createdAt || null, hadGallery: !!p?.imageCount };
+  if (p?.imageCount) loadGallery(p.id);
   const opt = A.categories.slice().sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
     .map(c => `<option value="${esc(c.id)}" ${p?.categoryId === c.id ? "selected" : ""}>${esc(c.name)}</option>`).join("");
   $("#admDlgBody").innerHTML = `
@@ -352,14 +355,11 @@ function productDialog(id) {
         <label class="inp"><span>Low-stock alert at <em>(optional)</em></span><input name="low" inputmode="numeric" placeholder="5" value="${Number.isInteger(p?.lowStockThreshold) ? p.lowStockThreshold : ""}"></label>
       </div>
       <label class="inp"><span>Description <em>(optional)</em></span><textarea name="description" rows="3" maxlength="2000">${esc(p?.description || "")}</textarea></label>
-      <div class="form-section"><h3>Photo</h3>
-        <div class="imgbox"><div class="imgprev" id="imgPrev">${p?.image ? `<img src="${esc(p.image)}" alt="">` : "<span>No photo</span>"}</div>
-          <div class="imgctl">
-            <label class="btn-ghost tight file">Choose photo<input type="file" id="imgFile" accept="image/*" hidden></label>
-            <button class="btn-ghost tight" type="button" data-act="img-clear">Remove</button>
-            <p class="hint">Photos are shrunk automatically to keep the shop fast.</p>
-          </div></div>
-        <label class="inp"><span>…or paste an image link <em>(optional)</em></span><input name="imageUrl" placeholder="https://" maxlength="2000" value="${p?.image && !p.image.startsWith("data:") ? esc(p.image) : ""}"></label>
+      <div class="form-section"><h3>Photos</h3>
+        <div id="photos">${photosHtml()}</div>
+        <p class="hint">The first photo is the one shown in the shop list. Customers swipe through the rest on the product page. Up to ${MAXPH}, shrunk automatically.</p>
+        <div class="urlrow"><label class="inp"><span>…or paste an image link <em>(optional)</em></span><input name="imageUrl" placeholder="https://" maxlength="2000"></label>
+          <button class="btn-ghost tight" type="button" data-act="img-url">Add</button></div>
       </div>
       <div class="inp"><span>Options</span>
         <label class="check"><input type="checkbox" name="visible" ${p ? (p.visible ? "checked" : "") : "checked"}><span>Show in the shop</span></label>
@@ -387,7 +387,7 @@ async function saveProduct(form) {
   const low = v("low") ? parseCount(v("low")) : null;
   if (v("low") && low === null) return bad("low", "Low-stock alert must be a whole number.");
   if (v("imageUrl") && !/^https:\/\//i.test(v("imageUrl"))) return bad("imageUrl", "Image links must start with https://");
-  const image = v("imageUrl") || draft.image || "";
+  if (v("imageUrl")) { if (draft.photos.length < MAXPH) draft.photos.push(v("imageUrl")); }
 
   const { fs } = X.FS;
   const doc = { name: v("name"), price, stock, visible: form.elements.visible.checked, archived: draft.id ? !!A.products.find(x => x.id === draft.id)?.archived : false, updatedAt: fs.serverTimestamp() };
@@ -395,7 +395,6 @@ async function saveProduct(form) {
   if (v("categoryId")) doc.categoryId = v("categoryId");
   if (v("unit")) doc.unit = v("unit");
   if (v("description")) doc.description = v("description");
-  if (image) doc.image = image;
   if (low !== null) doc.lowStockThreshold = low;
   if (form.elements.featured.checked) doc.featured = true;
   const old = draft.id ? A.products.find(x => x.id === draft.id) : null;
@@ -406,7 +405,14 @@ async function saveProduct(form) {
   const btn = $("#prodSave"), dlg = $("#admDlg");
   setBusy(dlg, btn, true);
   try {
-    await fs.setDoc(draft.id ? fs.doc(db(), "products", draft.id) : fs.doc(fs.collection(db(), "products")), doc);
+    const photos = draft.photos, cover = photos[0];
+    const gallery = photos.length > 1 || photos.some(x => x.startsWith("data:"));
+    if (cover) doc.image = cover.startsWith("data:") ? await shrinkImage(await (await fetch(cover)).blob()) : cover;
+    if (gallery) doc.imageCount = photos.length;
+    const ref = draft.id ? fs.doc(db(), "products", draft.id) : fs.doc(fs.collection(db(), "products"));
+    await fs.setDoc(ref, doc);
+    if (gallery) await fs.setDoc(fs.doc(db(), "productImages", ref.id), { images: photos, updatedAt: fs.serverTimestamp() });
+    else if (draft.hadGallery) await fs.deleteDoc(fs.doc(db(), "productImages", ref.id));
     closeDialog(dlg);
     toast(draft.id ? "Product saved" : "Product added");
   } catch (e) {
@@ -1001,6 +1007,7 @@ async function onClick(e) {
     case "close": return close();
     case "tab": A.tab = t.dataset.tab; return paint();
     case "go-orders": A.tab = "orders"; A.of = t.dataset.f; return paint();
+    case "arange": A.range = +t.dataset.r; return paint();
     case "pfilter": A.pf = t.dataset.f; return paint();
     case "ofilter": A.of = t.dataset.f; return paint();
     case "ffilter": A.ff = t.dataset.f; return paint();
@@ -1044,7 +1051,14 @@ async function onClick(e) {
       if (await confirmBox({ title: "Delete this message?", text: "This can't be undone.", ok: "Delete", danger: true }))
         fs.deleteDoc(fs.doc(db(), "feedback", id)).catch(() => toast("Couldn't delete that."));
       return;
-    case "img-clear": draft.image = ""; $("#imgPrev").innerHTML = "<span>No photo</span>"; { const u = $("#prodForm")?.elements.imageUrl; if (u) u.value = ""; } return;
+    case "img-del": draft.photos.splice(+t.dataset.i, 1); return repaintPhotos();
+    case "img-left": moveTo(draft.photos, +t.dataset.i, +t.dataset.i - 1); return repaintPhotos();
+    case "img-right": moveTo(draft.photos, +t.dataset.i, +t.dataset.i + 1); return repaintPhotos();
+    case "img-cover": moveTo(draft.photos, +t.dataset.i, 0); return repaintPhotos();
+    case "img-url": { const f = $("#prodForm"), u = f?.elements.imageUrl, link = (u?.value || "").trim();
+      if (!/^https:\/\//i.test(link)) return showError($("#prodErr"), "Image links must start with https://");
+      if (draft.photos.length >= MAXPH) return showError($("#prodErr"), `You can add up to ${MAXPH} photos.`);
+      draft.photos.push(link); u.value = ""; showError($("#prodErr"), ""); return repaintPhotos(); }
     case "archive-product": {
       const p = A.products.find(x => x.id === id); if (!p) return;
       try {
@@ -1062,7 +1076,7 @@ async function onClick(e) {
         return;
       }
       if (await confirmBox({ title: `Delete “${p.name}”?`, text: "It's not in any order. This can't be undone.", ok: "Delete", danger: true }))
-        fs.deleteDoc(fs.doc(db(), "products", id)).then(() => { closeDialog($("#admDlg")); toast("Deleted"); }).catch(() => toast("Couldn't delete that."));
+        fs.deleteDoc(fs.doc(db(), "products", id)).then(() => { if (p.imageCount) fs.deleteDoc(fs.doc(db(), "productImages", id)).catch(() => {}); closeDialog($("#admDlg")); toast("Deleted"); }).catch(() => toast("Couldn't delete that."));
       return;
     }
     case "delete-cat": return deleteCategory(id);
@@ -1108,12 +1122,10 @@ document.addEventListener("click", e => {          // buttons inside #admDlg (di
   if (dlg && e.target.closest("[data-act]")) onClick(e);
 });
 document.addEventListener("change", async e => {
-  if (e.target.id !== "imgFile" || !e.target.files[0]) return;
-  const err = $("#prodErr");
-  try {
-    draft.image = await shrinkImage(e.target.files[0]);
-    $("#imgPrev").innerHTML = `<img src="${draft.image}" alt="">`;
-    const u = $("#prodForm")?.elements.imageUrl; if (u) u.value = "";
-    showError(err, "");
-  } catch { showError(err, "That photo couldn't be used. Try a different one."); }
+  if (e.target.id !== "imgFile" || !e.target.files.length) return;
+  const err = $("#prodErr"), files = [...e.target.files].slice(0, MAXPH - draft.photos.length);
+  let failed = 0;
+  for (const f of files) { try { draft.photos.push(await shrinkImage(f, 900, 130000)); } catch { failed++; } }
+  repaintPhotos();
+  showError(err, failed ? `${failed} photo${failed === 1 ? "" : "s"} couldn't be used. Try different ones.` : "");
 });

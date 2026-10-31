@@ -262,3 +262,69 @@ body.nav-open { overflow: hidden; }
 /* iPhone app: the real iOS tab bar (nativedock.js) replaces the section tabs */
 html.native-dock .adm-tabs { display: none; }
 html.native-dock .adm-main { padding-bottom: calc(var(--dock-h, 0px) + 16px); }
+
+/* analytics */
+.an-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.an-head h3 { margin: 0; }
+.rng { display: flex; gap: 6px; }
+.an h4 { margin: 20px 0 8px; font-size: 12.5px; font-weight: 500; color: var(--muted); letter-spacing: .01em; }
+.kpis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+@media (min-width: 720px) { .kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.kpi { padding: 14px; border-radius: 16px; background: var(--surface-2); display: flex; flex-direction: column; gap: 2px; }
+.kpi span { font-size: 12.5px; color: var(--muted); }
+.kpi b { font-size: 24px; font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.kpi div { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.kpi small { font-size: 11px; color: var(--faint); }
+.dl { font-size: 12px; font-weight: 600; color: var(--muted); }
+.dl.up { color: var(--good, #1E8E3E); } .dl.down { color: var(--bad); }
+.aw { position: relative; max-width: 680px; }
+.achart { width: 100%; height: auto; display: block; overflow: visible; touch-action: pan-y; }
+.achart.short { max-width: 680px; }
+.achart .gl { stroke: var(--line); stroke-width: 1; }
+.achart .ax { fill: var(--faint); font-size: 9.5px; font-variant-numeric: tabular-nums; }
+.achart .ln { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.achart .ar { fill: color-mix(in srgb, var(--accent) 16%, transparent); }
+.achart .pt, .achart .cd { fill: var(--accent); stroke: var(--surface); stroke-width: 2; }
+.achart .cx { stroke: var(--line-2); stroke-width: 1; stroke-dasharray: 3 3; }
+.achart .ob { fill: var(--accent); }
+.tip { position: absolute; top: 0; pointer-events: none; padding: 8px 10px; border-radius: 10px; background: var(--surface-3, var(--surface-2)); border: 1px solid var(--line-2); box-shadow: 0 6px 20px rgba(0,0,0,.14); display: flex; flex-direction: column; font-size: 12px; white-space: nowrap; }
+.tip b { font-size: 14px; } .tip span { color: var(--muted); }
+.an-grid { display: grid; gap: 0 28px; }
+@media (min-width: 820px) { .an-grid { grid-template-columns: 1.1fr 1fr; } }
+.top { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.top li { display: flex; gap: 10px; align-items: flex-start; }
+.rk { width: 20px; font-size: 12px; color: var(--faint); font-variant-numeric: tabular-nums; padding-top: 1px; }
+.tp { flex: 1; min-width: 0; }
+.tp-l { display: flex; justify-content: space-between; gap: 10px; font-size: 13.5px; }
+.tp-l b { font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; } .tp-l small { font-weight: 400; color: var(--faint); font-size: 11.5px; }
+.trk { height: 6px; margin-top: 6px; border-radius: 3px; background: var(--fill-1, var(--line)); overflow: hidden; }
+.trk i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+.heat { display: grid; grid-template-columns: repeat(24, 1fr); gap: 2px; }
+.hc { height: 30px; border-radius: 3px; background: color-mix(in srgb, var(--accent) calc(var(--a) * 100%), var(--fill-1, var(--line))); }
+.hax { display: flex; justify-content: space-between; font-size: 10px; color: var(--faint); margin-top: 4px; }
+.note { margin: 10px 0 0; font-size: 12.5px; color: var(--muted); }
+.note b { color: var(--text); font-weight: 600; }
+.wds { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; align-items: end; margin-top: 12px; }
+.wd { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 3px; height: 92px; }
+.wd i { width: 100%; max-width: 22px; border-radius: 4px 4px 0 0; background: var(--accent); } .wd i.z { background: var(--line-2); }
+.wd em { font-style: normal; font-size: 10.5px; color: var(--faint); } .wd .wn { font-size: 10.5px; color: var(--muted); min-height: 13px; }
+.split { display: flex; gap: 2px; height: 12px; border-radius: 6px; overflow: hidden; }
+.split i { min-width: 0; } .split i[style*="flex:0;"], .split i[style="flex:0"] { display: none; }
+.c1 { background: var(--accent); } .c2 { background: #3A7BD5; }
+:root[data-theme="dark"] .c2 { background: #6FA3FF; }
+.lg { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 8px; font-size: 12.5px; color: var(--muted); }
+.lg s { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.lg b { color: var(--text); } .lg small { color: var(--faint); }
+
+/* product photo manager */
+.phs { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 10px; margin-bottom: 8px; }
+.ph-t { position: relative; aspect-ratio: 1; border-radius: 14px; overflow: hidden; background: var(--surface-2); border: 1px solid var(--line); }
+.ph-t img { width: 100%; height: 100%; object-fit: cover; }
+.ph-t .cov { position: absolute; top: 6px; left: 6px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: var(--accent); color: #2a1d00; }
+.ph-t .mk { position: absolute; top: 6px; left: 6px; padding: 2px 8px; border-radius: 999px; font-size: 11px; background: rgba(0,0,0,.55); color: #fff; }
+.ph-b { position: absolute; left: 0; right: 0; bottom: 0; display: flex; justify-content: space-between; padding: 4px; background: linear-gradient(transparent, rgba(0,0,0,.55)); }
+.ph-b button { width: 30px; height: 30px; border-radius: 50%; color: #fff; font-size: 16px; line-height: 1; display: grid; place-items: center; }
+.ph-b button:disabled { opacity: .3; }
+.ph-add { aspect-ratio: 1; border-radius: 14px; border: 1px dashed var(--line-2); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--muted); font-size: 12px; cursor: pointer; }
+.ph-add b { font-size: 24px; font-weight: 400; color: var(--text); }
+.urlrow { display: flex; gap: 8px; align-items: flex-end; } .urlrow .inp { flex: 1; margin: 0; }

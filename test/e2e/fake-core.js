@@ -247,13 +247,18 @@
     if (!w.owner) deny(c + ": owner only");
     if (c === "products" && op !== "delete") {
       const d = raw;
-      if (!hasOnly(d, ["name", "price", "stock", "categoryId", "image", "imagePath", "description", "unit", "visible", "archived", "featured", "sortOrder", "lowStockThreshold", "salePrice", "createdAt", "updatedAt"])) deny("products: keys " + Object.keys(d));
+      if (!hasOnly(d, ["name", "price", "stock", "categoryId", "image", "imagePath", "description", "unit", "visible", "archived", "featured", "sortOrder", "lowStockThreshold", "salePrice", "imageCount", "createdAt", "updatedAt"])) deny("products: keys " + Object.keys(d));
       if (!hasAll(d, ["name", "price", "stock", "visible", "archived", "updatedAt"])) deny("products: missing");
       if (!isStr(d.name, 120) || !d.name.length || !isNum(d.price) || d.price < 0 || !Number.isInteger(d.stock) || d.stock < 0 || typeof d.visible !== "boolean" || typeof d.archived !== "boolean") deny("products: values");
       if ("salePrice" in d && d.salePrice != null && !(isNum(d.salePrice) && d.salePrice >= 0 && d.salePrice < d.price)) deny("products: salePrice");
       if (!optStr(d, "image", 60000) || !optStr(d, "description", 2000) || !optStr(d, "unit", 30)) deny("products: strings");
       if (!isSV(d.updatedAt)) deny("products: updatedAt");
       if (op === "create" ? !isSV(d.createdAt) : key(enc(d.createdAt, t)) !== key(before.createdAt)) deny("products: createdAt");
+    }
+    if (c === "productImages" && op !== "delete") {
+      const d = raw;
+      if (!hasOnly(d, ["images", "updatedAt"]) || !Array.isArray(d.images) || d.images.length > 5 || d.images.some(x => !isStr(x, 140000))) deny("productImages: values");
+      if (!isSV(d.updatedAt)) deny("productImages: updatedAt");
     }
     if (c === "categories" && op !== "delete") {
       const d = raw;

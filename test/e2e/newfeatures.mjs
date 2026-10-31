@@ -444,6 +444,84 @@ await test("language: the menu works on a phone and nothing overflows in any lan
     assert.ok(o <= 0, `${c} overflows by ${o}px`);
   }
 }, { viewport: { width: 390, height: 800 } });
+/* ── owner: analytics ───────────────────────────────── */
+const SPREAD = () => Object.fromEntries(Array.from({ length: 14 }, (_, i) => ["a" + i, DELIVERY({ ref: "BH-A" + i, fulfilment: i % 3 ? "collection" : "delivery", total: 10 + i, estTotal: 10 + i,
+  customer: { name: "C" + (i % 5), email: `c${i % 5}@example.com`, phone: "" }, items: [{ productId: i % 2 ? "p1" : "p2", qty: 1 + (i % 3), name: i % 2 ? "Medjool Dates 500g" : "Other thing" }],
+  createdAt: { __ts: Date.now() - i * 20 * 36e5 } })]));
+await test("owner analytics: KPIs, trend chart with axes, best sellers, busy times, range switch and hover tooltip", async ({ page: p }) => {
+  await p.evaluate(() => { window.__FAKE.nextGoogle = { email: "housikiki@gmail.com", name: "Owner", uid: "g_owner" }; });
+  await p.click("#gateGoogle"); await p.waitForSelector(".an .kpis");
+  assert.equal(await p.locator(".kpi").count(), 4);
+  assert.match(await p.locator(".kpi").first().innerText(), /Sales\s+£\d/);
+  assert.ok(await p.locator(".achart .ax").count() >= 8, "axis labels");
+  assert.ok(await p.locator(".achart .gl").count() >= 5, "grid");
+  assert.ok(await p.locator(".top li").count() >= 2 && await p.locator(".hc").count() === 24);
+  await p.locator(".aw svg").hover({ position: { x: 150, y: 80 } });
+  await p.waitForSelector(".tip:not([hidden])");
+  assert.match(await p.locator(".tip").innerText(), /£\d+\.\d\d[\s\S]*order/);
+  await p.click('[data-act="arange"][data-r="7"]');
+  assert.equal(await p.locator('[data-act="arange"][aria-pressed="true"]').innerText(), "7 days");
+  await p.click('[data-act="arange"][data-r="90"]');
+  assert.match(await p.locator(".an h4").first().innerText(), /per week/);
+  await p.evaluate(() => document.querySelector(".an").scrollIntoView()); await p.screenshot({ path: "/tmp/analytics.png" });
+}, { path: "/admin/index.html", ready: "#gateGoogle:not([hidden])", seed: seedWith({ orders: SPREAD() }) });
+
+/* ── product photos ─────────────────────────────────── */
+const IMG = `data:image/png;base64,${PNG.toString("base64")}`;
+const GALLERY_SEED = () => { const sd = seedWith(); sd.products = { ...sd.products, p1: { ...sd.products.p1, image: IMG, imageCount: 3 } }; sd.productImages = { p1: { images: [IMG, IMG, IMG], updatedAt: T } }; return sd; };
+await test("shop: product photos swipe (scroll-snap), dots + counter follow, arrows and keys work; single-photo products are unchanged", async ({ page: p }) => {
+  await p.goto(url + "/index.html#/p/p1"); await p.waitForSelector("#vProduct:not([hidden]) .gal-track");
+  assert.equal(await p.locator(".gal-s").count(), 3);
+  assert.equal(await p.locator(".gal-dots i").count(), 3);
+  assert.equal(await p.locator(".gal-n").innerText(), "1 / 3");
+  await p.evaluate(() => { const t = document.querySelector(".gal-track"); t.scrollTo({ left: t.clientWidth * 1, behavior: "instant" }); });
+  await p.waitForFunction(() => document.querySelector(".gal-n").textContent === "2 / 3");
+  assert.equal(await p.locator(".gal-dots i.on").count(), 1);
+  await p.click(".gal-nav.next"); await p.waitForFunction(() => document.querySelector(".gal-n").textContent === "3 / 3");
+  assert.equal(await p.locator(".gal-nav.next").isHidden(), true);
+  await p.focus(".gal-track"); await p.keyboard.press("ArrowLeft"); await p.waitForFunction(() => document.querySelector(".gal-n").textContent === "2 / 3");
+  await p.goto(url + "/index.html#/p/p2"); await p.waitForSelector("#vProduct:not([hidden]) .pp-name");
+  assert.equal(await p.locator(".gal").count(), 0);
+}, { seed: GALLERY_SEED() });
+await test("owner: add several photos at once, make one the cover, remove one, save; gallery doc + cover thumb + count are stored; limit of 5", async ({ page: p }) => {
+  await p.evaluate(() => { window.__FAKE.nextGoogle = { email: "housikiki@gmail.com", name: "Owner", uid: "g_owner" }; });
+  await p.click("#gateGoogle"); await p.waitForSelector("#admin:not([hidden]) .adm-tab");
+  await p.click('[data-act="tab"][data-tab="products"]');
+  await p.click('[data-act="edit-product"][data-id="p2"]');
+  await p.waitForSelector("#photos .ph-add");
+  const f = n => Array.from({ length: n }, (_, i) => ({ name: `a${i}.png`, mimeType: "image/png", buffer: PNG }));
+  await p.setInputFiles("#imgFile", f(3));
+  await p.waitForFunction(() => document.querySelectorAll("#photos .ph-t").length === 3);
+  assert.equal(await p.locator("#photos .cov").count(), 1);
+  await p.click('#photos [data-act="img-cover"][data-i="2"]');
+  await p.click('#photos [data-act="img-del"][data-i="1"]');
+  assert.equal(await p.locator("#photos .ph-t").count(), 2);
+  await p.setInputFiles("#imgFile", f(9));                                                       // only room for 3 more
+  await p.waitForFunction(() => document.querySelectorAll("#photos .ph-t").length === 5);
+  assert.equal(await p.locator("#photos .ph-add").count(), 0);
+  await p.click('#photos [data-act="img-del"][data-i="4"]');
+  await p.click("#prodSave"); await p.waitForSelector("#admDlg", { state: "hidden" });
+  const d = await db(p);
+  assert.equal(d.products.p2.imageCount, 4);
+  assert.match(d.products.p2.image, /^data:image\/jpeg/);
+  assert.equal(d.productImages.p2.images.length, 4);
+}, { path: "/admin/index.html", ready: "#gateGoogle:not([hidden])", seed: seedWith() });
+await test("owner: editing a product that has a gallery loads its photos; removing them all clears the gallery", async ({ page: p }) => {
+  await p.evaluate(() => { window.__FAKE.nextGoogle = { email: "housikiki@gmail.com", name: "Owner", uid: "g_owner" }; });
+  await p.click("#gateGoogle"); await p.waitForSelector("#admin:not([hidden]) .adm-tab");
+  await p.click('[data-act="tab"][data-tab="products"]');
+  await p.click('[data-act="edit-product"][data-id="p1"]');
+  await p.waitForFunction(() => document.querySelectorAll("#photos .ph-t").length === 3);
+  for (let i = 0; i < 3; i++) await p.click('#photos [data-act="img-del"][data-i="0"]');
+  await p.click("#prodSave"); await p.waitForSelector("#admDlg", { state: "hidden" });
+  const d = await db(p);
+  assert.ok(!("image" in d.products.p1) && !("imageCount" in d.products.p1) && !d.productImages?.p1);
+}, { path: "/admin/index.html", ready: "#gateGoogle:not([hidden])", seed: GALLERY_SEED() });
+await test("photo rules replica: the public can read a gallery but never write one; more than 5 or an oversized photo is refused", async ({ page: p }) => {
+  const w = body => p.evaluate(b => { const f = window.__FAKE.fs; return f.setDoc(f.doc({}, "productImages", "p1"), { ...b, updatedAt: f.serverTimestamp() }).then(() => "wrote", e => e.code); }, body);
+  assert.equal(await w({ images: ["x"] }), "permission-denied");
+}, { seed: GALLERY_SEED() });
+
 await test("language: every translated string keeps its {placeholders} and no two languages are missing keys", async ({ page: p }) => {
   const r = await p.evaluate(async codes => {
     const D = {};
