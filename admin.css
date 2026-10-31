@@ -163,3 +163,5 @@ button.stat:active { transform: scale(.98); }
 .adm-top .btn-quiet { flex: none; }
 
 .gate-why{margin:14px 0 0;font:12px/1.4 ui-monospace,monospace;color:#7a817d;word-break:break-word}
+
+.pthumb img[src*=".png"], .imgprev img[src*=".png"] { object-fit: contain; }

@@ -4,9 +4,9 @@
    locked down by firestore.rules, so the whole thing runs on the free Firebase plan. */
 
 import { $, $$, esc, store, money, pence, reduced, uid, openDialog, closeDialog, wireDialogs,
-         toast, showError, setBusy, priceOf, onSale, percentOff, millis } from "./ui.js?v=11";
-import { createAuth } from "./auth.js?v=11";
-import { normaliseUkPhone, showUkPhone } from "./uk.js?v=11";
+         toast, showError, setBusy, priceOf, onSale, percentOff, millis } from "./ui.js?v=12";
+import { createAuth } from "./auth.js?v=12";
+import { normaliseUkPhone, showUkPhone } from "./uk.js?v=12";
 
 const DEF = window.STORE_DEFAULTS;
 const PATHS = window.STORE_PATHS;

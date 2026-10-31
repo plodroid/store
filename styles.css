@@ -791,3 +791,6 @@ em { font-style: normal; color: var(--faint); font-weight: 400; }
 
 /* inside the Android customer app: no owner button, and no Google sign-in (Google blocks it in web views) */
 html[data-native] .manage, html[data-native] .auth .or, html[data-native] .auth .social { display: none !important; }
+
+/* transparent PNG packshots (bottles, cans) sit whole inside the frame instead of being cropped like photos */
+.tile-media img[src*=".png"], .pp-media img[src*=".png"], .line-thumb img[src*=".png"] { object-fit: contain; padding: 6%; }
