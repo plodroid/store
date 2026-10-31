@@ -119,6 +119,7 @@
     if (c === "stockAlerts") return w.owner || (w.uid && d && d.uid === w.uid);
     if (c === "feedback" || c === "productPrivate") return w.owner;
     if (c === "events") return w.owner || (d && d.active === true);
+    if (c === "tracking") return w.owner || !!(w.uid && ((db().orders || {})[id] || {}).uid === w.uid);
     if (c === "settings" && id === "owner") return w.owner;
     return true;
   }
@@ -259,12 +260,16 @@
       if (!hasOnly(d, ["name", "description", "image", "imagePath", "sortOrder", "visible", "createdAt", "updatedAt"]) || !hasAll(d, ["name", "visible", "sortOrder", "updatedAt"])) deny("categories: keys");
       if (!isStr(d.name, 60) || !d.name.length || typeof d.visible !== "boolean" || !Number.isInteger(d.sortOrder)) deny("categories: values");
     }
+    if (c === "tracking" && op !== "delete") {
+      if (!hasOnly(raw, ["lat", "lng", "heading", "updatedAt"]) || !hasAll(raw, ["lat", "lng", "updatedAt"])) deny("tracking: keys " + Object.keys(raw));
+      if (!isNum(raw.lat) || Math.abs(raw.lat) > 90 || !isNum(raw.lng) || Math.abs(raw.lng) > 180 || !isSV(raw.updatedAt)) deny("tracking: values");
+    }
     if (c === "events" && op !== "delete") {
       const d = raw;
-      if (!hasOnly(d, ["name", "tagline", "look", "color", "active", "startsAt", "endsAt", "percentOff", "productIds", "createdAt", "updatedAt"]) || !hasAll(d, ["name", "look", "active", "percentOff", "productIds", "updatedAt"])) deny("events: keys " + Object.keys(d));
+      if (!hasOnly(d, ["name", "tagline", "look", "color", "active", "startsAt", "endsAt", "ticker", "percentOff", "productIds", "createdAt", "updatedAt"]) || !hasAll(d, ["name", "look", "active", "percentOff", "productIds", "updatedAt"])) deny("events: keys " + Object.keys(d));
       if (!isStr(d.name, 60) || !d.name.length || !["plain", "ramadan", "eid"].includes(d.look) || typeof d.active !== "boolean") deny("events: values");
       if (!Number.isInteger(d.percentOff) || d.percentOff < 0 || d.percentOff > 90 || !Array.isArray(d.productIds) || d.productIds.length > 300) deny("events: sale");
-      if (!optStr(d, "tagline", 120) || !optStr(d, "color", 7) || !optStr(d, "startsAt", 10) || !optStr(d, "endsAt", 10)) deny("events: strings");
+      if (!optStr(d, "tagline", 120) || !optStr(d, "ticker", 120) || !optStr(d, "color", 7) || !optStr(d, "startsAt", 10) || !optStr(d, "endsAt", 10)) deny("events: strings");
       if (!isSV(d.updatedAt)) deny("events: updatedAt");
     }
     if (c === "settings" && id === "site") {

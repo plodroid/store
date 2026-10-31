@@ -3,14 +3,15 @@
    Free-plan design: orders arrive as requests, and "Confirm" re-prices and re-checks stock in a
    transaction (so customers can never choose their own price). */
 
-import { $, $$, esc, money, openDialog, closeDialog, showError, setBusy, toast, millis, timeAgo, store, priceOf, onSale } from "./ui.js?v=14";
-import { lookupPostcode } from "./uk.js?v=14";
-import { LOOKS, SWATCHES, isLive, todayUK, heroHtml, heroVars } from "./events.js?v=14";
+import { $, $$, esc, money, openDialog, closeDialog, showError, setBusy, toast, millis, timeAgo, store, priceOf, onSale } from "./ui.js?v=15";
+import { lookupPostcode } from "./uk.js?v=15";
+import { trackerHtml } from "./flow.js?v=15";
+import { LOOKS, SWATCHES, isLive, todayUK, heroHtml, heroVars } from "./events.js?v=15";
 
 const css = document.createElement("link");
 css.rel = "stylesheet"; css.href = new URL("./admin.css", import.meta.url).href;
 const css2 = document.createElement("link");
-css2.rel = "stylesheet"; css2.href = new URL("./events.css?v=14", import.meta.url).href;
+css2.rel = "stylesheet"; css2.href = new URL("./events.css?v=15", import.meta.url).href;
 document.head.append(css, css2);
 
 let X = null;                 // { FS, acct, getSite }
@@ -35,6 +36,7 @@ const ICON = {
   close: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>`,
   bell: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9a6 6 0 1 1 12 0c0 6 2 7.5 2 7.5H4S6 15 6 9z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>`,
   plus: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>`,
+  nav: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 11 16-7-7 16-2-7z"/></svg>`,
   up: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 15 6-6 6 6"/></svg>`,
   down: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>`,
 };
@@ -559,6 +561,7 @@ function eventDialog(id) {
       </fieldset>
       <label class="inp"><span>Event name*</span><input name="name" maxlength="60" required placeholder="e.g. Halloween Week" value="${esc(e?.name || "")}"></label>
       <label class="inp"><span>Line under the name (optional)</span><input name="tagline" maxlength="120" placeholder="e.g. Spooky savings on sweets" value="${esc(e?.tagline || "")}"></label>
+      <label class="inp"><span>Scrolling bar text (optional)</span><input name="ticker" maxlength="120" placeholder="Empty = “20% off for your event name”" value="${esc(e?.ticker || "")}"></label>
       <div class="inp" id="evColor" ${look === "plain" ? "" : "hidden"}><span>Colour</span>
         <div class="ev-swatches">${SWATCHES.map(c => `<label class="ev-sw" style="--c:${c}"><input type="radio" name="color" value="${c}" ${c.toLowerCase() === color.toLowerCase() ? "checked" : ""} aria-label="Colour ${c}"><span></span></label>`).join("")}
           <label class="ev-sw custom" title="Pick any colour"><input type="color" name="colorCustom" value="${/^#[0-9a-f]{6}$/i.test(color) ? color : SWATCHES[0]}" aria-label="Custom colour"><span></span></label></div></div>
@@ -591,7 +594,7 @@ function evRead(form) {
   const custom = f.colorCustom.dataset.on === "1" ? f.colorCustom.value : null;
   const swatch = [...form.querySelectorAll('input[name="color"]')].find(r => r.checked)?.value;
   const raw = f.pct.value.trim();
-  return { look, name: f.name.value.trim(), tagline: f.tagline.value.trim(), color: custom || swatch || SWATCHES[0],
+  return { look, name: f.name.value.trim(), tagline: f.tagline.value.trim(), ticker: f.ticker.value.trim(), color: custom || swatch || SWATCHES[0],
     percentOff: raw === "" ? 0 : /^\d{1,2}$/.test(raw) ? Number(raw) : NaN, startsAt: f.startsAt.value, endsAt: f.endsAt.value,
     productIds: [...form.querySelectorAll('input[name="p"]:checked')].map(c => c.value), active: f.active.checked };
 }
@@ -621,6 +624,7 @@ async function saveEvent(form) {
   const doc = { name: ev.name, look: ev.look, active: ev.active, percentOff: ev.percentOff, productIds: ev.productIds,
     updatedAt: fs.serverTimestamp(), createdAt: old?.createdAt || fs.serverTimestamp() };
   if (ev.tagline) doc.tagline = ev.tagline;
+  if (ev.ticker) doc.ticker = ev.ticker;
   if (ev.look === "plain") doc.color = ev.color;
   if (ev.startsAt) doc.startsAt = ev.startsAt;
   if (ev.endsAt) doc.endsAt = ev.endsAt;
@@ -672,8 +676,23 @@ async function advance(o) {
   const st = stepOf(o); if (!st) return "";
   const { fs } = X.FS;
   await fs.updateDoc(fs.doc(db(), "orders", o.id), { status: st.to, updatedAt: fs.serverTimestamp() });
+  if (st.to === "completed") fs.deleteDoc(fs.doc(db(), "tracking", o.id)).catch(() => {});      // he's done: stop showing his position
   if (!MAILED.includes(st.to)) return "Order finished. Nice one!";
   return (await emailStage(o.id)) ? "Done. The customer has been emailed." : "Saved, but the email didn't send. Message the customer yourself.";
+}
+
+/** Delivery orders that have been confirmed and aren't finished: he can get directions to them. */
+const canNavigate = o => o.fulfilment === "delivery" && o.address && ["confirmed", "preparing", "ontheway", "arrived", "ready"].includes(o.status);
+
+/** Full-screen directions + live position for the customer. */
+async function navigateTo(id) {
+  const o = A.orders.find(x => x.id === id); if (!o) return;
+  closeDialog($("#admDlg"));
+  try {
+    const { openNav } = await import("./nav.js?v=15");
+    await openNav({ FS: X.FS, order: o,
+      getAction: () => { const cur = A.orders.find(x => x.id === id), st = cur && stepOf(cur); return st ? { label: st.label, run: async () => toast(await advance(cur), 3500) } : null; } });
+  } catch (e) { console.error("[admin] nav", e); toast("Couldn't open the map. Check your connection."); }
 }
 
 /** An order as a card with its one big button: used on the Today screen. */
@@ -685,6 +704,8 @@ function orderCard(o) {
       <span class="chip ${o.status}">${esc(statusLabel(o))}</span>
       <span class="adm-grow"><b>${esc(o.customer?.name || "Customer")}</b> · ${esc(o.ref)}<br><span class="muted">${where} · ${n} item${n === 1 ? "" : "s"} · ${total != null ? money(total) : ""}${o.paymentStatus === "paid" ? " · <b>Paid</b>" : ""}</span></span>
     </button>
+    ${trackerHtml(o, { compact: true })}
+    ${canNavigate(o) ? `<button class="btn-ghost wide nav-btn" type="button" data-act="nav-order" data-id="${esc(o.id)}">${ICON.nav} Directions to ${esc(o.address?.postcode || "the customer")}</button>` : ""}
     ${st ? `<button class="btn-primary wide" type="button" data-act="advance-order" data-id="${esc(o.id)}">${esc(st.label)}</button><p class="hint">${esc(st.hint)}</p>`
       : `<button class="btn-primary wide" type="button" data-act="open-order" data-id="${esc(o.id)}">Check this order</button>`}
   </article>`;
@@ -702,10 +723,12 @@ function ordersView() {
     ${list.length ? `<div class="adm-list">${list.map(o => {
       const n = (o.items || []).reduce((t, i) => t + (i.qty || 0), 0);
       const total = o.total != null ? o.total : o.estTotal;
-      return `<button class="orow" type="button" data-act="open-order" data-id="${esc(o.id)}">
+      return `<article class="owrap"><button class="orow" type="button" data-act="open-order" data-id="${esc(o.id)}">
         <span class="chip ${o.status}">${esc(statusLabel(o))}</span>
         <span class="adm-grow"><b>${esc(o.ref)}</b> · ${esc(o.customer?.name || "Customer")}${o.paymentStatus === "paid" ? " · <b>Paid</b>" : ""}<br><span class="muted">${n} item${n === 1 ? "" : "s"} · ${o.fulfilment === "delivery" ? "Delivery" : "Pick-up"} · ${timeAgo(created(o))}</span></span>
-        <span class="otot">${total != null ? money(total) : ""}${o.total == null ? `<small>estimate</small>` : ""}</span></button>`;
+        <span class="otot">${total != null ? money(total) : ""}${o.total == null ? `<small>estimate</small>` : ""}</span></button>
+        ${trackerHtml(o, { compact: true })}
+        ${canNavigate(o) ? `<button class="btn-ghost wide nav-btn" type="button" data-act="nav-order" data-id="${esc(o.id)}">${ICON.nav} Directions to ${esc(o.address?.postcode || "the customer")}</button>` : ""}</article>`;
     }).join("")}</div>` : `<p class="adm-empty">${A.orders.length ? "Nothing here." : "No orders yet. They'll appear here the moment a customer orders."}</p>`}`;
 }
 
@@ -731,6 +754,7 @@ function orderDialog(id) {
 
   $("#admDlgBody").innerHTML = `
     <h2>${esc(o.ref)} <span class="chip ${o.status}">${esc(statusLabel(o))}</span></h2>
+    ${trackerHtml(o)}
     <p class="muted modal-sub">${new Date(created(o)).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })} · ${o.paymentStatus === "paid" ? "Paid by card" : "Not paid online yet (pay at pick-up or delivery)"}</p>
     <div class="form-section"><h3>Customer</h3>
       <div class="kv"><span>Name</span><b>${esc(o.customer?.name || "")}</b></div>
@@ -740,6 +764,7 @@ function orderDialog(id) {
     <div class="form-section"><h3>${o.fulfilment === "delivery" ? "Delivery to" : "Pick-up from the shop"}</h3>
       ${a ? `<div class="addr-card"><div class="addr-text">${[a.line1, a.line2, a.city, a.postcode].filter(Boolean).map(esc).join("<br>")}</div></div>
         <p class="pc-status wait" id="ordPc">Checking postcode…</p>
+        ${canNavigate(o) ? `<button class="btn-primary tight nav-btn" type="button" data-act="nav-order" data-id="${esc(o.id)}">${ICON.nav} Directions &amp; live map</button> ` : ""}
         <a class="btn-ghost tight" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([a.line1, a.city, a.postcode].filter(Boolean).join(", "))}">Open in Maps</a>` : `<p class="muted">The customer will collect this order.</p>`}
     </div>
     <div class="form-section"><h3>Items</h3>
@@ -854,7 +879,7 @@ function settingsView() {
       <label class="inp"><span>Shop name</span><input name="storeName" maxlength="60" value="${esc(s.storeName || "")}"></label>
       <label class="inp"><span>Headline</span><input name="heroTitle" maxlength="120" value="${esc((s.heroTitle || "").replace(/\n/g, " "))}"></label>
       <label class="inp"><span>Sub-headline</span><input name="heroSubtitle" maxlength="200" value="${esc(s.heroSubtitle || "")}"></label>
-      <label class="inp"><span>Announcement bar <em>(optional)</em></span><input name="announcement" maxlength="160" value="${esc(s.announcement || "")}" placeholder="e.g. Closed on Sunday"></label>
+      <label class="inp"><span>Scrolling bar at the top <em>(optional, one message per line)</em></span><textarea name="announcement" rows="3" maxlength="400" placeholder="Free delivery over £30&#10;Closed on Sunday">${esc(s.announcement || "")}</textarea></label>
       <label class="inp"><span>WhatsApp link <em>(optional)</em></span><input name="whatsapp" maxlength="200" value="${esc(s.whatsapp || "")}" placeholder="https://wa.me/447123456789"></label>
       <h3 class="gap">How customers get their order</h3>
       <label class="check"><input type="checkbox" name="collection" ${s.collection !== false ? "checked" : ""}><span>Pick-up from the shop</span></label>
@@ -952,6 +977,7 @@ async function onClick(e) {
     case "sale-pct": { const f = $("#saleForm"), p = A.products.find(x => x.id === f.dataset.id); if (p) f.elements.sale.value = (Math.round(p.price * (1 - Number(t.dataset.pct) / 100) * 100) / 100).toFixed(2); return; }
     case "sale-off": return endSale(id);
     case "notify-stock": return notifyWaiting(id);
+    case "nav-order": return navigateTo(id);
     case "new-event": return eventDialog(null);
     case "edit-event": return eventDialog(id);
     case "delete-event": return deleteEvent(id);

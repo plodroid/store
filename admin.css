@@ -197,3 +197,32 @@ button.stat:active { transform: scale(.98); }
 .ev-pname { flex: 1; min-width: 0; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ev-two > * { min-width: 0; } .ev-two input { min-width: 0; width: 100%; }
 .ev-looks, .ev-prodbox, .ev-swatches { max-width: 100%; }
+
+/* ── directions (owner) ── */
+body.nav-open { overflow: hidden; }
+.nav-panel { position: fixed; inset: 0; z-index: 300; background: var(--bg); color: var(--text); overflow: hidden; }
+.nav-map { position: absolute; inset: 0; }
+.nav-top { position: absolute; z-index: 500; left: 12px; right: 12px; top: max(12px, env(safe-area-inset-top)); display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 20px; background: #12301f; color: #fff; box-shadow: 0 10px 30px -10px rgba(0,0,0,.5); }
+.nav-arrow { width: 44px; height: 44px; flex: none; display: grid; place-items: center; } .nav-arrow svg { width: 36px; height: 36px; }
+.nav-next { flex: 1; min-width: 0; display: grid; } .nav-next b { font-size: 17px; line-height: 1.25; } .nav-next span { font-size: 14px; opacity: .8; }
+.nav-x { width: 40px; height: 40px; flex: none; border-radius: 50%; display: grid; place-items: center; background: rgba(255,255,255,.14); color: #fff; } .nav-x svg { width: 20px; height: 20px; }
+.nav-sheet { position: absolute; z-index: 500; left: 0; right: 0; bottom: 0; max-height: 62vh; overflow: auto; padding: 16px 16px max(16px, env(safe-area-inset-bottom)); border-radius: 24px 24px 0 0; background: var(--surface); box-shadow: 0 -12px 40px -16px rgba(0,0,0,.45); }
+.nav-eta { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; }
+.nav-eta b { display: block; font-size: 28px; letter-spacing: -.02em; line-height: 1.1; } .nav-eta span { display: block; color: var(--muted); font-size: 13px; }
+.nav-where { color: var(--muted); font-size: 13px; text-align: right; max-width: 45%; }
+.nav-share { margin-top: 6px; } .nav-note { min-height: 0; margin: 4px 0 0; font-size: 13px; color: var(--warn); } .nav-note:empty { display: none; }
+.nav-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; } .nav-btns .btn-primary { grid-column: 1 / -1; background: var(--ok); color: #fff; }
+.nav-btns .btn-ghost, .nav-btns .btn-quiet { display: inline-flex; align-items: center; justify-content: center; min-height: 46px; padding: 0 14px; border-radius: 999px; text-align: center; font-size: 14px; }
+.nav-steps { list-style: none; margin: 12px 0 0; padding: 0; display: grid; }
+.nav-steps li { display: flex; align-items: center; gap: 12px; padding: 11px 2px; border-top: 1px solid var(--line); font-size: 14.5px; }
+.nav-steps li span:nth-child(2) { flex: 1; } .nav-steps em { color: var(--muted); font-style: normal; font-size: 13px; }
+.nav-ic { width: 30px; height: 30px; flex: none; display: grid; place-items: center; border-radius: 50%; background: var(--fill-2); } .nav-ic svg { width: 18px; height: 18px; }
+.nav-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; } .nav-btn svg { width: 18px; height: 18px; }
+.ocard .nav-btn { margin-bottom: 8px; width: 100%; }
+
+/* Orders tab: each order is its row, its progress bar and (delivery) the directions button, in one card */
+.owrap { border-radius: 14px; background: var(--surface); border: 1px solid var(--line); overflow: hidden; display: grid; gap: 4px; padding-bottom: 10px; }
+.owrap .orow { border: 0; border-radius: 0; background: transparent; }
+@media (hover: hover) { .owrap .orow:hover { background: var(--surface-2); } }
+.owrap .trk { margin: 2px 14px 0; }
+.owrap .nav-btn { margin: 6px 14px 0; width: calc(100% - 28px); }

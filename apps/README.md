@@ -16,6 +16,7 @@ Every push that touches `apps/` runs `.github/workflows/mobile-apps.yml` (GitHub
 - Customers sign in with the emailed code (Google sign-in is hidden inside the app). The owner app uses native Google sign-in (`@capacitor-firebase/authentication`), config in `apps/owner/android/app/google-services.json`.
 - Debug APKs are signed with the shared `apps/debug.keystore` (public on purpose, test builds only).
 - Card payments open Stripe Checkout inside the app and return to it.
+- The owner app asks for **location** the first time you tap *Directions* on a delivery order (turn-by-turn map, and the live position the customer sees). It's only used while the directions screen is open.
 - No push notifications yet (the owner still sees new orders live while the app is open).
 - `apps/*/android` are Capacitor-generated; the `android/` folder at the repo root (if present) is a separate thing.
 

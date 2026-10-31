@@ -158,3 +158,17 @@ Owner page → **Events** → *New event*. He types his own event name (Hallowee
 - **Prices are real**: `events.js` (shop) and `liveEvents_`/`quote_` in `apps-script/Code.gs` use the same maths, so the basket and the Stripe charge always match. Best price wins (a product's own sale price, or the event's, never stacked).
 - Data: `events/{id}` (owner write, customers can read only `active == true`), rules in `firestore.rules` (`validEvent`). Publish the rules in the Firebase console and make a **new version** of the Apps Script web app after changing them.
 - Several live events: the newest decides the page look; every event's prices apply.
+
+## Orders bar, maps and directions
+- **Progress bar**: every order shows *Confirmed & paid › Preparing › On its way › Outside › Delivered* (pick-up: *… › Ready to collect › Collected*) on the customer's **My orders** and on the owner's Today / Orders tabs. One definition in `flow.js`.
+- **Directions (owner)**: on a delivery order tap **Directions to {postcode}**. Full-screen map (`nav.js`) with the next turn, ETA, all steps, an *Open in Google Maps* fallback, and the button for the order's next step (*On my way › I've arrived › Delivered*). The phone's GPS follows him; if **Let the customer watch me arrive** is ticked, his position is written to `tracking/{orderId}` every ~5 s and deleted when he finishes or closes the screen.
+- **Live map (customer)**: while the order is *On its way / Outside*, My orders shows the map with the shop's van and "about 9 min away" (`trackview.js`). A position older than 3 minutes is treated as "not sharing".
+- **No API keys, no cost**: Leaflet (vendored in `vendor/leaflet/`) + OpenStreetMap tiles, OSRM public server for routes, Nominatim for street lookups, postcodes.io for postcodes. Fine for a small shop; if it ever grows, swap `geo.js` for a paid router (Mapbox/Google), nothing else changes.
+- **Postcode → street + town**: typing a postcode in *Set location* fills the street and town ("Thoresby Street, Leicester"); the customer only adds the house number. Typed text is never overwritten.
+- The owner app needs **location permission** (already in its manifest; reinstall the owner APK once).
+- Rules: `tracking/{id}` is readable by the owner and by the customer who owns that order, writable only by the owner (`firestore.rules`).
+
+## Scrolling bar + languages
+- **Scrolling bar** at the very top (`ticker.js`): the live event's line ("20% off for Ramadan", or the event's own *Scrolling bar text*) then the owner's own messages (Settings → *Scrolling bar*, one per line). Hidden when empty; still for people who prefer reduced motion.
+- **Language button** next to the basket: EN, US, FR, AR (right-to-left), ES, DE, TR, IT with flags. `i18n.js` translates the page from the dictionaries in `lang/*.js` (English text → translation, `{x}` = copied part). Product names/descriptions are the owner's own words and are not translated. To add a language: add it to `LANGS` in `i18n.js`, a flag in `flags.js` and a `lang/xx.js`. Missing strings simply stay in English. The owner page stays English.
+

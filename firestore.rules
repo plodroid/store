@@ -139,18 +139,33 @@ service cloud.firestore {
     // Customers can only read the ones switched on; drafts stay private. The same percentage is applied by
     // the shop (events.js) and by the payment script (Code.gs), so what the basket shows is what is charged.
     function validEvent(d) {
-      return d.keys().hasOnly(['name', 'tagline', 'look', 'color', 'active', 'startsAt', 'endsAt', 'percentOff', 'productIds', 'createdAt', 'updatedAt'])
+      return d.keys().hasOnly(['name', 'tagline', 'look', 'color', 'active', 'startsAt', 'endsAt', 'ticker', 'percentOff', 'productIds', 'createdAt', 'updatedAt'])
         && d.keys().hasAll(['name', 'look', 'active', 'percentOff', 'productIds', 'updatedAt'])
         && d.name is string && d.name.size() >= 1 && d.name.size() <= 60
         && d.look in ['plain', 'ramadan', 'eid'] && d.active is bool
         && d.percentOff is int && d.percentOff >= 0 && d.percentOff <= 90
         && d.productIds is list && d.productIds.size() <= 300
-        && optStr(d, 'tagline', 120) && optStr(d, 'color', 7) && optStr(d, 'startsAt', 10) && optStr(d, 'endsAt', 10);
+        && optStr(d, 'tagline', 120) && optStr(d, 'ticker', 120) && optStr(d, 'color', 7) && optStr(d, 'startsAt', 10) && optStr(d, 'endsAt', 10);
     }
     match /events/{id} {
       allow read: if isOwner() || resource.data.active == true;
       allow create: if isOwner() && validEvent(request.resource.data) && stamped(true);
       allow update: if isOwner() && validEvent(request.resource.data) && stamped(false);
+      allow delete: if isOwner();
+    }
+
+    // ── live delivery position ───────────────────────────────
+    // The owner's phone writes tracking/{orderId} while he drives to that order (and deletes it after). The customer
+    // whose order it is can read it, nobody else can. It holds nothing but a position and a time.
+    match /tracking/{id} {
+      allow read: if isOwner() || (signedIn() && get(/databases/$(database)/documents/orders/$(id)).data.uid == request.auth.uid);
+      allow create, update: if isOwner()
+        && request.resource.data.keys().hasOnly(['lat', 'lng', 'heading', 'updatedAt'])
+        && request.resource.data.keys().hasAll(['lat', 'lng', 'updatedAt'])
+        && request.resource.data.lat is number && request.resource.data.lat >= -90 && request.resource.data.lat <= 90
+        && request.resource.data.lng is number && request.resource.data.lng >= -180 && request.resource.data.lng <= 180
+        && optInt(request.resource.data, 'heading', 0, 360)
+        && request.resource.data.updatedAt == request.time;
       allow delete: if isOwner();
     }
 
@@ -162,7 +177,7 @@ service cloud.firestore {
                                                  'collection', 'delivery', 'deliveryFee', 'collectionNote',
                                                  'deliveryNote', 'currency', 'updatedAt'])
         && optStr(request.resource.data, 'storeName', 60) && optStr(request.resource.data, 'heroTitle', 120)
-        && optStr(request.resource.data, 'heroSubtitle', 200) && optStr(request.resource.data, 'announcement', 160)
+        && optStr(request.resource.data, 'heroSubtitle', 200) && optStr(request.resource.data, 'announcement', 400)
         && optStr(request.resource.data, 'whatsapp', 200) && optStr(request.resource.data, 'collectionNote', 200)
         && optStr(request.resource.data, 'deliveryNote', 200)
         && optBool(request.resource.data, 'collection') && optBool(request.resource.data, 'delivery')

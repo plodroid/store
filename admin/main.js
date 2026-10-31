@@ -1,6 +1,6 @@
 /* Owner page (plodroid.github.io/store/admin/). A page of its own: sign in with Google, then the admin panel.
    Only the owner's Google account gets past the gate, and the security rules decide who that is, not this file. */
-import { $, wireDialogs, toast } from "../ui.js?v=14";
+import { $, wireDialogs, toast } from "../ui.js?v=15";
 
 const FB = "https://www.gstatic.com/firebasejs/10.12.2/";
 const cfg = window.FIREBASE_CONFIG || {};
@@ -76,7 +76,7 @@ async function main() {
     if (!owner) { $("#gateOut").hidden = false; return msg(`${user.email || "This account"} isn't the shop owner. Sign out and use the owner's Google account.`, true); }
 
     siteUnsub = fs.onSnapshot(fs.doc(FS.db, PATHS.settings, PATHS.siteDoc), s => { site = s.exists() ? s.data() : {}; panel && panel.refresh && panel.refresh(); }, () => {});
-    panel = await import("../admin.js?v=14");
+    panel = await import("../admin.js?v=15");
     gate(false);
     panel.openAdmin({ FS, acct, getSite: () => site, page: true, app: native });
   });

@@ -4,10 +4,14 @@
    locked down by firestore.rules, so the whole thing runs on the free Firebase plan. */
 
 import { $, $$, esc, store, money, pence, reduced, uid, openDialog, closeDialog, wireDialogs,
-         toast, showError, setBusy, priceOf, onSale, percentOff, millis } from "./ui.js?v=14";
-import { createAuth } from "./auth.js?v=14";
-import { normaliseUkPhone, showUkPhone } from "./uk.js?v=14";
-import { liveEvents, withEvents, applyTheme, paintMeta, heroHtml, heroVars } from "./events.js?v=14";
+         toast, showError, setBusy, priceOf, onSale, percentOff, millis } from "./ui.js?v=15";
+import { createAuth } from "./auth.js?v=15";
+import { normaliseUkPhone, showUkPhone } from "./uk.js?v=15";
+import { liveEvents, withEvents, applyTheme, paintMeta, heroHtml, heroVars, tickerText } from "./events.js?v=15";
+import { paintTicker, splitMessages, resetTicker } from "./ticker.js?v=15";
+import { initI18n } from "./i18n.js?v=15";
+import { trackerHtml } from "./flow.js?v=15";
+import { mountTracker } from "./trackview.js?v=15";
 
 const DEF = window.STORE_DEFAULTS;
 const PATHS = window.STORE_PATHS;
@@ -208,7 +212,7 @@ function renderSite() {
     const v = S.site[el.dataset.bind];
     if (v != null && v !== "") el.innerHTML = esc(v).replace(/\n/g, "<br>");
   });
-  $("#announce").hidden = !S.site.announcement;
+  renderTicker();
   const c = $("#contact");
   c.hidden = !S.site.whatsapp;
   if (S.site.whatsapp) c.href = S.site.whatsapp;
@@ -363,6 +367,11 @@ function reveal(root, animate) {
   $$("img[data-fallback]", root).forEach(img => img.addEventListener("error", onImgError, { once: true }));
 }
 
+/** Scrolling top bar: what the live events say first, then the owner's own messages. */
+function renderTicker() {
+  paintTicker($("#announce"), [...liveEvents(S.events).map(tickerText), ...splitMessages(S.site.announcement)]);
+}
+
 /** The live event's banner + page look. Only repaints when the event itself changed. */
 let heroKey = null;
 function renderEvent() {
@@ -386,6 +395,7 @@ function renderEvent() {
 function render(animate = true) {
   SHOP = shopProducts();
   renderEvent();
+  renderTicker();
   renderCats();
   renderFilters();
   renderRestock();
@@ -724,6 +734,21 @@ async function finishPay({ id, sid }) {
   openMyOrders();
 }
 
+/* live maps inside "My orders": built once per order and moved into the freshly drawn list each time, so a new snapshot never resets the map */
+const trackers = new Map();
+const onTheRoad = o => o.fulfilment === "delivery" && ["ontheway", "arrived", "ready"].includes(o.status) && o.address && typeof o.address.lat === "number" && typeof o.address.lng === "number";
+function syncMaps(list) {
+  const want = new Set();
+  for (const ph of $$("[data-live]", $("#moList") || document)) {
+    const o = list.find(x => x.id === ph.dataset.live); if (!o || !FS) continue;
+    want.add(o.id);
+    let t = trackers.get(o.id);
+    if (!t) { t = mountTracker(o, FS); trackers.set(o.id, t); }
+    ph.append(t.box); t.update(o); t.refit();
+  }
+  for (const [id, t] of trackers) if (!want.has(id)) { t.destroy(); trackers.delete(id); }
+}
+
 function paintOrders(list) {
   lastOrders = list;
   const box = $("#moList"); if (!box) return;
@@ -737,12 +762,15 @@ function paintOrders(list) {
     return `<article class="mo-card">
       <div class="mo-top"><b>${esc(o.ref)}</b><span class="mo-chip" data-st="${esc(o.status)}">${esc(statusText(o))}</span></div>
       <p class="muted mo-meta">${new Date(millis(o.createdAt) || Date.now()).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })} · ${o.fulfilment === "delivery" ? "Delivery" : "Pick-up"}</p>
+      ${trackerHtml(o)}
+      ${onTheRoad(o) ? `<div data-live="${esc(o.id)}"></div>` : ""}
       <ul class="mo-items">${lines.map(l => `<li><span>${esc(l.name)}</span><span>× ${l.qty}</span></li>`).join("")}</ul>
       <div class="sum-row total"><span>${o.total != null ? "Total" : "Estimated total"}${o.paymentStatus === "paid" ? ` <span class="mo-chip" data-st="completed">Paid</span>` : ""}</span><span>${total != null ? money(total) : ""}</span></div>
       ${cardsReady && canPay(o) ? `<button class="btn-primary wide" type="button" data-pay="${esc(o.id)}">Pay ${money(total)} by card</button>${unpaid(o) ? "" : `<p class="muted mo-help">Or pay when you ${o.fulfilment === "delivery" ? "receive" : "collect"} it.</p>`}` : ""}
       ${help ? `<p class="muted mo-help">${esc(help)}</p>` : ""}
     </article>`;
   }).join("");
+  syncMaps(list);
 }
 
 async function openMyOrders() {
@@ -758,7 +786,7 @@ async function openMyOrders() {
     err => { console.warn("[orders]", err && err.code); const b = $("#moList"); if (b) b.innerHTML = `<p class="form-error">We couldn't load your orders right now.</p>`; });
 }
 mo.addEventListener("click", e => { const b = e.target.closest("[data-pay]"); if (b) startPay(b); });
-mo.addEventListener("close", () => { if (moUnsub) { moUnsub(); moUnsub = null; } });
+mo.addEventListener("close", () => { if (moUnsub) { moUnsub(); moUnsub = null; } for (const t of trackers.values()) t.destroy(); trackers.clear(); });
 
 /* ── search (one box in the header) ──────────────────── */
 let qTimer;
@@ -1213,6 +1241,8 @@ function onAccountChange(a) {
 
 function init() {
   wireDialogs();
+  initI18n();
+  document.addEventListener("langchange", () => { resetTicker(); renderTicker(); requestAnimationFrame(moveIndicator); });
   $("#yr").textContent = new Date().getFullYear();
   renderSite();
   showView(false);

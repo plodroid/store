@@ -4,8 +4,9 @@ How the code login works: the browser asks a tiny Google Apps Script (see apps-s
 to email a random 4-digit code. The script remembers only a hash of the code, checks it, and hands back a
 Firebase sign-in token. Firebase itself can't email codes on the free plan, so the script does that part. */
 
-import { $, $$, esc, openDialog, closeDialog, showError, setBusy, toast } from "./ui.js?v=14";
-import { normalisePostcode, normaliseUkPhone, showUkPhone, lookupPostcode, nearestPostcode, townMatches, REASONS } from "./uk.js?v=14";
+import { $, $$, esc, openDialog, closeDialog, showError, setBusy, toast } from "./ui.js?v=15";
+import { streetFor } from "./geo.js?v=15";
+import { normalisePostcode, normaliseUkPhone, showUkPhone, lookupPostcode, nearestPostcode, townMatches, REASONS } from "./uk.js?v=15";
 
 const GOOGLE = `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.4h6.5a5.6 5.6 0 0 1-2.4 3.7v3h3.9c2.3-2.1 3.5-5.2 3.5-8.8z"/><path fill="#34A853" d="M12 24c3.2 0 6-1.1 7.9-2.9l-3.9-3c-1.1.7-2.5 1.2-4 1.2-3.1 0-5.7-2.1-6.6-4.9H1.4v3.1A12 12 0 0 0 12 24z"/><path fill="#FBBC05" d="M5.4 14.3a7.2 7.2 0 0 1 0-4.6V6.6H1.4a12 12 0 0 0 0 10.8z"/><path fill="#EA4335" d="M12 4.8c1.8 0 3.3.6 4.6 1.8l3.4-3.4A12 12 0 0 0 1.4 6.6l4 3.1C6.3 6.9 8.9 4.8 12 4.8z"/></svg>`;
 
@@ -466,6 +467,23 @@ export function createAuth({ FS, onChange = () => {} }) {
       const where = [info.district, info.country].filter(Boolean).map(esc).join(", ");
       const soft = !townMatches(f.elements.city.value, info) ? ` <span class="soft">That postcode is in ${esc(info.district || info.region)}. Double-check your town.</span>` : "";
       setStatus("ok", `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5 10 17 19 7"/></svg> ${esc(info.postcode)} is real${where ? ` · ${where}` : ""}.${soft}`);
+      fillStreet(f, info, mine);
+    }
+    paintLoc();
+  }
+
+  /** From the postcode, fill in the street and town (like "Thoresby Street, Leicester"); the customer adds the house number. */
+  async function fillStreet(f, info, mine) {
+    if (info.lat == null) return;
+    const s = await streetFor(info.lat, info.lng);
+    if (!s || mine !== locSeq) return;
+    const line1 = f.elements.line1, city = f.elements.city;
+    const mayLine = !line1.value.trim() || line1.dataset.auto === "1", mayCity = !city.value.trim() || city.dataset.auto === "1";
+    if (s.street && mayLine) { line1.value = s.street; line1.dataset.auto = "1"; }
+    if ((s.town || info.district) && mayCity) { city.value = s.town || info.district; city.dataset.auto = "1"; }
+    if (s.street && line1.dataset.auto === "1") {
+      setStatus("ok", `${$("#locStatus").innerHTML} <span class="hl">Add your house number before “${esc(s.street)}”.</span>`);
+      if (document.activeElement === f.elements.postcode || document.activeElement === document.body) { line1.focus({ preventScroll: true }); line1.setSelectionRange(0, 0); }
     }
     paintLoc();
   }
@@ -478,6 +496,7 @@ export function createAuth({ FS, onChange = () => {} }) {
       if (normalisePostcode(f.elements.postcode.value)) locTimer = setTimeout(runCheck, 350);
       else setStatus("", "");
     } else {
+      e.target.dataset.auto = "";                        // he typed here himself: never overwrite it
       paintLoc();
       if (e.target.name === "city" && locCheck && locCheck.ok) runCheck();
     }

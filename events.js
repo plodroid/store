@@ -1,7 +1,7 @@
 /* Events: the owner's own sales + seasonal looks (Ramadan, Eid, or a plain colour for anything he names himself).
    Shared by the shop (app.js) and the owner page (admin.js). The pricing here MUST match liveEvents_/quote_ in
    apps-script/Code.gs: the basket shows what the payment script then charges. The art is drawn here, all original SVG. */
-import { priceOf, millis } from "./ui.js?v=14";
+import { priceOf, millis } from "./ui.js?v=15";
 
 /* ── the looks an owner can pick ────────────────────── */
 export const LOOKS = {
@@ -64,6 +64,9 @@ export function paintMeta() {
   const dark = r.dataset.theme === "dark", t = THEME_COLOR[r.dataset.event];
   meta.content = t ? t[dark ? 1 : 0] : r.dataset.event === "plain" ? r.style.getPropertyValue("--accent") || "#F5B800" : dark ? "#161616" : "#FFF8E6";
 }
+
+/** What the scrolling bar says for an event: his own words if he typed some, else the offer. */
+export const tickerText = e => e.ticker || ((e.percentOff | 0) > 0 && (e.productIds || []).length ? `${e.percentOff}% off for ${e.name}` : e.name);
 
 /* ── hero ───────────────────────────────────────────── */
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
