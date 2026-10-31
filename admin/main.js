@@ -26,7 +26,8 @@ async function main() {
   const FS = { db: fs.getFirestore(app), fs, auth: au.getAuth(app), au };
   const PATHS = window.STORE_PATHS || { settings: "settings", siteDoc: "site" };
   let nativeAuth = null;
-  if (native) { try { nativeAuth = cap.registerPlugin("FirebaseAuthentication"); } catch (e) { console.warn("[admin] native plugin", e); why(e); } }
+  if (native) { try { nativeAuth = typeof cap.registerPlugin === "function" ? cap.registerPlugin("FirebaseAuthentication") : cap.Plugins && cap.Plugins.FirebaseAuthentication;   // the app loads the live site, so only the native bridge exists (no registerPlugin there)
+    if (!nativeAuth) throw Object.assign(new Error("the Google sign-in plugin is missing from this app build"), { code: "owner/no-plugin" }); } catch (e) { console.warn("[admin] native plugin", e); why(e); } }
 
   let site = {}, siteUnsub = null, panel = null;
   const signOut = async () => {

@@ -522,6 +522,12 @@ await test("photo rules replica: the public can read a gallery but never write o
   assert.equal(await w({ images: ["x"] }), "permission-denied");
 }, { seed: GALLERY_SEED() });
 
+await test("owner Android app: the live site has no registerPlugin, so the sign-in plugin comes from Capacitor.Plugins (no grey error, no web popup)", async ({ page: p }) => {
+  assert.equal(await p.locator("#gateWhy").isHidden(), true);
+  const used = await p.evaluate(() => { window.__native = 0; return new Promise(r => { window.Capacitor.Plugins.FirebaseAuthentication.signInWithGoogle = async () => { r("native"); return { credential: { idToken: "t" } }; }; document.querySelector("#gateGoogle").click(); setTimeout(() => r("none"), 3000); }); });
+  assert.equal(used, "native");
+}, { path: "/admin/index.html", ready: "#gateGoogle:not([hidden])", init: () => { window.Capacitor = { isNativePlatform: () => true, getPlatform: () => "android", Plugins: { FirebaseAuthentication: { signInWithGoogle: async () => ({}), signOut: async () => {} } } }; } });
+
 await test("language: every translated string keeps its {placeholders} and no two languages are missing keys", async ({ page: p }) => {
   const r = await p.evaluate(async codes => {
     const D = {};
