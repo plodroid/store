@@ -1,0 +1,13 @@
+{
+  "name": "bee-hive-customer-ios",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Bee Hive customer app for iPhone/iPad (Capacitor 6, iOS 13+), a shell around the live website",
+  "dependencies": {
+    "@capacitor/core": "^6.2.1",
+    "@capacitor/ios": "^6.2.1",
+    "@capacitor/splash-screen": "^6.0.3",
+    "@capacitor/status-bar": "^6.0.2"
+  },
+  "devDependencies": { "@capacitor/cli": "^6.2.1" }
+}

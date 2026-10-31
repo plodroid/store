@@ -1,0 +1,36 @@
+{
+  "appId": "com.plodroid.beehive",
+  "appName": "Bee Hive",
+  "webDir": "www",
+  "server": {
+    "url": "https://plodroid.github.io/store/",
+    "errorPath": "error.html",
+    "allowNavigation": [
+      "plodroid.github.io",
+      "*.stripe.com",
+      "*.stripe.network",
+      "script.google.com",
+      "script.googleusercontent.com",
+      "*.googleapis.com",
+      "*.firebaseapp.com"
+    ]
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 600,
+      "backgroundColor": "#FFF8E6",
+      "showSpinner": false
+    },
+    "StatusBar": {
+      "style": "DARK",
+      "backgroundColor": "#FFF8E6",
+      "overlaysWebView": false
+    }
+  },
+  "ios": {
+    "contentInset": "always",
+    "backgroundColor": "#FFF8E6",
+    "limitsNavigationsToAppBoundDomains": false,
+    "allowsLinkPreview": false
+  }
+}

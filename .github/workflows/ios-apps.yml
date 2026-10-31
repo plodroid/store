@@ -1,0 +1,95 @@
+name: Build iPhone apps (customer + owner)
+
+# Builds the two Capacitor iOS apps in ios-apps/ into UNSIGNED .ipa files (iOS 13 and newer, iPhone + iPad).
+# They load the live website like the Android apps do, so a website change never needs a rebuild.
+# Install: sign them with your own free Apple ID using Sideloadly or AltStore (see ios-apps/README.md).
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ios-apps/**"
+      - ".github/workflows/ios-apps.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ios-apps-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [customer, owner]
+    defaults:
+      run:
+        working-directory: ios-apps/${{ matrix.app }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ios-apps/${{ matrix.app }}/package-lock.json
+
+      - name: Install + create the Xcode project
+        run: |
+          npm ci
+          npx cap add ios
+          python3 ../patch.py ${{ matrix.app }}
+          npx cap sync ios
+
+      - name: Build (unsigned)
+        working-directory: ios-apps/${{ matrix.app }}/ios/App
+        run: |
+          set -o pipefail
+          xcodebuild -workspace App.xcworkspace -scheme App -configuration Release -sdk iphoneos \
+            -destination 'generic/platform=iOS' -archivePath build/App.xcarchive \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            archive 2>&1 | tee build.log | tail -n 60
+
+      - name: Package the .ipa
+        working-directory: ios-apps/${{ matrix.app }}/ios/App
+        run: |
+          APPDIR=$(ls -d build/App.xcarchive/Products/Applications/*.app | head -1)
+          if [ -f "../../GoogleService-Info.plist" ]; then cp "../../GoogleService-Info.plist" "$APPDIR/GoogleService-Info.plist"; fi
+          rm -rf Payload && mkdir Payload && cp -R "$APPDIR" Payload/
+          /usr/libexec/PlistBuddy -c "Print :MinimumOSVersion" "$APPDIR/Info.plist" || true
+          zip -qry "../../bee-hive-${{ matrix.app }}.ipa" Payload
+          ls -la ../../*.ipa
+
+      # If the build fails, surface the compiler errors as run annotations (readable through the GitHub API).
+      - name: Report build errors
+        if: failure()
+        working-directory: ios-apps/${{ matrix.app }}/ios/App
+        run: |
+          grep -E "error:|\*\* ARCHIVE FAILED|fatal|Could not|ERROR" -B1 -A3 build.log 2>/dev/null | grep -v "^--$" | head -80 > errors.txt || true
+          split -l 8 errors.txt chunk_ || true
+          for f in chunk_*; do
+            [ -f "$f" ] || continue
+            msg=$(sed -e 's/%/%25/g' "$f" | awk '{printf "%s%%0A", $0}')
+            echo "::error title=iOS build error (${{ matrix.app }})::${msg}"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bee-hive-${{ matrix.app }}-ipa
+          path: ios-apps/${{ matrix.app }}/bee-hive-${{ matrix.app }}.ipa
+          retention-days: 30
+
+      - name: Attach IPA to a release (main only)
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="ios-${{ github.run_number }}"
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --target "${{ github.sha }}" \
+            --title "iPhone apps, build ${{ github.run_number }}" \
+            --notes "Unsigned .ipa files of the Bee Hive customer app and the owner app (iOS 13+). Sign + install them with Sideloadly or AltStore using a free Apple ID. See ios-apps/README.md."
+          gh release upload "$TAG" "bee-hive-${{ matrix.app }}.ipa" --clobber
