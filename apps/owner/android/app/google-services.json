@@ -12,7 +12,12 @@
           "package_name": "com.plodroid.beehive.owner"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "696286412872-loq59fd8cms9m1ctscl9mpms83t0fj0j.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyAyEC7cTlTsNibzK7zVFm3NTds1ezcJDa0"
