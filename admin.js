@@ -3,8 +3,8 @@
    Free-plan design: orders arrive as requests, and "Confirm" re-prices and re-checks stock in a
    transaction (so customers can never choose their own price). */
 
-import { $, $$, esc, money, openDialog, closeDialog, showError, setBusy, toast, millis, timeAgo, store, priceOf, onSale } from "./ui.js?v=12";
-import { lookupPostcode } from "./uk.js?v=12";
+import { $, $$, esc, money, openDialog, closeDialog, showError, setBusy, toast, millis, timeAgo, store, priceOf, onSale } from "./ui.js?v=13";
+import { lookupPostcode } from "./uk.js?v=13";
 
 const css = document.createElement("link");
 css.rel = "stylesheet"; css.href = new URL("./admin.css", import.meta.url).href;

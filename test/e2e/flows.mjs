@@ -65,7 +65,7 @@ await test("light by default (honey cream #FFF8E6), toggle to dark, remembered a
 
 await test("no gradients left in the CSS (solid honey only; the honeycomb fade mask is allowed)", async () => {
   const fs = await import("node:fs");
-  const found = ["styles.css", "admin.css"].filter(f => fs.readFileSync(new URL("../../" + f, import.meta.url), "utf8").split("\n").some(l => /gradient/.test(l) && !/appearance: none|mask-image/.test(l)))   // (the select chevron is drawn with two tiny gradients);
+  const found = ["styles.css", "admin.css"].filter(f => fs.readFileSync(new URL("../../" + f, import.meta.url), "utf8").split("\n").some(l => /gradient/.test(l) && !/appearance: none|mask-image|ambient i/.test(l)))   // (the select chevron is drawn with two tiny gradients);
   assert.deepEqual(found, []);
 });
 

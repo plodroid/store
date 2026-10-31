@@ -4,9 +4,9 @@
    locked down by firestore.rules, so the whole thing runs on the free Firebase plan. */
 
 import { $, $$, esc, store, money, pence, reduced, uid, openDialog, closeDialog, wireDialogs,
-         toast, showError, setBusy, priceOf, onSale, percentOff, millis } from "./ui.js?v=12";
-import { createAuth } from "./auth.js?v=12";
-import { normaliseUkPhone, showUkPhone } from "./uk.js?v=12";
+         toast, showError, setBusy, priceOf, onSale, percentOff, millis } from "./ui.js?v=13";
+import { createAuth } from "./auth.js?v=13";
+import { normaliseUkPhone, showUkPhone } from "./uk.js?v=13";
 
 const DEF = window.STORE_DEFAULTS;
 const PATHS = window.STORE_PATHS;
@@ -300,9 +300,9 @@ const clearFilters = () => {
 };
 
 /* ── catalogue ───────────────────────────────────────── */
-function media(p) {
+function media(p, eager) {
   return p.image
-    ? `<img src="${esc(p.image)}" alt="" loading="lazy" decoding="async" data-fallback="${esc((p.name || "?").trim()[0])}">`
+    ? `<img src="${esc(p.image)}" alt="" ${eager ? 'loading="eager" fetchpriority="high"' : 'loading="lazy"'} decoding="async" data-fallback="${esc((p.name || "?").trim()[0])}">`
     : ph((p.name || "?").trim()[0]);
 }
 const per = p => p.unit && p.unit !== "each" ? `<span class="per"> / ${esc(p.unit)}</span>` : "";
@@ -314,13 +314,13 @@ const heartBtn = (p, cls = "heart") => {
   return `<button class="${cls}${on ? " on" : ""}" type="button" data-wish="${esc(p.id)}" aria-pressed="${on}" aria-label="${on ? "Remove from saved items" : "Save for later"}">${I.heart}</button>`;
 };
 
-function tile(p) {
+function tile(p, i = 99) {
   const max = stockOf(p), out = max === 0, low = max > 0 && max <= lowAt(p);
   const asked = S.alerts.has(p.id);
   return `
   <article class="tile${out ? " is-out" : ""}">
     <div class="tile-media-wrap">
-      <a class="tile-media" href="#/p/${esc(p.id)}" aria-label="View ${esc(p.name)}">${media(p)}</a>
+      <a class="tile-media" href="#/p/${esc(p.id)}" aria-label="View ${esc(p.name)}">${media(p, i < 8)}</a>
       ${out ? `<span class="flag">Sold out</span>` : onSale(p) ? `<span class="flag sale">−${percentOff(p)}%</span>` : ""}
       ${heartBtn(p)}
     </div>
@@ -338,6 +338,7 @@ function tile(p) {
   </article>`;
 }
 
+const coarse = matchMedia("(pointer: coarse), (max-width: 700px)");   // phones: show tiles at once, no fade-in that can lag behind a fast scroll
 const io = new IntersectionObserver(entries => {
   let k = 0;
   for (const e of entries) {
@@ -350,7 +351,7 @@ const io = new IntersectionObserver(entries => {
 
 function reveal(root, animate) {
   const tiles = $$(".tile", root);
-  if (animate && !reduced.matches) tiles.forEach(t => io.observe(t));
+  if (animate && !reduced.matches && !coarse.matches) tiles.forEach(t => io.observe(t));
   else tiles.forEach(t => t.classList.add("in"));
   $$("img[data-fallback]", root).forEach(img => img.addEventListener("error", onImgError, { once: true }));
 }
@@ -384,6 +385,7 @@ function renderShop(animate) {
   $("#modeNote").hidden = MODE !== "preview";
 
   if (S.state === "loading") {
+    grid.dataset.h = "";
     grid.innerHTML = Array.from({ length: 8 }, () =>
       `<div class="tile in sk" aria-hidden="true"><div class="tile-media"></div><div class="sk-line"></div><div class="sk-line short"></div></div>`).join("");
     $("#resultCount").textContent = "";
@@ -405,7 +407,9 @@ function renderShop(animate) {
   const cat = S.categories.find(c => c.id === S.cat);
   $("#shopTitle").textContent = S.q.trim() ? `Results for “${S.q.trim()}”` : cat ? cat.name : "All products";
   $("#resultCount").textContent = `${items.length} ${items.length === 1 ? "item" : "items"}`;
-  grid.innerHTML = items.map(tile).join("");
+  const html = items.map((p, i) => tile(p, i)).join("");
+  const changed = grid.dataset.h !== html;
+  if (changed) { grid.innerHTML = html; grid.dataset.h = html; }
 
   if (!items.length) {
     const filtered = S.f.stock || S.f.sale || S.f.saved || parseMoney(S.f.min) != null || parseMoney(S.f.max) != null;
@@ -414,7 +418,7 @@ function renderShop(animate) {
     else empty("No products yet", "New products will appear here as soon as they're added.");
   } else empty();
 
-  reveal(grid, animate);
+  if (changed) reveal(grid, animate);
   renderRecent();
 }
 

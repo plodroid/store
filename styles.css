@@ -123,9 +123,9 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; }
 
 /* a quiet backdrop so the glass has something to bend */
 .ambient { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
-.ambient i { position: absolute; border-radius: 50%; filter: blur(70px); }
-.ambient i:first-child { width: 360px; height: 360px; left: -120px; top: -80px; background: color-mix(in srgb, var(--accent) 16%, transparent); }
-.ambient i:last-child { width: 320px; height: 320px; right: -110px; top: 46vh; background: color-mix(in srgb, var(--honey) 20%, transparent); }
+.ambient i { position: absolute; border-radius: 50%; }   /* soft radial glows instead of blur(): blur on a fixed layer makes phones repaint on every scroll frame */
+.ambient i:first-child { width: 360px; height: 360px; left: -120px; top: -80px; background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 22%, transparent), transparent); }
+.ambient i:last-child { width: 320px; height: 320px; right: -110px; top: 46vh; background: radial-gradient(closest-side, color-mix(in srgb, var(--honey) 26%, transparent), transparent); }
 
 /* honeycomb: a faint hexagon pattern that fades out down the page (SVG, so it stays sharp) */
 .ambient::before {
@@ -361,12 +361,12 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; }
 .tile.is-out .tile-media img, .tile.is-out .ph { opacity: .42; }
 .flag {
   position: absolute; left: 8px; top: 8px; z-index: 1; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; letter-spacing: .01em;
-  background-color: var(--glass-strong); box-shadow: var(--glass-edge); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  background-color: var(--glass-strong); box-shadow: var(--glass-edge);
 }
 .flag.sale { color: var(--honey-ink); background: var(--honey); box-shadow: none; }
 .heart {
   position: absolute; right: 8px; top: 8px; z-index: 1; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; color: var(--muted);
-  background-color: var(--glass-fill); box-shadow: var(--glass-edge); -webkit-backdrop-filter: blur(10px) saturate(var(--sat)); backdrop-filter: blur(10px) saturate(var(--sat));
+  background-color: var(--glass-strong); box-shadow: var(--glass-edge);
 }
 .heart svg, .pp-heart svg { width: 19px; height: 19px; fill: none; stroke: currentColor; }
 .heart.on, .pp-heart.on { color: var(--coral); }
@@ -794,3 +794,10 @@ html[data-native] .manage, html[data-native] .auth .or, html[data-native] .auth 
 
 /* transparent PNG packshots (bottles, cans) sit whole inside the frame instead of being cropped like photos */
 .tile-media img[src*=".png"], .pp-media img[src*=".png"], .line-thumb img[src*=".png"] { object-fit: contain; padding: 6%; }
+
+/* phones: no fade-in on tiles, keep the layers that scroll cheap */
+@media (pointer: coarse), (max-width: 700px) {
+  .tile { opacity: 1; transform: none; transition: none; }
+  .tile-media img { transition: none; }
+}
+.tile { contain: layout paint; }
