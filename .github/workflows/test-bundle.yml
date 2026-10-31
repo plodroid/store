@@ -1,0 +1,40 @@
+name: Test bundle (all apps + source + guide in one release)
+
+# Collects the newest Android APKs (apps-*), iPhone IPAs (ios-*), a source zip and INSTALL-TEST-APPS.md into one Release "test-bundle-<n>".
+# Runs by hand (Actions → Run workflow) or when this file changes.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [".github/workflows/test-bundle.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Collect
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir out
+          latest() { gh release list --limit 100 --json tagName,createdAt --jq "[.[] | select(.tagName|startswith(\"$1\"))] | sort_by(.createdAt) | reverse | .[0].tagName"; }
+          # newest release of each kind that actually has both files
+          for t in $(gh release list --limit 100 --json tagName,createdAt --jq '[.[]|select(.tagName|startswith("apps-"))]|sort_by(.createdAt)|reverse|.[].tagName'); do
+            gh release download "$t" -p '*.apk' -D out --clobber 2>/dev/null; [ -f out/bee-hive-owner-debug.apk ] && [ -f out/bee-hive-customer-debug.apk ] && { echo "apks from $t"; break; }; done
+          for t in $(gh release list --limit 100 --json tagName,createdAt --jq '[.[]|select(.tagName|startswith("ios-"))]|sort_by(.createdAt)|reverse|.[].tagName'); do
+            gh release download "$t" -p '*.ipa' -D out --clobber 2>/dev/null; [ -f out/bee-hive-owner.ipa ] && [ -f out/bee-hive-customer.ipa ] && { echo "ipas from $t"; break; }; done
+          ls -la out
+          test -f out/bee-hive-owner-debug.apk && test -f out/bee-hive-customer-debug.apk && test -f out/bee-hive-owner.ipa && test -f out/bee-hive-customer.ipa
+          git archive --format=zip -o out/bee-hive-source.zip HEAD
+          cp INSTALL-TEST-APPS.md out/
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="test-bundle-${{ github.run_number }}"
+          gh release create "$TAG" --target "${{ github.sha }}" --title "Test bundle ${{ github.run_number }}: Android + iPhone apps + source" \
+            --notes "Owner + customer APK (Android 7+), owner + customer IPA (iOS 13+, sign with Sideloadly), source zip. Read INSTALL-TEST-APPS.md first." out/*
