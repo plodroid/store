@@ -147,3 +147,6 @@ Honey-yellow bee theme (colour tokens at the top of `styles.css`). The **beehive
 
 ## Temporary test photos
 The four test products point at free Wikimedia Commons photos (hot-linked): *DATES MEDJOOL.jpg* (CC BY-SA 4.0), *Ajwa dates.JPG* (public domain), *Orange juice 1 edit1.jpg* (public domain), *Sparkling-bottled-water.jpg* (CC BY-SA 2.0). Replace them with the shop's own photos (Manage → Products → Choose photo) before going live; the author and licence of each file are on its Commons page.
+
+## Demo products (temporary)
+For the owner demo there are 15 extra products (Hamoud Selecto/Cola, Slim, Freez, Monster, Coke, Fanta, Deglet Nour, baklava, honey, olive oil) plus the categories *Snacks & Sweets* and *Pantry*. Their document ids all start with `demo-` (categories `demo-snacks`, `demo-pantry`), with product photos hot-linked from the brands' sites and Wikimedia Commons (`img/freez.svg` is our own drawing). To remove them: Manage → Products → delete each one, or delete the `demo-*` documents in the Firebase console (Firestore → products / categories).
