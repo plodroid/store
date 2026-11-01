@@ -333,3 +333,73 @@ html.native-dock .adm-main { padding-bottom: calc(var(--dock-h, 0px) + 16px); }
 .inp > .check { display: flex; width: 100%; margin: 2px 0; }
 .inp .check input { width: 22px; height: 22px; min-height: 0; flex: none; padding: 0; margin: 0; }
 .inp .check span { font-size: 15px; color: var(--text); }
+
+/* ═══ Owner app look: honey counter on top, a real hive of orders, flat rows, phone-style tab bar ═══ */
+.admin { --disp: "Bricolage Grotesque", Inter, system-ui, sans-serif; --ink: #2A2008; }
+.adm-top h2, .adm-card h3, .stat b, .kpi b, .hd-num, .adm-dlg h2 { font-family: var(--disp); letter-spacing: -.03em; }
+.adm-top h2 { font-size: 21px; font-weight: 700; }
+.adm-card h3 { font-size: 17px; font-weight: 700; }
+.adm-card { border: 0; border-radius: 22px; box-shadow: 0 1px 2px rgba(70,45,0,.06), 0 12px 28px -16px rgba(70,45,0,.22); }
+.adm-card.flat { background: transparent; box-shadow: none; padding: 4px 0 0; margin-bottom: 22px; }
+
+/* header + Today hero share the honey, so it reads as one counter */
+.admin[data-tab="home"] .adm-top { background: var(--accent); }
+.admin[data-tab="home"] .adm-top .btn-quiet { color: var(--ink); border-color: rgba(42,32,8,.28); }
+.hero-day { margin: -18px -12px 20px; padding: 14px 18px 22px; background: var(--accent); color: var(--ink); border-radius: 0 0 34px 34px; }
+@media (min-width: 768px) { .hero-day { margin: -24px -24px 24px; padding: 18px 32px 28px; } }
+.hd-hello { margin: 0; font-size: 14px; font-weight: 500; opacity: .72; }
+.hd-num { margin: 4px 0 2px; font-size: clamp(46px, 16vw, 76px); font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.hd-sub { display: flex; gap: 6px 14px; flex-wrap: wrap; margin: 0 0 16px; font-size: 14.5px; font-weight: 500; }
+.hd-vs { font-weight: 700; } .hd-vs.down { opacity: .8; }
+.hive { display: block; width: 100%; max-width: 560px; height: auto; overflow: visible; }
+.hx polygon { transition: transform .2s var(--ease), opacity .2s ease; transform-box: fill-box; transform-origin: center; }
+.hx.empty { fill: rgba(42,32,8,.1); }
+.hx.new polygon { fill: var(--coral); } .hx.doing polygon { fill: var(--ink); } .hx.done polygon { fill: rgba(255,255,255,.88); } .hx.off polygon { fill: none; stroke: rgba(42,32,8,.4); stroke-width: 1.6; stroke-dasharray: 3 3; }
+.hx[data-act] { cursor: pointer; } .hx[data-act]:active polygon { transform: scale(.9); }
+.hx.new polygon { animation: hx-pulse 2s ease-in-out infinite; }
+@keyframes hx-pulse { 50% { opacity: .62; } }
+@media (hover: hover) { .hx[data-act]:hover polygon { transform: scale(1.08); } }
+.hx:focus-visible { outline: none; } .hx:focus-visible polygon { stroke: #fff; stroke-width: 2.4; }
+.hive-key { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px; font-size: 12.5px; font-weight: 500; }
+.hive-key i { display: inline-block; width: 11px; height: 12px; margin-right: 6px; vertical-align: -1px; clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); }
+.k-new { background: var(--coral); } .k-doing { background: var(--ink); } .k-done { background: rgba(255,255,255,.9); }
+@media (prefers-reduced-motion: reduce) { .hx.new polygon { animation: none; } }
+
+/* numbers strip: no boxes, just big figures divided by hairlines */
+.stats { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; margin-bottom: 22px; }
+.stat { padding: 4px 8px 4px 12px; border: 0; border-radius: 0; background: none; border-left: 1px solid var(--line-2); gap: 2px; }
+.stat:first-child { border-left: 0; padding-left: 2px; }
+.stat b { font-size: 30px; font-weight: 700; line-height: 1.1; }
+.stat span { font-size: 12px; line-height: 1.25; }
+.stat.hot b { color: var(--coral); } .stat.hot { border-color: var(--line-2); }
+
+/* orders: flat cards with a coloured rail */
+.ocard { position: relative; margin: 0 0 12px; padding: 14px 14px 14px 18px; border: 0; border-radius: 18px; background: var(--surface); box-shadow: 0 1px 2px rgba(70,45,0,.06), 0 10px 24px -16px rgba(70,45,0,.25); overflow: hidden; }
+.ocard::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 5px; background: var(--accent); }
+.ocard.r-new::before { background: var(--coral); } .ocard.r-completed::before, .ocard.r-ready::before { background: var(--ok); } .ocard.r-cancelled::before { background: var(--bad); }
+.owrap { border: 0; border-radius: 16px; box-shadow: 0 1px 2px rgba(70,45,0,.06), 0 8px 20px -16px rgba(70,45,0,.25); }
+.orow { border: 0; }
+
+/* phone: floating glass tab bar with icons; the rarely used tabs sit behind "More" */
+.adm-tab svg { width: 22px; height: 22px; flex: none; }
+.adm-tab.more { display: none; }
+@media (max-width: 899px) {
+  .adm-tabs { position: fixed; z-index: 6; left: 12px; right: 12px; bottom: max(10px, var(--sab)); max-width: 520px; margin: 0 auto; padding: 6px; gap: 2px; overflow: visible; border: 0; border-radius: 28px;
+    background: color-mix(in srgb, var(--surface) 80%, transparent); -webkit-backdrop-filter: blur(20px) saturate(1.5); backdrop-filter: blur(20px) saturate(1.5);
+    box-shadow: 0 0 0 1px var(--line), 0 16px 36px -10px rgba(42,32,8,.35); }
+  .adm-tab { flex: 1; flex-direction: column; justify-content: center; gap: 2px; height: 56px; padding: 0; border-radius: 22px; font-size: 11px; font-weight: 500; }
+  .adm-tab.sec { display: none; }
+  .adm-tab.more { display: flex; }
+  .adm-tab[aria-pressed="true"] { background: var(--accent); color: var(--ink); box-shadow: none; }
+  .adm-tab .adm-badge { position: absolute; top: 3px; left: calc(50% + 4px); min-width: 18px; height: 18px; font-size: 11px; box-shadow: 0 0 0 2px var(--surface); }
+  .adm-main { padding-bottom: calc(110px + var(--sab)); }
+  .more-pop { position: absolute; right: 0; bottom: calc(100% + 10px); min-width: 190px; padding: 6px; border-radius: 22px; display: grid; gap: 2px; background: var(--surface); box-shadow: 0 0 0 1px var(--line), 0 18px 40px -12px rgba(42,32,8,.4); animation: adm-in .2s var(--ease); }
+  .pop-item { display: flex; align-items: center; gap: 12px; height: 46px; padding: 0 14px; border-radius: 16px; font-size: 15px; color: var(--text); }
+  .pop-item[aria-pressed="true"] { background: var(--accent); color: var(--ink); }
+  .pop-item svg { width: 22px; height: 22px; }
+}
+@media (min-width: 900px) { .adm-tab svg { display: none; } .more-pop { display: none; } }
+@media (min-width: 900px) {
+  .admin[data-tab="home"] .adm-tabs { background: var(--accent); border-bottom-color: transparent; }
+  .admin[data-tab="home"] .adm-tab { color: rgba(42,32,8,.7); } .admin[data-tab="home"] .adm-tab[aria-pressed="true"] { color: var(--ink); background: #fff; }
+}

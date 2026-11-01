@@ -43,7 +43,7 @@ function syncDeliveryMap() {
 const A = {
   products: [], categories: [], orders: [], feedback: [], alerts: [], events: [],
   loaded: { products: false, categories: false, orders: false, feedback: false, alerts: false, events: false },
-  errors: {}, tab: "home", open: false, started: false, unsubs: [],
+  errors: {}, tab: "home", more: false, open: false, started: false, unsubs: [],
   pf: "all", pq: "", range: 30, of: "active", ff: "inbox",
 };
 
@@ -153,6 +153,18 @@ function alertMe(title, body) {
 
 /* ── shell ───────────────────────────────────────────── */
 const TABS = [["home", "Today"], ["products", "Products"], ["orders", "Orders"], ["feedback", "Messages"], ["events", "Events"], ["categories", "Categories"], ["settings", "Settings"]];
+const SEC = ["events", "categories", "settings"];            // on a phone these live behind "More"
+const svg = d => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const TICON = {
+  home: svg('<path d="M4 11.2 12 4l8 7.2V20a1 1 0 0 1-1 1h-4.5v-6h-5v6H5a1 1 0 0 1-1-1z"/>'),
+  products: svg('<path d="M12 3 4 7v10l8 4 8-4V7z"/><path d="m4 7 8 4 8-4M12 11v10"/>'),
+  orders: svg('<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/>'),
+  feedback: svg('<path d="M4 5h16v11H9l-5 4z"/>'),
+  more: svg('<circle cx="5.5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="18.5" cy="12" r="1.2"/>'),
+  events: svg('<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M18 6l-2.5 2.5M8.5 15.5 6 18"/>'),
+  categories: svg('<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>'),
+  settings: svg('<circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3.9a7 7 0 0 0-2-1.2L14.2 3h-4l-.4 2.6a7 7 0 0 0-2 1.2l-2.3-.9-2 3.4 2 1.5a7 7 0 0 0 0 2.4l-2 1.5 2 3.4 2.3-.9a7 7 0 0 0 2 1.2l.4 2.6h4l.4-2.6a7 7 0 0 0 2-1.2l2.3.9 2-3.4-2-1.5c.1-.4.1-.8.1-1.2z"/>'),
+};
 
 /** Page mode: the settings doc changed, so redraw what is showing. */
 export function refresh() { if (A.open) paint(); }
@@ -191,8 +203,11 @@ function close() {
 function paint() {
   const a = attention();
   const badge = { orders: a.newOrders, feedback: a.unread };
-  $("#admTabs").innerHTML = TABS.map(([k, label]) =>
-    `<button type="button" class="adm-tab" data-act="tab" data-tab="${k}" aria-pressed="${A.tab === k}">${label}${badge[k] ? `<span class="adm-badge">${badge[k]}</span>` : ""}</button>`).join("");
+  const tab = ([k, label], cls = "adm-tab") => `<button type="button" class="${cls}${SEC.includes(k) && cls === "adm-tab" ? " sec" : ""}" data-act="tab" data-tab="${k}" aria-pressed="${A.tab === k}">${TICON[k]}<span>${label}</span>${badge[k] ? `<span class="adm-badge">${badge[k]}</span>` : ""}</button>`;
+  $("#admTabs").innerHTML = TABS.map(t => tab(t)).join("")
+    + `<button type="button" class="adm-tab more" data-act="more" aria-pressed="${SEC.includes(A.tab)}" aria-expanded="${!!A.more}">${TICON.more}<span>More</span></button>`
+    + (A.more ? `<div class="more-pop" role="menu">${TABS.filter(([k]) => SEC.includes(k)).map(t => tab(t, "pop-item")).join("")}</div>` : "");
+  $("#admin").dataset.tab = A.tab;
   const main = $("#admMain");
   const keep = main.scrollTop, focused = document.activeElement;
   const refocus = focused && main.contains(focused) && focused.matches("input[type=search]") ? { sel: "#" + focused.id, pos: focused.selectionStart } : null;
@@ -211,6 +226,21 @@ const loading = keys => keys.some(k => !A.loaded[k]);
 
 /* ═════════ HOME ═════════ */
 function dayKey(ms) { const d = new Date(ms); return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`; }
+/** Every order is a hexagon in a little honeycomb: newest first, coloured by what it needs. Tap one to open it. */
+function hiveHtml(orders) {
+  const N = 7, ROWS = 3, W = 352, w = W / (N + .5), r = w / Math.sqrt(3), H = r * 1.5 * (ROWS - 1) + 2 * r;
+  const list = orders.slice().sort((x, y) => created(y) - created(x)).slice(0, N * ROWS);
+  const hex = (cx, cy) => Array.from({ length: 6 }, (_, i) => { const a = Math.PI / 180 * (60 * i - 30); return `${(cx + r * .9 * Math.cos(a)).toFixed(1)},${(cy + r * .9 * Math.sin(a)).toFixed(1)}`; }).join(" ");
+  let cells = "";
+  for (let i = 0; i < N * ROWS; i++) {
+    const row = Math.floor(i / N), col = i % N, cx = w / 2 + col * w + (row % 2 ? w / 2 : 0), cy = r + row * 1.5 * r, o = list[i];
+    if (!o) { cells += `<polygon class="hx empty" points="${hex(cx, cy)}"/>`; continue; }
+    const k = o.status === "new" ? "new" : o.status === "completed" ? "done" : o.status === "cancelled" ? "off" : "doing";
+    cells += `<g class="hx ${k}" data-act="open-order" data-id="${esc(o.id)}" role="button" tabindex="0" aria-label="${esc(o.ref)}, ${esc(statusLabel(o))}"><polygon points="${hex(cx, cy)}"/><title>${esc(o.ref)} · ${esc(o.customer?.name || "Customer")} · ${esc(statusLabel(o))}</title></g>`;
+  }
+  return `<svg class="hive" viewBox="0 0 ${W} ${H.toFixed(1)}" role="group" aria-label="Your latest orders">${cells}</svg>
+    <div class="hive-key"><span><i class="k-new"></i>Needs you</span><span><i class="k-doing"></i>On the go</span><span><i class="k-done"></i>Done</span></div>`;
+}
 function homeView() {
   if (loading(["products", "orders", "feedback"])) return `<p class="adm-empty">Loading…</p>`;
   const live = A.orders.filter(o => o.status !== "cancelled");
@@ -223,6 +253,18 @@ function homeView() {
   const low = sellable.filter(p => stockState(p) === "low"), out = sellable.filter(p => stockState(p) === "out");
   const a = attention();
 
+  const sod = new Date(); sod.setHours(0, 0, 0, 0);
+  const today = live.filter(o => created(o) >= sod.getTime()), yest = live.filter(o => created(o) >= sod.getTime() - DAY && created(o) < sod.getTime());
+  const tSum = today.reduce((t, o) => t + orderValue(o), 0), ySum = yest.reduce((t, o) => t + orderValue(o), 0);
+  const hr = new Date().getHours(), hello = hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening";
+  const vs = ySum ? Math.round((tSum - ySum) / ySum * 100) : null;
+  const hero = `<section class="hero-day">
+      <p class="hd-hello">${hello}</p>
+      <div class="hd-num" aria-label="Sales today">${money(tSum)}</div>
+      <p class="hd-sub">${today.length ? `${today.length} order${today.length === 1 ? "" : "s"} today` : "No orders yet today"}${vs === null ? "" : `<span class="hd-vs ${vs < 0 ? "down" : ""}">${vs < 0 ? "▼" : "▲"} ${Math.abs(vs)}% on yesterday</span>`}</p>
+      ${hiveHtml(A.orders)}
+    </section>`;
+
   const todo = [
     ...A.feedback.filter(f => !f.read && !f.archived).slice(0, 3).map(f => `<button class="adm-row" data-act="tab" data-tab="feedback"><span class="chip ${f.kind === "bug" ? "bad" : "info"}">${KIND[f.kind] || "Feedback"}</span><span class="adm-grow adm-clip">${esc(f.message)}</span><span class="muted">${timeAgo(millis(f.createdAt))}</span></button>`),
     ...out.slice(0, 4).map(p => `<button class="adm-row" data-act="edit-product" data-id="${esc(p.id)}"><span class="chip bad">Out of stock</span><span class="adm-grow">${esc(p.name)}</span></button>`),
@@ -231,16 +273,15 @@ function homeView() {
   ];
 
   return `${errorBanner(["products", "orders", "feedback"])}
+    ${hero}
     <div id="locBar">${locBarHtml()}</div>
     ${deliveries(A.orders, created).length ? `<div data-dmap></div>` : ""}
-    <section class="adm-card"><h3>Orders to do${jobs.length ? ` <span class="adm-badge">${jobs.length}</span>` : ""}</h3>
+    <section class="adm-card flat"><h3>Orders to do${jobs.length ? ` <span class="adm-badge">${jobs.length}</span>` : ""}</h3>
       ${jobs.length ? jobs.slice(0, 12).map(orderCard).join("") : `<p class="adm-empty small">No orders waiting. When a customer pays, you get an email and a beep here, and the order shows up on this screen.</p>`}
     </section>
     <div class="stats">
       <button class="stat ${a.newOrders ? "hot" : ""}" data-act="go-orders" data-f="active"><span>Orders waiting for you</span><b>${a.newOrders}</b></button>
       <button class="stat" data-act="go-orders" data-f="active"><span>On the go right now</span><b>${open}</b></button>
-      <div class="stat"><span>Orders this week</span><b>${since(7).length}</b></div>
-      <div class="stat"><span>Sales · last 30 days</span><b>${money(since(30).reduce((t, o) => t + orderValue(o), 0))}</b><small>orders placed, paid or not</small></div>
       <button class="stat ${a.unread ? "hot" : ""}" data-act="tab" data-tab="feedback"><span>New messages</span><b>${a.unread}</b></button>
       <button class="stat" data-act="tab" data-tab="products"><span>Low or out of stock</span><b>${low.length + out.length}</b></button>
     </div>
@@ -738,7 +779,7 @@ async function navigateTo(id) {
 function orderCard(o) {
   const st = stepOf(o), n = (o.items || []).reduce((t, i) => t + (i.qty || 0), 0), total = o.total != null ? o.total : o.estTotal;
   const where = o.fulfilment === "delivery" ? `Deliver to ${esc(o.address?.postcode || "the customer")}` : "Customer collects";
-  return `<article class="ocard">
+  return `<article class="ocard r-${esc(o.status)}">
     <button class="ocard-top" type="button" data-act="open-order" data-id="${esc(o.id)}">
       <span class="chip ${o.status}">${esc(statusLabel(o))}</span>
       <span class="adm-grow"><b>${esc(o.customer?.name || "Customer")}</b> · ${esc(o.ref)}<br><span class="muted">${where} · ${n} item${n === 1 ? "" : "s"} · ${total != null ? money(total) : ""}${o.paymentStatus === "paid" ? " · <b>Paid</b>" : ""}</span></span>
@@ -1005,7 +1046,8 @@ async function onClick(e) {
   const act = t.dataset.act, id = t.dataset.id, { fs } = X.FS;
   switch (act) {
     case "close": return close();
-    case "tab": A.tab = t.dataset.tab; return paint();
+    case "tab": A.tab = t.dataset.tab; A.more = false; return paint();
+    case "more": A.more = !A.more; return paint();
     case "go-orders": A.tab = "orders"; A.of = t.dataset.f; return paint();
     case "arange": A.range = +t.dataset.r; return paint();
     case "pfilter": A.pf = t.dataset.f; return paint();
