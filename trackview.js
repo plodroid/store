@@ -1,6 +1,6 @@
 /* Customer: the map on a delivery order while it's on its way. Shows the shop's van coming and how long it will take.
    The shop only shares its position while the owner is on a delivery, and stops when he finishes. */
-import { makeMap, icon, drive, fmtDist, fmtTime, metres } from "./geo.js?v=16";
+import { makeMap, icon, drive, fmtDist, fmtTime, metres } from "./geo.js?v=18";
 
 const LIVE_MS = 3 * 60 * 1000;           // a position older than this means "not sharing right now"
 

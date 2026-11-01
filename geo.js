@@ -1,4 +1,4 @@
-/* Maps, routes and street lookups — all free services, no keys:
+/* Maps, routes and street lookups — free services by default; add window.MAPBOX_TOKEN (firebase-config.js) to use Mapbox for the map + directions:
      • OpenStreetMap tiles (CARTO dark tiles at night) drawn with Leaflet (vendored in /vendor/leaflet)
      • OSRM for driving routes and turn-by-turn steps (router.project-osrm.org, public demo server: fine for one small shop)
      • Nominatim (OpenStreetMap) for "which street is this postcode on" and for finding a house on the map
@@ -49,7 +49,10 @@ export async function geocodeAddress(a) {
 
 /** Driving route. from/to = { lat, lng }. → { distance (m), duration (s), line: [[lat,lng]…], steps: [{ text, dist, mod, at: [lat,lng] }] } or null. */
 export async function drive(from, to) {
-  const r = await json(`https://router.project-osrm.org/route/v1/driving/${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson&steps=true`);
+  const tok = window.MAPBOX_TOKEN, c = `${from.lng},${from.lat};${to.lng},${to.lat}`;
+  // Mapbox (with live traffic) when the shop has a token, otherwise the free OSRM demo server; the answers have the same shape
+  let r = tok ? await json(`https://api.mapbox.com/directions/v5/mapbox/driving-traffic/${c}?overview=full&geometries=geojson&steps=true&access_token=${encodeURIComponent(tok)}`) : null;
+  if (!r || r.code !== "Ok") r = await json(`https://router.project-osrm.org/route/v1/driving/${c}?overview=full&geometries=geojson&steps=true`);
   const rt = r && r.code === "Ok" && r.routes && r.routes[0]; if (!rt) return null;
   return {
     distance: rt.distance, duration: rt.duration,
@@ -92,10 +95,13 @@ export function icon(L, kind) {
   return L.divIcon({ html, className: "pin-wrap", iconSize: kind === "dest" ? [34, 40] : [34, 34], iconAnchor: kind === "dest" ? [17, 38] : [17, 17] });
 }
 
-/** A map in `el`: light OpenStreetMap by day, CARTO dark at night. */
+/** A map in `el`: Mapbox if window.MAPBOX_TOKEN is set, otherwise light OpenStreetMap by day / CARTO dark at night (Leaflet). */
 export async function makeMap(el) {
-  const L = await loadLeaflet();
   const dark = document.documentElement.dataset.theme === "dark";
+  if (window.MAPBOX_TOKEN) {                                   // Mapbox when the shop has a token; if it fails to load, fall back to the free map below
+    try { const { makeMapboxMap } = await import("./mapbox.js?v=18"); return await makeMapboxMap(el, window.MAPBOX_TOKEN, dark); } catch (e) { console.warn("[map] Mapbox unavailable, using OpenStreetMap", e && e.message); el.replaceChildren(); }
+  }
+  const L = await loadLeaflet();
   const map = L.map(el, { zoomControl: false, attributionControl: true, tap: true }).setView([52.63, -1.13], 12);
   L.control.zoom({ position: "bottomright" }).addTo(map);
   map.attributionControl.setPrefix(false);

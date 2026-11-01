@@ -7,13 +7,13 @@ import { startNativeDock } from "./nativedock.js?v=17";
 import { initAppUpdate } from "./appupdate.js?v=17";
 import { $, $$, esc, store, money, pence, reduced, uid, openDialog, closeDialog, wireDialogs,
          toast, showError, setBusy, priceOf, onSale, percentOff, millis } from "./ui.js?v=16";
-import { createAuth } from "./auth.js?v=16";
+import { createAuth } from "./auth.js?v=18";
 import { normaliseUkPhone, showUkPhone } from "./uk.js?v=16";
 import { liveEvents, withEvents, applyTheme, paintMeta, heroHtml, heroVars, tickerText } from "./events.js?v=16";
 import { paintTicker, splitMessages, resetTicker } from "./ticker.js?v=16";
 import { initI18n } from "./i18n.js?v=16";
 import { trackerHtml } from "./flow.js?v=16";
-import { mountTracker } from "./trackview.js?v=16";
+import { mountTracker } from "./trackview.js?v=18";
 
 const DEF = window.STORE_DEFAULTS;
 const PATHS = window.STORE_PATHS;

@@ -1,6 +1,6 @@
 /* Owner: turn-by-turn directions to a delivery, and (if he leaves it on) the customer sees him coming on their map.
-   Opens full screen over the admin. Uses the phone's GPS (watchPosition), OSRM for the route and OpenStreetMap for the map. */
-import { makeMap, icon, drive, geocodeAddress, fmtDist, fmtTime, metres, arrowSvg } from "./geo.js?v=16";
+   Opens full screen over the admin. Uses the phone GPS (watchPosition); Mapbox (if a token is set) or OSRM + OpenStreetMap for the route and map. */
+import { makeMap, icon, drive, geocodeAddress, fmtDist, fmtTime, metres, arrowSvg } from "./geo.js?v=18";
 import { esc } from "./ui.js?v=16";
 import { lookupPostcode } from "./uk.js?v=16";
 
@@ -31,9 +31,11 @@ export async function openNav(ctx) {
 
   const gmaps = () => { $("#navG").href = dest ? `https://www.google.com/maps/dir/?api=1&destination=${dest.lat},${dest.lng}&travelmode=driving` : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([a.line1, a.city, a.postcode].filter(Boolean).join(", "))}`; };
   gmaps();
+  $("#navG").hidden = true;                                                   // the map and directions live in this screen; Google Maps is only a fallback
+  const fallback = () => { $("#navG").hidden = false; };
 
   try { ({ L, map } = await makeMap($("#navMap"))); }
-  catch { note("The map couldn't load. Use “Open in Google Maps” instead."); }
+  catch { note("The map couldn't load. Use “Open in Google Maps” instead."); fallback(); }
 
   // where exactly is the customer? the house if OpenStreetMap knows it, else the middle of the postcode
   (async () => {
@@ -41,7 +43,7 @@ export async function openNav(ctx) {
     if (exact) dest = exact;
     else if (!dest && a.postcode) { const p = await lookupPostcode(a.postcode); if (p.ok && p.lat != null) dest = { lat: p.lat, lng: p.lng }; }
     if (stopped) return;
-    if (!dest) return note("We couldn't place this address on the map. Use “Open in Google Maps”.");
+    if (!dest) { fallback(); return note("We couldn't place this address on the map. Use “Open in Google Maps”."); }
     gmaps();
     if (map) { destM = L.marker([dest.lat, dest.lng], { icon: icon(L, "dest") }).addTo(map); map.setView([dest.lat, dest.lng], 15); }
     refresh(true);
@@ -62,7 +64,7 @@ export async function openNav(ctx) {
     routeAt = Date.now(); routeFrom = { ...me };
     const r = await drive(me, dest);
     if (stopped) return;
-    if (!r) { if (!route) note("Couldn't work out the route right now. Use “Open in Google Maps”."); return paint(); }
+    if (!r) { if (!route) { note("Couldn't work out the route right now. Use “Open in Google Maps”."); fallback(); } return paint(); }
     note(""); route = r; idx = r.steps.length > 1 ? 1 : 0;
     if (map) { if (line) line.remove(); line = L.polyline(r.line, { color: "#1A73E8", weight: 6, opacity: .9 }).addTo(map); if (!fitted) { map.fitBounds(line.getBounds(), { padding: [50, 50] }); fitted = true; } }
     $("#navList").innerHTML = r.steps.map(s => `<li><span class="nav-ic">${arrowSvg(s.mod)}</span><span>${esc(s.text)}</span><em>${fmtDist(s.dist)}</em></li>`).join("");
@@ -86,7 +88,7 @@ export async function openNav(ctx) {
   if (tr) { $("#navShare").checked = tr.state().wants; $("#navShare").addEventListener("change", e => tr.setShare(e.target.checked)); }
   else $("#navShare").closest("label").hidden = true;
 
-  if (!navigator.geolocation) note("This phone can't share its position. Use “Open in Google Maps”.");
+  if (!navigator.geolocation) { note("This phone can't share its position. Use “Open in Google Maps”."); fallback(); }
   else watch = navigator.geolocation.watchPosition(p => {
     me = { lat: p.coords.latitude, lng: p.coords.longitude };
     if (map) { if (!meM) meM = L.marker([me.lat, me.lng], { icon: icon(L, "me"), zIndexOffset: 500 }).addTo(map); else meM.setLatLng([me.lat, me.lng]); }

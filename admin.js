@@ -8,7 +8,7 @@ import { lookupPostcode } from "./uk.js?v=16";
 import { trackerHtml } from "./flow.js?v=16";
 import { createTracker } from "./track.js?v=16";
 import { analyticsHtml, wireAnalytics } from "./analytics.js?v=16";
-import { createDeliveryMap, deliveries } from "./dmap.js?v=16";
+import { createDeliveryMap, deliveries } from "./dmap.js?v=18";
 import { LOOKS, SWATCHES, isLive, todayUK, heroHtml, heroVars } from "./events.js?v=16";
 
 const css = document.createElement("link");
@@ -769,7 +769,7 @@ async function navigateTo(id) {
   const o = A.orders.find(x => x.id === id); if (!o) return;
   closeDialog($("#admDlg"));
   try {
-    const { openNav } = await import("./nav.js?v=16");
+    const { openNav } = await import("./nav.js?v=18");
     await openNav({ FS: X.FS, order: o, tracker,
       getAction: () => { const cur = A.orders.find(x => x.id === id), st = cur && stepOf(cur); return st ? { label: st.label, run: async () => toast(await advance(cur), 3500) } : null; } });
   } catch (e) { console.error("[admin] nav", e); toast("Couldn't open the map. Check your connection."); }

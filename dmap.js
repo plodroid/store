@@ -1,6 +1,6 @@
 /* Owner: one map with every delivery on it (numbered pins), his own position, and one big button to start the directions.
    Built once and moved back into the page after each redraw, so the map doesn't flicker when orders change. */
-import { makeMap } from "./geo.js?v=16";
+import { makeMap } from "./geo.js?v=18";
 import { esc } from "./ui.js?v=16";
 
 const LIVE = ["confirmed", "preparing", "ontheway", "arrived", "ready"];

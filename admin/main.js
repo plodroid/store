@@ -78,7 +78,7 @@ async function main() {
     if (!owner) { $("#gateOut").hidden = false; return msg(`${user.email || "This account"} isn't the shop owner. Sign out and use the owner's Google account.`, true); }
 
     siteUnsub = fs.onSnapshot(fs.doc(FS.db, PATHS.settings, PATHS.siteDoc), s => { site = s.exists() ? s.data() : {}; panel && panel.refresh && panel.refresh(); }, () => {});
-    panel = await import("../admin.js?v=16");
+    panel = await import("../admin.js?v=18");
     gate(false);
     panel.openAdmin({ FS, acct, getSite: () => site, page: true, app: native });
     if (native) import("../appupdate.js?v=17").then(m => { const top = $(".adm-top"); m.initAppUpdate({ host: top, before: top && top.querySelector('[data-act="signout"]'), kind: "owner" }); }).catch(() => {});

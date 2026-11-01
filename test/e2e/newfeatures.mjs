@@ -150,6 +150,16 @@ await test("postcode: typing a postcode fills the street and town, asks for the 
   assert.equal(await p.locator('#locForm [name="line1"]').inputValue(), "Thoresby Street", "street stays");
 });
 
+
+/* ── Mapbox (stubbed GL library; the real one needs WebGL + a token) ── */
+const MB_STUB = `window.mapboxgl = { accessToken: "", calls: { fit: 0, lines: 0, markers: 0 },
+  Map: class { constructor(o) { this.o = o; this.c = typeof o.container === "string" ? document.querySelector(o.container) : o.container; this.c.classList.add("mapboxgl-map"); this.L = {}; this.touchZoomRotate = { disableRotation() {} }; setTimeout(() => (this.L.load || []).forEach(f => f()), 20); }
+    on(e, f) { (this.L[e] ||= []).push(f); } addControl() {} jumpTo() {} easeTo() {} resize() {} remove() {} fitBounds() { mapboxgl.calls.fit++; }
+    addSource(i) { (this.s ||= {})[i] = 1; } addLayer(l) { if (l.id.endsWith("c") === false) mapboxgl.calls.lines++; (this.l ||= {})[l.id] = 1; }
+    getLayer(i) { return (this.l || {})[i]; } getSource(i) { return (this.s || {})[i]; } removeLayer() {} removeSource() {} },
+  Marker: class { constructor(o) { this.el = o.element; this.ll = null; } setLngLat(p) { this.ll = p; return this; } setOffset() { return this; } addTo(m) { mapboxgl.calls.markers++; m.c.append(this.el); return this; } remove() { this.el.remove(); } },
+  NavigationControl: class {}, LngLatBounds: class { extend() { return this; } } };`;
+
 /* ── customer live map ───────────────────────────────── */
 const ADDR = { line1: "10 Example Road", line2: "", city: "London", postcode: "SW1A 1AA", lat: 51.5, lng: -0.14, verified: true };
 await test("live map: shows only while on its way; the van appears from the shop's shared position and ETA is worked out", async (t) => {
@@ -168,6 +178,21 @@ await test("live map: shows only while on its way; the van appears from the shop
   await setStatus(p, id, { status: "completed" });
   await p.waitForFunction(() => !document.querySelector("#moList .mo-map"));
 });
+await test("mapbox: with a token the customer's live map and the route come from Mapbox (and the markers/line are drawn)", async (t) => {
+  const p = t.page; let dirs = "";
+  await t.ctx.route("https://api.mapbox.com/mapbox-gl-js/**", r => /\.css/.test(r.request().url()) ? r.fulfill({ status: 200, contentType: "text/css", body: "" }) : r.fulfill({ status: 200, contentType: "text/javascript", headers: { "access-control-allow-origin": "*" }, body: MB_STUB }));
+  await t.ctx.route("https://api.mapbox.com/directions/**", r => { dirs = r.request().url(); r.fulfill({ status: 200, headers: { "access-control-allow-origin": "*" }, json: ROUTE }); });
+  const { id } = await orderFlow(t, "delivery");
+  await p.click("#acctBtn"); await p.click("#menuOrders"); await p.waitForSelector("#moList .trk");
+  await setStatus(p, id, { status: "ontheway", paymentStatus: "paid", address: ADDR });
+  await p.waitForSelector("#moList .mo-map .mapboxgl-map");
+  await p.evaluate(id => window.__FAKE.inject("tracking", id, { lat: 51.51, lng: -0.15, updatedAt: { __ts: Date.now() } }), id);
+  await p.waitForFunction(() => /is about 9 min away/.test(document.querySelector(".mo-map-cap").textContent));
+  assert.match(dirs, /directions\/v5\/mapbox\/driving-traffic\/.*access_token=pk\.test/);
+  assert.equal(t.net.osrm, 0);                                                                       // Mapbox answered, OSRM wasn't needed
+  assert.equal(await p.locator(".mo-map .leaflet-container").count(), 0);
+  assert.ok(await p.evaluate(() => window.mapboxgl.calls.markers) >= 2);                             // destination + van
+}, { init: () => { window.MAPBOX_TOKEN = "pk.test"; } });
 await test("live map: an old shared position (over 3 minutes) is treated as not live", async (t) => {
   const p = t.page; const { id } = await orderFlow(t, "delivery");
   await p.click("#acctBtn"); await p.click("#menuOrders"); await p.waitForSelector("#moList .trk");
