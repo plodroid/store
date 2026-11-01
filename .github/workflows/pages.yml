@@ -1,0 +1,21 @@
+name: Deploy site
+on:
+  push: { branches: [main] }
+  workflow_dispatch:
+permissions: { contents: read, pages: write, id-token: write }
+concurrency: { group: pages, cancel-in-progress: true }
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: { name: github-pages, url: "${{ steps.d.outputs.page_url }}" }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Put the public Mapbox token into the site config
+        env: { MAPBOX_TOKEN: "${{ secrets.MAPBOX_TOKEN }}" }
+        run: |
+          [ -n "$MAPBOX_TOKEN" ] && sed -i "s|window.MAPBOX_TOKEN = window.MAPBOX_TOKEN \|\| \"\";|window.MAPBOX_TOKEN = window.MAPBOX_TOKEN \|\| \"$MAPBOX_TOKEN\";|" firebase-config.js || echo "no MAPBOX_TOKEN secret, using OpenStreetMap"
+          grep -c 'MAPBOX_TOKEN ||' firebase-config.js
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: . }
+      - id: d
+        uses: actions/deploy-pages@v4
