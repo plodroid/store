@@ -29,7 +29,11 @@ async function test(name, fn, extra = {}, vp) {
 }
 const db = p => p.evaluate(() => window.__FAKE.dump());
 const openAdmin = async p => { await p.waitForSelector("#admin:not([hidden]) .adm-tab"); };
-const tab = async (p, k) => { await p.click(`[data-act="tab"][data-tab="${k}"]`); };
+const tab = async (p, k) => {
+  const main = p.locator(`.adm-tab[data-tab="${k}"]`);
+  if (await main.isVisible()) return main.click();
+  await p.click('[data-act="more"]'); await p.click(`.pop-item[data-tab="${k}"]`);          // phone: the rarely used tabs sit behind "More"
+};
 
 await test("opens the panel with the five/six tabs", async ({ page: p }) => {
   await openAdmin(p);
