@@ -569,7 +569,7 @@ html[data-event="ramadan"][data-theme="dark"] .footer { --fbg: #06141C; }
   .drawer-head { padding-top: 16px; }
 }
 
-/* ── dialogs: sheets from the bottom on phones ──────── */
+/* ── dialogs ──────── */
 .pd {
   width: min(780px, calc(100vw - 24px)); max-height: calc(100dvh - 24px);
   padding: 0; overflow: auto; border-radius: 28px;
@@ -583,8 +583,7 @@ html[data-event="ramadan"][data-theme="dark"] .footer { --fbg: #06141C; }
 .pd.open::backdrop { opacity: 1; }
 .pd-close { position: absolute; top: 12px; right: 12px; z-index: 2; color: var(--text); background-color: var(--glass-strong); box-shadow: var(--glass-edge); }
 @media (max-width: 639px) {
-  .pd, .modal, .pd.auth { width: 100%; max-width: 100%; margin: auto 0 0; max-height: 92dvh; border-radius: 30px 30px 0 0; border-bottom: 0; transform: translateY(40px); padding-bottom: env(safe-area-inset-bottom); }
-  .pd.open { transform: none; }
+/* (phone layout for popups lives at the end of the file) */
 }
 
 /* ── toast ──────────────────────────────────────────── */
@@ -803,8 +802,7 @@ em { font-style: normal; color: var(--faint); font-weight: 400; }
 /* sheets on phones win over the fixed widths above */
 .modal-body { padding-bottom: 28px; }
 @media (max-width: 639px) {
-  .pd, .modal, .pd.auth { width: 100%; max-width: 100%; margin: auto 0 0; max-height: 92dvh; border-radius: 30px 30px 0 0; border-bottom: 0; transform: translateY(40px); }
-  .pd.open { transform: none; }
+
 }
 .btn-primary { color: var(--on-accent); }
 .btn-grad { color: var(--on-accent); }
@@ -897,3 +895,31 @@ html[data-native] .manage, html[data-native] .auth .or, html[data-native] .auth 
 @media (hover: hover) and (pointer: fine) { .gal-nav:not([hidden]) { display: grid; } }
 .gal-nav[hidden] { display: none !important; }
 @media (max-width: 719px) { .gal-n { display: none; } }
+
+/* ── popups on phones: centred, even gap all round, scroll inside (wins over the fixed widths above) ── */
+@media (max-width: 639px) {
+  .pd, .modal, .pd.auth, .adm-dlg { width: calc(100vw - 24px - var(--sal) - var(--sar)); max-width: 480px; border-radius: 26px; border: 1px solid var(--line); transform: scale(.96); overscroll-behavior: contain; }
+  .pd.open { transform: none; }
+  .modal-body { padding: 26px 18px 22px; }
+}
+
+/* ── every popup is centred inside the SAFE area (below the status bar, above the phone's nav bar) ── */
+:root { --sat: env(safe-area-inset-top, 0px); --sab: env(safe-area-inset-bottom, 0px); --sal: env(safe-area-inset-left, 0px); --sar: env(safe-area-inset-right, 0px); }
+dialog.pd {
+  position: fixed; margin: auto; height: fit-content;
+  inset: calc(var(--sat) + 12px) calc(var(--sar) + 12px) calc(var(--sab) + 12px) calc(var(--sal) + 12px);
+  max-height: calc(100dvh - var(--sat) - var(--sab) - 24px);
+  overscroll-behavior: contain;
+}
+dialog.pd .modal-body { padding-bottom: max(22px, calc(var(--sab) / 2 + 18px)); }
+
+/* in-app update (Android apps): green download icon next to the basket / sign-out, and its popup */
+.upd-btn { color: #fff !important; background: #1E8E3E; box-shadow: 0 0 0 3px rgba(30,142,62,.22); animation: pulse 2.2s ease-in-out infinite; }
+.upd-btn[hidden] { display: none; }
+.upd-btn:disabled { opacity: .6; animation: none; }
+.upd-btn svg { width: 22px; height: 22px; }
+.upd-go { background: #1E8E3E; color: #fff; }
+.upd-go:disabled { opacity: .7; }
+.upd .check { margin-top: 14px; }
+:root[data-theme="dark"] .upd-btn, :root[data-theme="dark"] .upd-go { background: #2FA85A; color: #07210F; }
+:root[data-theme="dark"] .upd-btn { color: #07210F !important; }

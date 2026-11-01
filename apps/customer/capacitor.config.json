@@ -7,7 +7,7 @@
     "errorPath": "error.html",
     "allowNavigation": ["plodroid.github.io", "*.stripe.com", "*.stripe.network", "script.google.com", "script.googleusercontent.com", "*.googleapis.com", "*.firebaseapp.com"]
   },
-  "android": { "allowMixedContent": false },
+  "android": { "allowMixedContent": false, "appendUserAgent": "BeeHiveApp/customer/__BUILD__" },
   "plugins": {
     "SplashScreen": { "launchShowDuration": 600, "backgroundColor": "#FFF8E6", "showSpinner": false },
     "StatusBar": { "style": "DARK", "backgroundColor": "#FFF8E6", "overlaysWebView": false }

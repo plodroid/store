@@ -328,3 +328,8 @@ html.native-dock .adm-main { padding-bottom: calc(var(--dock-h, 0px) + 16px); }
 .ph-add { aspect-ratio: 1; border-radius: 14px; border: 1px dashed var(--line-2); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--muted); font-size: 12px; cursor: pointer; }
 .ph-add b { font-size: 24px; font-weight: 400; color: var(--text); }
 .urlrow { display: flex; gap: 8px; align-items: flex-end; } .urlrow .inp { flex: 1; margin: 0; }
+
+/* tick boxes inside forms: small boxes, one per line (the generic text-field style must not stretch them) */
+.inp > .check { display: flex; width: 100%; margin: 2px 0; }
+.inp .check input { width: 22px; height: 22px; min-height: 0; flex: none; padding: 0; margin: 0; }
+.inp .check span { font-size: 15px; color: var(--text); }

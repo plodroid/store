@@ -81,6 +81,7 @@ async function main() {
     panel = await import("../admin.js?v=16");
     gate(false);
     panel.openAdmin({ FS, acct, getSite: () => site, page: true, app: native });
+    if (native) import("../appupdate.js?v=17").then(m => { const top = $(".adm-top"); m.initAppUpdate({ host: top, before: top && top.querySelector('[data-act="signout"]'), kind: "owner" }); }).catch(() => {});
   });
 }
 const failed = e => { console.error("[admin]", e); msg("Something went wrong loading this page.", true); why(e); const r = $("#gateRetry"); if (r) r.hidden = false; };

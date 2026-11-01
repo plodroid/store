@@ -528,6 +528,57 @@ await test("owner Android app: the live site has no registerPlugin, so the sign-
   assert.equal(used, "native");
 }, { path: "/admin/index.html", ready: "#gateGoogle:not([hidden])", init: () => { window.Capacitor = { isNativePlatform: () => true, getPlatform: () => "android", Plugins: { FirebaseAuthentication: { signInWithGoogle: async () => ({}), signOut: async () => {} } } }; } });
 
+/* ── popups + in-app updates ────────────────────────── */
+const REL = (n) => [{ tag_name: "apps-" + n, draft: false, assets: ["customer", "owner"].map(k => ({ name: `bee-hive-${k}-debug.apk`, browser_download_url: `https://github.com/plodroid/store/releases/download/apps-${n}/bee-hive-${k}-debug.apk` })) }, { tag_name: "ios-1", assets: [] }];
+const appInit = (kind, build) => `window.Capacitor = { isNativePlatform: () => true, getPlatform: () => "android", Plugins: { ApkUpdater: { install: async o => { window.__installed = o.url; } } } };
+  Object.defineProperty(navigator, "userAgent", { get: () => "Mozilla/5.0 (Linux; Android 15) Chrome/156 Mobile BeeHiveApp/${kind}/${build}" });`;
+const withInit = src => ({ init: new Function(src) });
+await test("popups: every dialog is centred inside the safe area on phones, tablets and desktop", async (t) => {
+  const p = t.page;
+  for (const [w, h, top, bot] of [[360, 740, 28, 48], [412, 915, 0, 0], [768, 1024, 24, 24], [1280, 800, 0, 0]]) {
+    await p.setViewportSize({ width: w, height: h });
+    await p.evaluate(([a, b]) => { let s = document.getElementById("__t") || Object.assign(document.head.appendChild(document.createElement("style")), { id: "__t" }); s.textContent = `:root{--sat:${a}px!important;--sab:${b}px!important}`; }, [top, bot]);
+    await p.evaluate(() => { const d = document.querySelector("#info"); d.querySelector("#infoBody") && (d.querySelector("#infoBody").innerHTML = "<p>Short popup</p>"); d.showModal(); d.classList.add("open"); });
+    await p.waitForTimeout(450);
+    const r = await p.evaluate(() => { const b = document.querySelector("#info").getBoundingClientRect(); return { l: b.left, r: innerWidth - b.right, t: b.top, b: innerHeight - b.bottom }; });
+    assert.ok(Math.abs(r.l - r.r) < 1.5, `centred sideways at ${w}: ${JSON.stringify(r)}`);
+    assert.ok(Math.abs((r.t - top) - (r.b - bot)) < 1.5, `centred up/down inside the safe area at ${w}: ${JSON.stringify(r)}`);
+    assert.ok(r.t >= top + 11 && r.b >= bot + 11, "never under the status bar or nav bar");
+    await p.evaluate(() => { const d = document.querySelector("#info"); d.close(); d.classList.remove("open"); });
+  }
+});
+await test("app update: popup (Update / Cancel / don't remind), green icon next to the basket, install via the native plugin", async (t) => {
+  const p = t.page;
+  await t.ctx.route("https://api.github.com/**", r => r.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, json: REL(5) }));
+  await p.reload(); await p.waitForSelector("#updDlg[open]");
+  assert.match(await p.locator("#updDlg").innerText(), /New update[\s\S]*Update[\s\S]*Cancel[\s\S]*remind me again/i);
+  await p.click("#updNo"); await p.waitForSelector("#updDlg", { state: "hidden" });
+  assert.equal(await p.locator("#updBtn").isVisible(), true);
+  assert.ok(await p.evaluate(() => document.querySelector("#updBtn").nextElementSibling.id === "cartBtn"), "icon sits right before the basket");
+  await p.reload(); await p.waitForSelector("#updDlg[open]");                                          // plain Cancel: asked again next time
+  await p.check("#updNever"); await p.click("#updNo"); await p.waitForSelector("#updDlg", { state: "hidden" });
+  await p.reload(); await p.waitForSelector("#updBtn"); await p.waitForTimeout(1800);
+  assert.equal(await p.locator("#updDlg[open]").count(), 0, "never again = no popup");
+  assert.equal(await p.locator("#updBtn").isVisible(), true, "…but the icon stays");
+  await p.click("#updBtn"); await p.waitForSelector("#updDlg[open]"); await p.click("#updGo");
+  await p.waitForFunction(() => window.__installed);
+  assert.match(await p.evaluate(() => window.__installed), /releases\/download\/apps-5\/bee-hive-customer-debug\.apk$/);
+}, withInit(appInit("customer", 3)));
+await test("app update: an app that is already on the newest build sees nothing; the website in a normal browser sees nothing", async (t) => {
+  const p = t.page;
+  await t.ctx.route("https://api.github.com/**", r => r.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, json: REL(5) }));
+  await p.reload(); await p.waitForTimeout(2200);
+  assert.equal(await p.locator("#updBtn").count(), 0); assert.equal(await p.locator("#updDlg").count(), 0);
+}, withInit(appInit("customer", 5)));
+await test("app update (owner): green icon sits in the owner header, before Sign out", async (t) => {
+  const p = t.page;
+  await t.ctx.route("https://api.github.com/**", r => r.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, json: REL(5) }));
+  await p.evaluate(() => { window.__FAKE.nextGoogle = { email: "housikiki@gmail.com", name: "Owner", uid: "g_owner" }; });
+  await p.click("#gateGoogle"); await p.waitForSelector("#updBtn");
+  assert.ok(await p.evaluate(() => document.querySelector("#updBtn").nextElementSibling.dataset.act === "signout"));
+  await p.waitForSelector("#updDlg[open]"); assert.match(await p.locator("#updDlg").innerText(), /New update/);
+}, { path: "/admin/index.html", ready: "#gateGoogle:not([hidden])", ...withInit(appInit("owner", 3)) });
+
 await test("language: every translated string keeps its {placeholders} and no two languages are missing keys", async ({ page: p }) => {
   const r = await p.evaluate(async codes => {
     const D = {};
