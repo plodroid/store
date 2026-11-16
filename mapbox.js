@@ -90,7 +90,7 @@ class MapFacade {
 export async function makeMapboxMap(el, token, dark, satellite) {
   const gl = await loadMapbox();
   gl.accessToken = token;
-  const map = new gl.Map({ container: el, style: satellite ? "mapbox://styles/mapbox/satellite-streets-v12" : `mapbox://styles/mapbox/navigation-${dark ? "night" : "day"}-v1`, center: [-1.13, 52.63], zoom: 11, attributionControl: true, dragRotate: false, pitchWithRotate: false });
+  const map = new gl.Map({ container: el, style: satellite ? `mapbox://styles/mapbox/streets-v12` : `mapbox://styles/mapbox/navigation-${dark ? "night" : "day"}-v1`, center: [-1.13, 52.63], zoom: 11, attributionControl: true, dragRotate: false, pitchWithRotate: false });
   map.touchZoomRotate.disableRotation();
   map.addControl(new gl.NavigationControl({ showCompass: false }), "bottom-right");
   const facade = new MapFacade(gl, map);
