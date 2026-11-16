@@ -28,14 +28,28 @@ const CODE_ERRORS = {
   wait: d => `Please wait ${d.wait || 30} seconds before asking for another code.`,
   limit: () => "Too many codes requested for this email. Please try again in an hour.",
   busy: () => "We can't send more codes today. Please continue with Google or try again tomorrow.",
-  use_google: () => "This account signs in with Google. Tap \"Continue with Google\" instead.",
+  use_google: () => document.documentElement.dataset.native && !document.documentElement.dataset.gnative
+    ? "This account signs in with Google, which needs the newest Bee Hive app. Update the app, or sign in on the website."
+    : "This account signs in with Google. Tap \"Continue with Google\" instead.",
   send_failed: () => "We couldn't send the email just now. Please try again in a minute.",
   bad_code: d => d.left ? `That code isn't right. ${d.left} ${d.left === 1 ? "try" : "tries"} left.` : "That code isn't right.",
   expired: () => "That code has expired or was used up. Tap \"Resend code\" to get a new one.",
   locked: () => "Too many wrong codes. Please try again in an hour.",
 };
 const SILENT = new Set(["auth/popup-closed-by-user", "auth/cancelled-popup-request"]);
-const errText = e => MESSAGES[e && e.code] || "Something went wrong. Please try again in a moment.";
+
+/** Inside the Android app Google blocks its sign-in page, so newer app builds carry a native Google sign-in plugin instead.
+    Returns it when this build has it (older builds don't, and keep the button hidden). */
+function nativeGoogle() {
+  try {
+    const c = window.Capacitor; if (!c || !c.isNativePlatform || !c.isNativePlatform()) return null;
+    if (c.isPluginAvailable && !c.isPluginAvailable("FirebaseAuthentication")) return null;
+    return (typeof c.registerPlugin === "function" ? c.registerPlugin("FirebaseAuthentication") : c.Plugins && c.Plugins.FirebaseAuthentication) || null;
+  } catch { return null; }
+}
+if (nativeGoogle()) document.documentElement.dataset.gnative = "1";
+const CANCELLED = /popup-closed|cancelled|canceled|12501|-5\b|user.?cancel/i;
+const errText = e => MESSAGES[e && e.code] || (/DEVELOPER_ERROR|\b10\b|12500/.test(`${e && e.code} ${e && e.message}`) && nativeGoogle() && "Google doesn't recognise this app build yet. Please sign in with the email code instead, and tell the shop.") || (e && e.code === "google/no-token" && "Google didn't send back a sign-in. Please try again.") || "Something went wrong. Please try again in a moment.";
 
 /** One call to the mailer script. Resolves to its JSON reply; throws {code} only when it can't be reached. */
 async function mailer(body) {
@@ -146,6 +160,7 @@ export function createAuth({ FS, onChange = () => {} }) {
   addEventListener("keydown", e => { if (e.key === "Escape" && !menu.hidden) { closeMenu(); (phone() ? dockAcct : $("#acctBtn")).focus(); } });
 
   async function signOut() {
+    try { await nativeGoogle()?.signOut(); } catch {}
     await au.signOut(auth);
     toast("Signed out");
   }
@@ -287,12 +302,19 @@ export function createAuth({ FS, onChange = () => {} }) {
     showError(err, "");
     setBusy(dlg, btn, true);
     try { await fn(); }
-    catch (e) { console.warn("[auth]", e && e.code); if (!SILENT.has(e && e.code)) showError(err, errText(e)); }
+    catch (e) { console.warn("[auth]", e && e.code, e && e.message); if (!SILENT.has(e && e.code) && !CANCELLED.test(`${e && e.code} ${e && e.message}`)) showError(err, errText(e)); }
     finally { setBusy(dlg, btn, false); }
   }
 
   async function googleSignIn() {
     await persistence();
+    const g = nativeGoogle();
+    if (g) {   // the Android app: ask the phone's own Google account picker, then hand the token to Firebase
+      const r = await g.signInWithGoogle(), idToken = r && r.credential && r.credential.idToken;
+      if (!idToken) throw Object.assign(new Error("no token"), { code: "google/no-token" });
+      const { user } = await au.signInWithCredential(auth, au.GoogleAuthProvider.credential(idToken));
+      return afterSignIn(user);
+    }
     const provider = new au.GoogleAuthProvider();
     provider.setCustomParameters({ prompt: "select_account" });
     const { user } = await au.signInWithPopup(auth, provider);

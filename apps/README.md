@@ -13,7 +13,7 @@ The owner page is also usable in any browser at `/store/admin/`.
 Every push that touches `apps/` runs `.github/workflows/mobile-apps.yml` (GitHub → Actions). It builds both apps and attaches `bee-hive-customer-debug.apk` and `bee-hive-owner-debug.apk` to a GitHub **Release** tagged `apps-<n>`. Open the release on your phone, download, install.
 
 ## Notes
-- Customers sign in with the emailed code (Google sign-in is hidden inside the app). The owner app uses native Google sign-in (`@capacitor-firebase/authentication`), config in `apps/owner/android/app/google-services.json`.
+- Customers sign in with the emailed code, or with Google through the native plugin (build 7 onward; older builds hide the Google button). The customer app needs an Android OAuth client for `com.plodroid.beehive` + the SHA-1 of the signing key in Google Cloud / Firebase, same as the owner app. The owner app uses native Google sign-in (`@capacitor-firebase/authentication`), config in `apps/owner/android/app/google-services.json`.
 - Debug APKs are signed with the shared `apps/debug.keystore` (public on purpose, test builds only).
 - Card payments open Stripe Checkout inside the app and return to it.
 - The owner app asks for **location** the first time you tap *Directions* on a delivery order (turn-by-turn map, and the live position the customer sees). It's only used while the directions screen is open.
