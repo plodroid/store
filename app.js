@@ -350,7 +350,7 @@ function tile(p, i = 99) {
     </div>
     <div class="tile-body">
       <a class="tile-name" href="#/p/${esc(p.id)}">${esc(p.name)}</a>
-      <div class="tile-meta">${esc(p.category || "")}${low ? `${p.category ? " · " : ""}<span class="low">Only ${max} left</span>` : ""}</div>
+      <div class="tile-meta"><span data-own>${esc(p.category || "")}</span>${low ? `${p.category ? " · " : ""}<span class="low">Only ${max} left</span>` : ""}</div>
       <div class="tile-foot">
         <span class="price">${priceHtml(p)}</span>
         ${out

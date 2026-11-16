@@ -937,8 +937,8 @@ dialog.pd .modal-body { padding-bottom: max(22px, calc(var(--sab) / 2 + 18px)); 
 /* ── the Bee Hive mark over product photos ──────────────────────────────────────────────────
    A faint tiled badge on every product photo (shop, product page, basket). It is drawn by CSS on the photo's frame,
    so every new product gets it automatically and the stored picture is never touched. */
-.tile-media::after, .pp-media::after, .line-thumb::after { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; background: url("img/mark.svg") 0 0 / 64% auto repeat; opacity: .2; }
+.tile-media::after, .pp-media::after, .line-thumb::after { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; background: url("img/mark.svg") 0 0 / 100% auto repeat; opacity: .2; }
 .line-thumb { position: relative; }
-.line-thumb::after { background-size: 120% auto; }
+.line-thumb::after { background-size: 170% auto; }
 .pp-media .flag { z-index: 2; }
 .tile-media img, .pp-media img, .line-thumb img { -webkit-user-drag: none; user-select: none; -webkit-touch-callout: none; }
