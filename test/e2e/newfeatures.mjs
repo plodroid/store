@@ -24,7 +24,7 @@ async function mockNet(ctx, { street = { road: "Thoresby Street", suburb: "North
     return r.fulfill({ status: 200, headers: h, json: [{ lat: "51.5005", lon: "-0.1405" }] });
   });
   await ctx.route("https://router.project-osrm.org/**", r => { calls.osrm++; r.fulfill({ status: 200, headers: h, json: ROUTE }); });
-  await ctx.route(/tile\.openstreetmap\.org|basemaps\.cartocdn\.com/, r => r.fulfill({ status: 200, contentType: "image/png", headers: h, body: PNG }));
+  await ctx.route(/tile\.openstreetmap\.org|basemaps\.cartocdn\.com|arcgisonline\.com/, r => r.fulfill({ status: 200, contentType: "image/png", headers: h, body: PNG }));
   return calls;
 }
 
@@ -97,6 +97,7 @@ const orderFlow = async (t, how) => {
     await p.waitForFunction(() => document.querySelector("#locStatus").classList.contains("ok"));
     await p.waitForFunction(() => document.querySelector('#locForm [name="line1"]').value.length > 0);
     await p.locator('#locForm [name="number"]').fill("10"); await p.locator('#locForm [name="line1"]').fill("Example Road");
+    await p.locator("#pinConfirm").waitFor({ state: "visible" }); await p.click("#pinConfirm");
     await p.click("#locSave"); await p.waitForFunction(() => !document.querySelector("#loc").open);
   }
   await p.click("#coSubmit"); await p.waitForSelector("#coDone:not([hidden])");
@@ -274,9 +275,13 @@ await test("door number: its own required box; saved address reads '10 Example R
   await p.waitForFunction(() => document.querySelector('#locForm [name="line1"]').value.length > 0);
   assert.equal(await p.locator("#locSave").isDisabled(), true, "no door number, no save");
   await p.locator('#locForm [name="number"]').fill("10");
+  await p.locator("#pinConfirm").waitFor({ state: "visible" });
+  assert.equal(await p.locator("#locSave").isDisabled(), true, "the pin must be placed first");
+  await p.click("#pinConfirm");
   await p.waitForFunction(() => !document.querySelector("#locSave").disabled);
   await p.locator('#locForm [name="line1"]').fill("Example Road");
   await p.click("#locSave"); await p.waitForSelector("#loc", { state: "hidden" });
+  assert.equal(typeof Object.values((await db(p)).users)[0].address.lat, "number");
   const a = (await db(p)).users; const addr = Object.values(a)[0].address; assert.equal(addr.line1, "10 Example Road");
   await p.click("#coAddrBtn"); await p.waitForSelector("#loc[open]");                       // reopening splits it back into the two boxes
   assert.equal(await p.locator('#locForm [name="number"]').inputValue(), "10");

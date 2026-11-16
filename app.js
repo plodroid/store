@@ -7,13 +7,13 @@ import { startNativeDock } from "./nativedock.js?v=17";
 import { initAppUpdate } from "./appupdate.js?v=17";
 import { $, $$, esc, store, money, pence, reduced, uid, openDialog, closeDialog, wireDialogs,
          toast, showError, setBusy, priceOf, onSale, percentOff, millis } from "./ui.js?v=16";
-import { createAuth } from "./auth.js?v=18";
+import { createAuth } from "./auth.js?v=19";
 import { normaliseUkPhone, showUkPhone } from "./uk.js?v=16";
 import { liveEvents, withEvents, applyTheme, paintMeta, heroHtml, heroVars, tickerText } from "./events.js?v=16";
 import { paintTicker, splitMessages, resetTicker } from "./ticker.js?v=16";
 import { initI18n } from "./i18n.js?v=16";
 import { trackerHtml } from "./flow.js?v=16";
-import { mountTracker } from "./trackview.js?v=18";
+import { mountTracker } from "./trackview.js?v=19";
 
 const DEF = window.STORE_DEFAULTS;
 const PATHS = window.STORE_PATHS;
@@ -749,12 +749,19 @@ const helpText = o => { const t = o.status === "ready" ? (o.fulfilment === "deli
 /* ── card payments (Stripe Checkout via the Apps Script) ── */
 const AUTH_URL = () => String(window.STORE_AUTH_URL || "");
 let payReady = null;      // does the shop have card payments switched on? asked once, when My orders opens
-const cardsOn = () => (payReady ??= /^https:\/\/script\.google\.com\//.test(AUTH_URL())
-  ? fetch(AUTH_URL()).then(r => r.json()).then(j => j.pay === true).catch(() => false) : Promise.resolve(false));
+const withTimeout = (p, ms) => Promise.race([p, new Promise(r => setTimeout(() => r(null), ms))]);
+/** true / false = the shop answered; null = couldn't reach the payment server (it can be slow to wake). Failures are never cached. */
+const cardsOn = () => {
+  if (!/^https:\/\/script\.google\.com\//.test(AUTH_URL())) return Promise.resolve(false);
+  return (payReady ??= fetch(AUTH_URL()).then(r => r.json()).then(j => j.pay === true).catch(() => null).then(v => { if (v === null) payReady = null; return v; }));
+};
 const callPay = async body => {
   const idToken = await acct.user.getIdToken();
-  const res = await fetch(AUTH_URL(), { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ ...body, idToken }) });
-  return res.json();
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 30000);
+  try {
+    const res = await fetch(AUTH_URL(), { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ ...body, idToken }), signal: ctl.signal });
+    return await res.json();
+  } finally { clearTimeout(timer); }
 };
 const PAY_ERR = { not_ready: "The shop needs to confirm your order before you can pay.", already_paid: "This order is already paid.", not_set_up: "Card payments aren't switched on yet.",
   no_delivery: "Delivery isn't available right now. Please choose pick-up.", no_collection: "Pick-up isn't available right now. Please choose delivery.", too_small: "That order is too small to pay for by card." };
@@ -764,6 +771,7 @@ let lastOrders = [], cardsReady = false;
 /** Ask (once) whether the shop takes cards; redraw whatever is showing the answer. */
 function warmCards() {
   cardsOn().then(on => {
+    on = on === true;
     if (on === cardsReady) return;
     cardsReady = on;
     if ($("#moList") && lastOrders.length) paintOrders(lastOrders);
@@ -783,12 +791,20 @@ async function startPay(btn) {
 
 /** Back from Stripe: ask the shop's server to check the payment with Stripe, then show the orders. */
 async function finishPay({ id, sid }) {
+  S.cart = {}; saveCart(); drawCart(true); store.sset("pendingOrder", null);        // they paid on the card page, so the basket is done
+  try {                                                                            // show "ordered" straight away from the saved order; the bank check happens behind it
+    const { db, fs } = FS, snap = await fs.getDoc(fs.doc(db, "orders", id));
+    if (snap.exists()) {
+      const o = snap.data();
+      showOrderDone({ ref: o.ref, fulfilment: o.fulfilment, total: o.estTotal, paid: true, confirming: o.paymentStatus !== "paid",
+        items: (o.items || []).map(i => ({ name: i.name, qty: i.qty })) });
+    }
+  } catch (e) { console.warn("[shop] return view", e); }
   try {
     const r = await callPay({ a: "paid", orderId: id, sid });
-    if (r.ok) { S.cart = {}; saveCart(); drawCart(true); store.sset("pendingOrder", null); }      // the order is paid: empty the basket
+    if ($("#coPayNote") && !$("#coDone").hidden) { $("#coPayNote").textContent = r.ok ? "Payment confirmed. Thank you!" : "We couldn't confirm that payment yet. If you were charged, tell the shop."; }
     toast(r.ok ? "Payment received. Thank you!" : "We couldn't confirm that payment yet. If you were charged, tell the shop.");
   } catch { toast("We couldn't confirm that payment yet. Please check My orders."); }
-  openMyOrders();
 }
 
 /* live maps inside "My orders": built once per order and moved into the freshly drawn list each time, so a new snapshot never resets the map */
@@ -1141,8 +1157,16 @@ async function submitCheckout(e) {
   let leaving = false;
   setBusy(co, btn, true);
   try {
+    if (/^https:\/\/script\.google\.com\//.test(AUTH_URL()) && !cardsReady) {          // never fall back to a no-payment order just because the payment server was slow to answer
+      setCheckoutNote("Getting the secure payment page ready…");
+      const on = await withTimeout(cardsOn(), 20000);
+      if (on === null) { setCheckoutNote("The payment system is waking up. Please press the button again in a few seconds. Nothing has been ordered or charged."); return; }
+      cardsReady = on === true;
+    }
     if (cardsReady) {            // pay on the spot: save the order, then go straight to the card page
+      setCheckoutNote("Saving your order…");
       await writeOrder(payload, "awaiting");
+      setCheckoutNote("Opening the secure payment page…");
       const r = await callPay({ a: "pay", orderId: `o_${payload.requestId}` });
       if (r.ok && r.url) { leaving = true; location.href = r.url; return; }       // (the basket is emptied when the payment comes back confirmed)
       setCheckoutNote(payError(r));
@@ -1163,6 +1187,7 @@ async function submitCheckout(e) {
   } catch (err) {
     console.error("[shop] order", err);
     const code = err && err.code;
+    if (err && err.name === "AbortError") { setCheckoutNote("The payment page is taking too long. Your order is saved, so press the button again to continue to payment. You won't be charged twice."); return; }
     if (code === "permission-denied") {
       setCheckoutNote(!acct.verified
         ? "Please verify your email first, then try again."
@@ -1181,11 +1206,16 @@ function showOrderDone(o) {
   coForm.hidden = true;
   const done = $("#coDone");
   done.hidden = false;
+  if (!$("#co").open) openDialog($("#co"));
+  $("#coTestNote").hidden = !!o.paid;
+  $("#coDoneTitle").textContent = o.paid ? "Order placed" : "Order sent";
+  $("#coPayNote").textContent = o.paid ? (o.confirming ? "Payment received. We're confirming it with the bank. This page updates by itself." : "Payment confirmed. Thank you!") : "";
+  $("#coPayNote").hidden = !o.paid;
   $("#coRef").textContent = `Order reference ${o.ref}`;
   $("#coDoneSum").innerHTML = `
-    ${(o.items || []).map(l => `<div class="sum-row"><span>${esc(l.name)} × ${l.qty}</span><span>${money(l.lineTotal)}</span></div>`).join("")}
+    ${(o.items || []).map(l => `<div class="sum-row"><span>${esc(l.name)} × ${l.qty}</span><span>${l.lineTotal != null ? money(l.lineTotal) : ""}</span></div>`).join("")}
     ${o.fulfilment === "delivery" ? `<div class="sum-row"><span>Delivery</span><span>${o.deliveryFee ? money(o.deliveryFee) : "Free"}</span></div>` : ""}
-    <div class="sum-row total"><span>Total (not charged)</span><span>${money(o.total)}</span></div>`;
+    <div class="sum-row total"><span>${o.paid ? "Total" : "Total (not charged)"}</span><span>${money(o.total)}</span></div>`;
   $("#coFeedback").dataset.ref = o.ref;
   done.querySelector(".btn-primary").focus({ preventScroll: true });
 }

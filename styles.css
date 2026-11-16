@@ -923,3 +923,13 @@ dialog.pd .modal-body { padding-bottom: max(22px, calc(var(--sab) / 2 + 18px)); 
 .upd .check { margin-top: 14px; }
 :root[data-theme="dark"] .upd-btn, :root[data-theme="dark"] .upd-go { background: #2FA85A; color: #07210F; }
 :root[data-theme="dark"] .upd-btn { color: #07210F !important; }
+
+/* exact-door pin picker */
+.pinwrap { margin: 4px 0 14px; } .pinwrap h3 { font-size: 15px; margin: 0 0 4px; } .pinwrap .hint { margin: 0 0 10px; }
+.pinbox { position: relative; height: 240px; border-radius: 16px; overflow: hidden; border: 1px solid var(--line); margin-bottom: 8px; background: var(--surface-2); }
+.pinmap { position: absolute; inset: 0; }
+.pinbox .pinmap.mapboxgl-map, .pinbox .pinmap.leaflet-container { position: absolute; inset: 0; width: 100%; height: 100%; }
+.pin-cross { position: absolute; left: 50%; top: 50%; width: 30px; height: 38px; transform: translate(-50%, -100%); pointer-events: none; z-index: 800; filter: drop-shadow(0 2px 3px rgba(0,0,0,.4)); }
+.pinwrap .btn-ghost.on { background: color-mix(in srgb, #1E8E4A 14%, var(--surface)); border-color: #1E8E4A; color: #166f3a; }
+
+.notice-ok { margin: 0 0 12px; padding: 10px 14px; border-radius: 12px; font-size: 14px; background: color-mix(in srgb, #1E8E4A 12%, var(--surface)); color: #166f3a; text-align: center; }

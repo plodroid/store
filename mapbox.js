@@ -80,15 +80,17 @@ class MapFacade {
     this.gl.fitBounds(b, { padding: pad(o.padding || [40, 40]), maxZoom: o.maxZoom ? o.maxZoom - 1 : 17, duration: o.animate === false ? 0 : 600 });
     return this;
   }
+  getCenter() { const c = this.gl.getCenter(); return { lat: c.lat, lng: c.lng }; }
+  on(ev, f) { this.gl.on(ev, f); return this; }
   panTo(p) { this.gl.easeTo({ center: ll(p), duration: 500 }); return this; }
   invalidateSize() { try { this.gl.resize(); } catch {} return this; }
   remove() { try { this.gl.remove(); } catch {} }
 }
 
-export async function makeMapboxMap(el, token, dark) {
+export async function makeMapboxMap(el, token, dark, satellite) {
   const gl = await loadMapbox();
   gl.accessToken = token;
-  const map = new gl.Map({ container: el, style: `mapbox://styles/mapbox/navigation-${dark ? "night" : "day"}-v1`, center: [-1.13, 52.63], zoom: 11, attributionControl: true, dragRotate: false, pitchWithRotate: false });
+  const map = new gl.Map({ container: el, style: satellite ? "mapbox://styles/mapbox/satellite-streets-v12" : `mapbox://styles/mapbox/navigation-${dark ? "night" : "day"}-v1`, center: [-1.13, 52.63], zoom: 11, attributionControl: true, dragRotate: false, pitchWithRotate: false });
   map.touchZoomRotate.disableRotation();
   map.addControl(new gl.NavigationControl({ showCompass: false }), "bottom-right");
   const facade = new MapFacade(gl, map);

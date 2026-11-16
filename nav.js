@@ -1,6 +1,6 @@
 /* Owner: turn-by-turn directions to a delivery, and (if he leaves it on) the customer sees him coming on their map.
    Opens full screen over the admin. Uses the phone GPS (watchPosition); Mapbox (if a token is set) or OSRM + OpenStreetMap for the route and map. */
-import { makeMap, icon, drive, geocodeAddress, fmtDist, fmtTime, metres, arrowSvg } from "./geo.js?v=18";
+import { makeMap, icon, drive, geocodeAddress, fmtDist, fmtTime, metres, arrowSvg } from "./geo.js?v=19";
 import { esc } from "./ui.js?v=16";
 import { lookupPostcode } from "./uk.js?v=16";
 
@@ -16,7 +16,7 @@ export async function openNav(ctx) {
     <div class="nav-sheet" id="navSheet">
       <div class="nav-eta"><div><b id="navEta">–</b><span id="navEtaSub">to ${esc(o.customer?.name || "the customer")}</span></div><div class="nav-where">${[a.line1, a.postcode].filter(Boolean).map(esc).join(", ")}</div></div>
       <label class="check nav-share"><input type="checkbox" id="navShare"><span>Let customers watch me arrive (only while I deliver)</span></label>
-      <p class="nav-note" id="navNote" role="status"></p>
+      <p class="nav-note" id="navNote" role="status"></p><p class="nav-note" id="navAcc"></p>
       <div class="nav-btns"><button class="btn-primary" type="button" id="navAct" hidden></button>
         <a class="btn-ghost" id="navG" target="_blank" rel="noopener">Open in Google Maps</a>
         <button class="btn-quiet" type="button" id="navSteps">All steps</button></div>
@@ -39,7 +39,7 @@ export async function openNav(ctx) {
 
   // where exactly is the customer? the house if OpenStreetMap knows it, else the middle of the postcode
   (async () => {
-    const exact = await geocodeAddress(a);
+    const exact = dest || await geocodeAddress(a);          // the door the customer pinned on the map (saved as lat/lng) beats any address lookup
     if (exact) dest = exact;
     else if (!dest && a.postcode) { const p = await lookupPostcode(a.postcode); if (p.ok && p.lat != null) dest = { lat: p.lat, lng: p.lng }; }
     if (stopped) return;
@@ -99,6 +99,8 @@ export async function openNav(ctx) {
   if (!navigator.geolocation) { note("This phone can't share its position. Use “Open in Google Maps”."); fallback(); }
   else watch = navigator.geolocation.watchPosition(p => {
     me = { lat: p.coords.latitude, lng: p.coords.longitude };
+    const acc = p.coords.accuracy || 0;
+    $("#navAcc").textContent = acc > 300 ? `Your position is only accurate to about ${fmtDist(acc)}. Computers and Wi-Fi guess the location; a phone with GPS is exact.` : "";
     if (map) { if (!meM) meM = L.marker([me.lat, me.lng], { icon: icon(L, "me"), zIndexOffset: 500 }).addTo(map); else meM.setLatLng([me.lat, me.lng]); }
     refresh(!route);
   }, err => note(err && err.code === 1 ? "Location is switched off for this app. Allow it in the phone's settings, or use “Open in Google Maps”." : "Waiting for a GPS signal…"),

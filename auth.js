@@ -5,7 +5,7 @@ to email a random 4-digit code. The script remembers only a hash of the code, ch
 Firebase sign-in token. Firebase itself can't email codes on the free plan, so the script does that part. */
 
 import { $, $$, esc, openDialog, closeDialog, showError, setBusy, toast } from "./ui.js?v=16";
-import { streetFor } from "./geo.js?v=18";
+import { streetFor, geocodeAddress, makeMap } from "./geo.js?v=19";
 import { normalisePostcode, normaliseUkPhone, showUkPhone, lookupPostcode, nearestPostcode, townMatches, REASONS } from "./uk.js?v=16";
 
 const GOOGLE = `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.4h6.5a5.6 5.6 0 0 1-2.4 3.7v3h3.9c2.3-2.1 3.5-5.2 3.5-8.8z"/><path fill="#34A853" d="M12 24c3.2 0 6-1.1 7.9-2.9l-3.9-3c-1.1.7-2.5 1.2-4 1.2-3.1 0-5.7-2.1-6.6-4.9H1.4v3.1A12 12 0 0 0 12 24z"/><path fill="#FBBC05" d="M5.4 14.3a7.2 7.2 0 0 1 0-4.6V6.6H1.4a12 12 0 0 0 0 10.8z"/><path fill="#EA4335" d="M12 4.8c1.8 0 3.3.6 4.6 1.8l3.4-3.4A12 12 0 0 0 1.4 6.6l4 3.1C6.3 6.9 8.9 4.8 12 4.8z"/></svg>`;
@@ -410,7 +410,7 @@ export function createAuth({ FS, onChange = () => {} }) {
   });
 
   /* ── location picker (shared by account + checkout) ── */
-  let locDone = null, locCheck = null, locSeq = 0, locTimer;
+  let locDone = null, locCheck = null, locSeq = 0, locTimer, pinMap = null, pinOk = false, pinTimer, pinSeq = 0, pinGuess = null;
 
   /** "1 Thoresby Street" → { number: "1", street: "Thoresby Street" } (a house name stays in the street box). */
   const split = line => { const m = /^(\d+[A-Za-z]?(?:\s?[-–/]\s?\d+[A-Za-z]?)?)\s+(.+)$/.exec(String(line || "").trim()); return m ? { number: m[1], street: m[2] } : { number: "", street: String(line || "") }; };
@@ -433,11 +433,18 @@ export function createAuth({ FS, onChange = () => {} }) {
         </div>
         <label class="inp"><span>Flat, building or area <em>(optional)</em></span><input name="line2" autocomplete="address-line2" maxlength="120" value="${esc(a.line2 || "")}"></label>
         <label class="inp"><span>Town or city*</span><input name="city" autocomplete="address-level2" maxlength="60" required value="${esc(a.city || "")}"></label>
+        <div class="pinwrap" id="locPinWrap" hidden>
+          <h3>Pin your exact door</h3>
+          <p class="hint">Drag the map so the pin sits on your front door. Streets can be long, and this lets the shop find you exactly.</p>
+          <div class="pinbox"><div id="locMap" class="pinmap"></div>
+            <svg class="pin-cross" viewBox="0 0 30 38" aria-hidden="true"><path d="M15 37C15 37 2 23.5 2 14a13 13 0 0 1 26 0c0 9.500-13 23-13 23Z" fill="#D93025" stroke="#fff" stroke-width="2"/><circle cx="15" cy="14" r="4.500" fill="#fff"/></svg></div>
+          <button class="btn-ghost tight" type="button" id="pinConfirm">The pin is on my door</button>
+        </div>
         <label class="inp ro"><span>Country</span><input value="United Kingdom" readonly tabindex="-1"></label>
         <p class="form-error" id="locErr" role="alert" hidden></p>
         <button class="btn-primary wide" id="locSave" type="submit" disabled>Save location</button>
       </form>`;
-    locCheck = null;
+    locCheck = null; pinMap = null; pinOk = false; pinGuess = null; pinSeq++;
     openDialog(loc);
     if (a.postcode) runCheck();
     else paintLoc();
@@ -445,8 +452,10 @@ export function createAuth({ FS, onChange = () => {} }) {
 
   function paintLoc() {
     const f = $("#locForm"); if (!f) return;
-    const ok = locCheck && locCheck.ok && f.elements.number.value.trim() && f.elements.line1.value.trim() && f.elements.city.value.trim();
+    const ok = locCheck && locCheck.ok && f.elements.number.value.trim() && f.elements.line1.value.trim() && f.elements.city.value.trim() && (!pinMap || pinOk);
     $("#locSave").disabled = !ok;
+    const c = $("#pinConfirm"); if (c) { c.textContent = pinOk ? "Pin confirmed ✓" : "The pin is on my door"; c.classList.toggle("on", pinOk); }
+    queuePin();
   }
 
   function setStatus(kind, html) {
@@ -454,6 +463,28 @@ export function createAuth({ FS, onChange = () => {} }) {
     el.className = `pc-status ${kind || ""}`;
     el.innerHTML = html || "";
   }
+
+  /** Pin picker: the map sits under a fixed pin, the customer drags it onto their door. Starts from the best guess for the address. */
+  function queuePin() { clearTimeout(pinTimer); pinTimer = setTimeout(placePin, 500); }
+  async function placePin() {
+    const f = $("#locForm"); if (!f || !locCheck || !locCheck.ok || !f.elements.number.value.trim() || !f.elements.line1.value.trim()) return;
+    const mine = pinSeq, wrap = $("#locPinWrap");
+    const guess = (await geocodeAddress({ line1: `${f.elements.number.value.trim()} ${f.elements.line1.value.trim()}`, city: f.elements.city.value.trim(), postcode: locCheck.postcode })) || { lat: locCheck.lat, lng: locCheck.lng };
+    if (mine !== pinSeq || !$("#locForm") || guess.lat == null) return;
+    pinGuess = { lat: Math.round(guess.lat * 1e6) / 1e6, lng: Math.round(guess.lng * 1e6) / 1e6 };
+    if (!pinMap) {
+      wrap.hidden = false;
+      try {
+        const m = await makeMap($("#locMap"), { satellite: true });
+        if (mine !== pinSeq) return m.map.remove();
+        pinMap = m.map; pinMap.setView([guess.lat, guess.lng], 19);
+        const touch = () => { if (!pinOk) { pinOk = true; paintLoc(); } };
+        $("#locMap").addEventListener("pointerdown", touch); $("#locMap").addEventListener("wheel", touch, { passive: true });
+        setTimeout(() => pinMap && pinMap.invalidateSize(), 300); paintLoc();
+      } catch (e) { console.warn("[pin] map unavailable", e); wrap.hidden = true; pinMap = null; }
+    } else if (!pinOk) pinMap.setView([guess.lat, guess.lng], 19);          // keep moving the pin while he types, until he has placed it himself
+  }
+  loc.addEventListener("click", e => { if (e.target.closest("#pinConfirm")) { pinOk = !pinOk; paintLoc(); } });
 
   async function runCheck() {
     const f = $("#locForm"); if (!f) return;
@@ -538,6 +569,8 @@ export function createAuth({ FS, onChange = () => {} }) {
       line1: `${f.elements.number.value.trim()} ${f.elements.line1.value.trim()}`.trim(), line2: f.elements.line2.value.trim(), city: f.elements.city.value.trim(),
       postcode: locCheck.postcode, lat: locCheck.lat, lng: locCheck.lng, verified: true,
     };
+    if (pinMap && pinOk) { const c = pinMap.getCenter(); address.lat = Math.round(c.lat * 1e6) / 1e6; address.lng = Math.round(c.lng * 1e6) / 1e6; }
+    else if (pinGuess) { address.lat = pinGuess.lat; address.lng = pinGuess.lng; }            // no map available: still prefer the house over the middle of the postcode
     if (!f.elements.number.value.trim() || !f.elements.line1.value.trim() || !address.city) return showError(err, "Please fill in the door number, street and town.");
     showError(err, "");
     setBusy(loc, btn, true);
@@ -550,6 +583,8 @@ export function createAuth({ FS, onChange = () => {} }) {
       showError(err, "We couldn't save your location. Please try again.");
     } finally { setBusy(loc, btn, false); }
   });
+
+  loc.addEventListener("close", () => { pinSeq++; try { pinMap && pinMap.remove(); } catch {} pinMap = null; clearTimeout(pinTimer); });
 
   const api = {
     get user() { return st.user; },

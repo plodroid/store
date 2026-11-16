@@ -48,6 +48,7 @@ const setLocation = async p => {
   await p.waitForFunction(() => document.querySelector("#locStatus").textContent.length > 0);
   await p.locator('#locForm [name="number"]').fill("10"); await p.locator('#locForm [name="line1"]').fill("Example Road");
   await p.locator('#locForm [name="city"]').fill("London");
+  await p.locator("#pinConfirm").waitFor({ state: "visible" }); await p.click("#pinConfirm");           // the customer places the pin on his door
 };
 
 /* ── look & theme ─────────────────────────────────── */

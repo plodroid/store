@@ -96,16 +96,17 @@ export function icon(L, kind) {
 }
 
 /** A map in `el`: Mapbox if window.MAPBOX_TOKEN is set, otherwise light OpenStreetMap by day / CARTO dark at night (Leaflet). */
-export async function makeMap(el) {
+export async function makeMap(el, opts = {}) {
   const dark = document.documentElement.dataset.theme === "dark";
   if (window.MAPBOX_TOKEN) {                                   // Mapbox when the shop has a token; if it fails to load, fall back to the free map below
-    try { const { makeMapboxMap } = await import("./mapbox.js?v=18"); return await makeMapboxMap(el, window.MAPBOX_TOKEN, dark); } catch (e) { console.warn("[map] Mapbox unavailable, using OpenStreetMap", e && e.message); el.replaceChildren(); }
+    try { const { makeMapboxMap } = await import("./mapbox.js?v=19"); return await makeMapboxMap(el, window.MAPBOX_TOKEN, dark, !!opts.satellite); } catch (e) { console.warn("[map] Mapbox unavailable, using OpenStreetMap", e && e.message); el.replaceChildren(); }
   }
   const L = await loadLeaflet();
   const map = L.map(el, { zoomControl: false, attributionControl: true, tap: true }).setView([52.63, -1.13], 12);
   L.control.zoom({ position: "bottomright" }).addTo(map);
   map.attributionControl.setPrefix(false);
-  L.tileLayer(dark ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" : "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+  if (opts.satellite) L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", { maxZoom: 19, attribution: "Imagery © Esri" }).addTo(map);
+  else L.tileLayer(dark ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" : "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
     { maxZoom: 19, subdomains: "abcd", attribution: dark ? "© OpenStreetMap contributors © CARTO" : "© OpenStreetMap contributors" }).addTo(map);
   return { L, map };
 }

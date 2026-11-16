@@ -194,7 +194,10 @@ await test("card payment: coming back from Stripe confirms the payment, clears t
   await p.locator("#grid .tile", { hasText: "Zamzam" }).locator("[data-add]").click();
   await p.waitForFunction(() => document.querySelector("#cartCount").textContent.trim() === "1");
   await p.goto(url + "/index.html?paid=o_conf12345&sid=cs_test_good#/");
-  await p.waitForSelector("#moBody .mo-card");
+  await p.waitForSelector("#coDone:not([hidden]) #coRef");                                      // "ordered" shows straight away, not after the bank check
+  assert.match(await p.locator("#coDoneTitle").innerText(), /Order placed/);
+  assert.equal(await p.locator("#coTestNote").isHidden(), true);
+  await p.waitForFunction(() => /Payment confirmed/.test(document.querySelector("#coPayNote").textContent));
   await p.waitForFunction(() => document.querySelector("#cartCount").textContent.trim() === "0" || !document.querySelector("#cartCount").offsetParent);
   assert.ok(true);
   assert.ok(t.mail.calls.some(c => c.a === "paid" && c.orderId === "o_conf12345" && c.sid === "cs_test_good"));
@@ -236,6 +239,15 @@ await test("card checkout: the button says Pay, the order is saved unpaid, then 
   assert.equal(o.status, "new"); assert.equal(o.paymentStatus, "awaiting"); assert.equal(o.isTest, true);
   const call = t.mail.calls.find(c => c.a === "pay");
   assert.equal(call.orderId, "o_" + o.requestId); assert.equal(call.amount, undefined);
+});
+
+await test("card checkout: if the payment server can't be reached, nothing is ordered (never a silent no-payment order)", async (t) => {
+  const p = t.page; t.mail.pay = true;
+  await p.context().route("https://script.google.com/**", r => r.request().method() === "GET" ? r.abort() : r.fallback());
+  await checkoutWith(p, t);
+  await p.click("#coSubmit");
+  await p.waitForFunction(() => /payment system is waking up/i.test(document.querySelector("#coError").textContent));
+  assert.equal(Object.keys((await p.evaluate(() => window.__FAKE.dump())).orders || {}).length, 0);
 });
 
 await test("card checkout: a customer who never paid sees 'Waiting for payment' with a Pay button, and the shop never sees it", async (t) => {
