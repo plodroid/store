@@ -297,8 +297,8 @@ html.native-dock .adm-main { padding-bottom: calc(var(--dock-h, 0px) + 16px); }
 .tp { flex: 1; min-width: 0; }
 .tp-l { display: flex; justify-content: space-between; gap: 10px; font-size: 13.5px; }
 .tp-l b { font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; } .tp-l small { font-weight: 400; color: var(--faint); font-size: 11.5px; }
-.trk { height: 6px; margin-top: 6px; border-radius: 3px; background: var(--fill-1, var(--line)); overflow: hidden; }
-.trk i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+.tbar { height: 6px; margin-top: 6px; border-radius: 3px; background: var(--fill-1, var(--line)); overflow: hidden; }
+.tbar i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
 .heat { display: grid; grid-template-columns: repeat(24, 1fr); gap: 2px; }
 .hc { height: 30px; border-radius: 3px; background: color-mix(in srgb, var(--accent) calc(var(--a) * 100%), var(--fill-1, var(--line))); }
 .hax { display: flex; justify-content: space-between; font-size: 10px; color: var(--faint); margin-top: 4px; }
@@ -425,3 +425,8 @@ html.native-dock .adm-main { padding-bottom: calc(var(--dock-h, 0px) + 16px); }
 .qe-c { text-align: center; } .qe tr.bad td { background: rgba(192,57,43,.12); }
 .qe-paste { margin: 8px 0; } .qe-paste summary { cursor: pointer; font-weight: 500; } .qe-paste textarea { width: 100%; margin: 8px 0; padding: 10px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface-2); font-size: 16px; }
 #admDlg:has(.qe) { width: min(780px, 96vw); max-width: 96vw; }
+/* location card: the buttons must not squeeze the text (btn-quiet is full width elsewhere) */
+.locbar .btn-primary, .locbar .btn-ghost, .locbar .btn-quiet { flex: none; width: auto; height: 40px; margin-top: 0; padding: 0 18px; }
+.locbar .adm-grow { flex: 1 1 140px; }
+/* Mapbox's stylesheet loads later and sets .mapboxgl-map { position: relative }, which collapsed the full-screen map to nothing */
+.nav-map.mapboxgl-map, .nav-panel .nav-map { position: absolute; inset: 0; width: 100%; height: 100%; }

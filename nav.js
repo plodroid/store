@@ -64,7 +64,15 @@ export async function openNav(ctx) {
     routeAt = Date.now(); routeFrom = { ...me };
     const r = await drive(me, dest);
     if (stopped) return;
-    if (!r) { if (!route) { note("Couldn't work out the route right now. Use “Open in Google Maps”."); fallback(); } return paint(); }
+    if (!r) {
+      if (!route) {
+        const far = metres(me, dest) > 400000;               // e.g. testing from another country: there is no driving route, but the map can still show both places
+        note(far ? `You're ${fmtDist(metres(me, dest))} from this address, so there's no driving route from here. The map shows both places.` : "Couldn't work out the route right now. Use “Open in Google Maps”.");
+        if (!far) fallback(); else { $("#navNext").textContent = "No driving route from here"; $("#navDist").textContent = ""; }
+        if (map && !fitted) { map.fitBounds([[me.lat, me.lng], [dest.lat, dest.lng]], { padding: [70, 70], maxZoom: 15 }); fitted = true; }
+      }
+      return paint();
+    }
     note(""); route = r; idx = r.steps.length > 1 ? 1 : 0;
     if (map) { if (line) line.remove(); line = L.polyline(r.line, { color: "#1A73E8", weight: 6, opacity: .9 }).addTo(map); if (!fitted) { map.fitBounds(line.getBounds(), { padding: [50, 50] }); fitted = true; } }
     $("#navList").innerHTML = r.steps.map(s => `<li><span class="nav-ic">${arrowSvg(s.mod)}</span><span>${esc(s.text)}</span><em>${fmtDist(s.dist)}</em></li>`).join("");

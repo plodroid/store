@@ -65,7 +65,7 @@ export function analyticsHtml(allOrders, products, range) {
     }
   }
   const top = [...agg.values()].sort((a, b) => b.rev - a.rev || b.qty - a.qty).slice(0, 6), tmax = Math.max(1, ...top.map(t => t.rev || t.qty));
-  const topHtml = top.map((t, i) => `<li><span class="rk">${i + 1}</span><div class="tp"><div class="tp-l"><span class="adm-clip">${esc(t.name)}</span><b>${t.rev ? money(t.rev) : "–"}<small> · ${t.qty} sold</small></b></div><div class="trk"><i style="width:${Math.max(3, (t.rev || t.qty) / tmax * 100).toFixed(1)}%"></i></div></div></li>`).join("");
+  const topHtml = top.map((t, i) => `<li><span class="rk">${i + 1}</span><div class="tp"><div class="tp-l"><span class="adm-clip">${esc(t.name)}</span><b>${t.rev ? money(t.rev) : "–"}<small> · ${t.qty} sold</small></b></div><div class="tbar"><i style="width:${Math.max(3, (t.rev || t.qty) / tmax * 100).toFixed(1)}%"></i></div></div></li>`).join("");
 
   /* ── when people order ── */
   const hours = Array(24).fill(0), wd = Array(7).fill(0);
