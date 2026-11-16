@@ -12,7 +12,7 @@ import { createDeliveryMap, deliveries } from "./dmap.js?v=18";
 import { LOOKS, SWATCHES, isLive, todayUK, heroHtml, heroVars } from "./events.js?v=16";
 
 const css = document.createElement("link");
-css.rel = "stylesheet"; css.href = new URL("./admin.css", import.meta.url).href;
+css.rel = "stylesheet"; css.href = new URL("./admin.css?v=22", import.meta.url).href;
 const css2 = document.createElement("link");
 css2.rel = "stylesheet"; css2.href = new URL("./events.css?v=16", import.meta.url).href;
 document.head.append(css, css2);
