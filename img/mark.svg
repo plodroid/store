@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+<defs>
+<clipPath id="h"><polygon points="0,-17 14.7,-8.5 14.7,8.5 0,17 -14.7,8.5 -14.7,-8.5"/></clipPath>
+<g id="b" transform="rotate(-24)">
+<rect x="-36" y="-10" width="102" height="20" rx="10" fill="#2A2008" stroke="#fff" stroke-width="1.6"/>
+<text x="-8" y="3.9" font-family="Arial,Helvetica,sans-serif" font-size="10.5" font-weight="800" letter-spacing="1.7" fill="#FFE08A">BEE HIVE</text>
+<g transform="translate(-30 0)">
+<ellipse cx="-7" cy="-19" rx="9" ry="4.4" transform="rotate(-24 -7 -19)" fill="#fff"/>
+<ellipse cx="7" cy="-19" rx="9" ry="4.4" transform="rotate(24 7 -19)" fill="#fff"/>
+<polygon points="0,-18.5 16,-9.2 16,9.2 0,18.5 -16,9.2 -16,-9.2" fill="#fff"/>
+<polygon points="0,-17 14.7,-8.5 14.7,8.5 0,17 -14.7,8.5 -14.7,-8.5" fill="#F5B800"/>
+<g clip-path="url(#h)" fill="#2A2008"><rect x="-16" y="-6" width="32" height="5.5"/><rect x="-16" y="5" width="32" height="5.5"/></g>
+</g>
+</g>
+</defs>
+<use href="#b" x="50" y="52"/>
+<use href="#b" x="150" y="152"/>
+</svg>

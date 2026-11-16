@@ -11,7 +11,7 @@ import { createAuth } from "./auth.js?v=20";
 import { normaliseUkPhone, showUkPhone } from "./uk.js?v=16";
 import { liveEvents, withEvents, applyTheme, paintMeta, heroHtml, heroVars, tickerText } from "./events.js?v=16";
 import { paintTicker, splitMessages, resetTicker } from "./ticker.js?v=16";
-import { initI18n } from "./i18n.js?v=16";
+import { initI18n } from "./i18n.js?v=17";
 import { trackerHtml } from "./flow.js?v=16";
 import { mountTracker } from "./trackview.js?v=20";
 
@@ -540,7 +540,7 @@ function renderProduct() {
 
   const saved = S.wish.has(p.id);
   root.innerHTML = `
-    ${back}${p.category ? `<a href="#shop" data-c="${esc(p.categoryId)}" data-scroll>${esc(p.category)}</a><span aria-hidden="true">/</span>` : ""}<span aria-current="page">${esc(p.name)}</span></nav>
+    ${back}${p.category ? `<a href="#shop" data-c="${esc(p.categoryId)}" data-scroll data-own>${esc(p.category)}</a><span aria-hidden="true">/</span>` : ""}<span aria-current="page" data-own>${esc(p.name)}</span></nav>
     <article class="pp">
       <div class="pp-media">${galleryHtml(p)}${out ? `<span class="flag">Sold out</span>` : onSale(p) ? `<span class="flag sale">−${percentOff(p)}%</span>` : ""}
         <div class="pp-float">
@@ -715,7 +715,7 @@ function renderRestock() {
   const back = S.state === "ready" ? [...S.alerts.keys()].map(find).filter(p => p && stockOf(p) > 0) : [];
   el.hidden = !back.length || S.view !== "shop";
   if (el.hidden) return;
-  el.innerHTML = `<div class="wrap restock-in"><span>Back in stock: ${back.map(p => `<a href="#/p/${esc(p.id)}">${esc(p.name)}</a>`).join(", ")}</span>
+  el.innerHTML = `<div class="wrap restock-in"><span>Back in stock: ${back.map(p => `<a href="#/p/${esc(p.id)}" data-own>${esc(p.name)}</a>`).join(", ")}</span>
     <button class="link" type="button" data-restock-dismiss>Dismiss</button></div>`;
 }
 async function dismissRestock() {
@@ -837,7 +837,7 @@ function paintOrders(list) {
       <p class="muted mo-meta">${new Date(millis(o.createdAt) || Date.now()).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })} · ${o.fulfilment === "delivery" ? "Delivery" : "Pick-up"}</p>
       ${trackerHtml(o)}
       ${onTheRoad(o) ? `<div data-live="${esc(o.id)}"></div>` : ""}
-      <ul class="mo-items">${lines.map(l => `<li><span>${esc(l.name)}</span><span>× ${l.qty}</span></li>`).join("")}</ul>
+      <ul class="mo-items">${lines.map(l => `<li><span data-own>${esc(l.name)}</span><span>× ${l.qty}</span></li>`).join("")}</ul>
       <div class="sum-row total"><span>${o.total != null ? "Total" : "Estimated total"}${o.paymentStatus === "paid" ? ` <span class="mo-chip" data-st="completed">Paid</span>` : ""}</span><span>${total != null ? money(total) : ""}</span></div>
       ${cardsReady && canPay(o) ? `<button class="btn-primary wide" type="button" data-pay="${esc(o.id)}">Pay ${money(total)} by card</button>${unpaid(o) ? "" : `<p class="muted mo-help">Or pay when you ${o.fulfilment === "delivery" ? "receive" : "collect"} it.</p>`}` : ""}
       ${help ? `<p class="muted mo-help">${esc(help)}</p>` : ""}
@@ -1034,7 +1034,7 @@ function drawCheckout() {
   const fee = how === "delivery" ? f.fee : 0;
   const sub = subtotalOf(lines);
   $("#coItems").innerHTML = lines.map(l =>
-    `<div class="sum-row"><span>${esc(l.p.name)} × ${l.qty}</span><span>${money(pence(priceOf(l.p)) * l.qty / 100)}</span></div>`).join("");
+    `<div class="sum-row"><span><span data-own>${esc(l.p.name)}</span> × ${l.qty}</span><span>${money(pence(priceOf(l.p)) * l.qty / 100)}</span></div>`).join("");
   $("#coSum").innerHTML = `
     <div class="sum-row"><span>Subtotal</span><span>${money(sub)}</span></div>
     ${how === "delivery" ? `<div class="sum-row"><span>Delivery</span><span>${fee ? money(fee) : "Free"}</span></div>` : ""}
@@ -1213,7 +1213,7 @@ function showOrderDone(o) {
   $("#coPayNote").hidden = !o.paid;
   $("#coRef").textContent = `Order reference ${o.ref}`;
   $("#coDoneSum").innerHTML = `
-    ${(o.items || []).map(l => `<div class="sum-row"><span>${esc(l.name)} × ${l.qty}</span><span>${l.lineTotal != null ? money(l.lineTotal) : ""}</span></div>`).join("")}
+    ${(o.items || []).map(l => `<div class="sum-row"><span><span data-own>${esc(l.name)}</span> × ${l.qty}</span><span>${l.lineTotal != null ? money(l.lineTotal) : ""}</span></div>`).join("")}
     ${o.fulfilment === "delivery" ? `<div class="sum-row"><span>Delivery</span><span>${o.deliveryFee ? money(o.deliveryFee) : "Free"}</span></div>` : ""}
     <div class="sum-row total"><span>${o.paid ? "Total" : "Total (not charged)"}</span><span>${money(o.total)}</span></div>`;
   $("#coFeedback").dataset.ref = o.ref;
@@ -1330,6 +1330,8 @@ function init() {
   wireDialogs();
   initI18n();
   document.addEventListener("langchange", () => { resetTicker(); renderTicker(); requestAnimationFrame(moveIndicator); });
+  document.addEventListener("mtupdate", () => requestAnimationFrame(moveIndicator));
+  document.addEventListener("contextmenu", e => { if (e.target.closest?.(".tile-media,.pp-media,.line-thumb")) e.preventDefault(); });   // no "save image" on product photos
   $("#yr").textContent = new Date().getFullYear();
   renderSite();
   showView(false);
