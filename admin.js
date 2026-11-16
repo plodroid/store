@@ -44,7 +44,7 @@ const A = {
   products: [], categories: [], orders: [], feedback: [], alerts: [], events: [],
   loaded: { products: false, categories: false, orders: false, feedback: false, alerts: false, events: false },
   errors: {}, tab: "home", more: false, open: false, started: false, unsubs: [],
-  pf: "all", pq: "", range: 30, of: "active", ff: "inbox",
+  pf: "all", pq: "", sel: null, range: 30, of: "active", ff: "inbox",
 };
 
 /* ── small helpers ───────────────────────────────────── */
@@ -316,8 +316,11 @@ function productsView() {
     <p class="muted tabhelp">What you sell. Tap a product to change its price, photo or how many you have. Use the − and + to fix the stock count.</p>
     <div class="adm-bar">
       <label class="adm-search"><input id="admPq" type="search" placeholder="Search products" value="${esc(A.pq)}" autocomplete="off"></label>
-      <button class="btn-primary sm" type="button" data-act="new-product">${ICON.plus} Add product</button>
+      <span class="adm-bar-btns"><button class="btn-ghost sm" type="button" data-act="qe-open">Quick edit</button>
+      <button class="btn-ghost sm" type="button" data-act="bsel-mode" aria-pressed="${!!A.sel}">${A.sel ? "Done" : "Select"}</button>
+      <button class="btn-primary sm" type="button" data-act="new-product">${ICON.plus} Add product</button></span>
     </div>
+    ${A.sel ? bulkBar() : ""}
     <div class="fchips">${chip("all", "All")}${chip("hidden", "Hidden")}${chip("low", "Low stock")}${chip("out", "Out of stock")}${chip("archived", "Archived")}</div>
     ${list.length ? `<div class="adm-list">${list.map(productRow).join("")}</div>`
       : `<p class="adm-empty">${A.products.length ? "No products match." : "No products yet. Tap “Add product” to create your first one."}</p>`}`;
@@ -325,7 +328,8 @@ function productsView() {
 function productRow(p) {
   const st = stockState(p);
   const thumb = p.image ? `<img src="${esc(p.image)}" alt="" loading="lazy">` : `<span>${esc((p.name || "?")[0])}</span>`;
-  return `<div class="prow ${p.archived ? "dim" : ""}">
+  return `<div class="prow ${p.archived ? "dim" : ""}" data-id="${esc(p.id)}">
+    ${A.sel ? `<label class="psel"><input type="checkbox" data-act="psel" data-id="${esc(p.id)}" ${A.sel.has(p.id) ? "checked" : ""} aria-label="Select ${esc(p.name)}"><span></span></label>` : ""}
     <button class="pthumb" type="button" data-act="edit-product" data-id="${esc(p.id)}" aria-label="Edit ${esc(p.name)}">${thumb}</button>
     <div class="pmain">
       <button class="pname" type="button" data-act="edit-product" data-id="${esc(p.id)}">${esc(p.name)}</button>
@@ -460,6 +464,119 @@ async function saveProduct(form) {
     console.error("[admin] save product", e);
     showError(err, e && e.code === "permission-denied" ? "The database refused that. Check the details and try again." : "Couldn't save. Check your connection and try again.");
   } finally { setBusy(dlg, btn, false); }
+}
+
+/* ── bulk tools: Select mode (hide / show / category / price / stock / delete) and the Quick edit sheet ── */
+const bulkBar = () => { const n = A.sel.size, off = n ? "" : "disabled";
+  return `<div class="bulkbar" role="toolbar" aria-label="Actions for the selected products"><b>${n} selected</b>
+    <button type="button" class="fchip" data-act="bsel-all">All shown</button><button type="button" class="fchip" data-act="bsel-none">None</button>
+    <span class="bb-sp"></span>
+    <button type="button" class="fchip" data-act="b-show" ${off}>Show</button><button type="button" class="fchip" data-act="b-hide" ${off}>Hide</button>
+    <button type="button" class="fchip" data-act="b-cat" ${off}>Category</button><button type="button" class="fchip" data-act="b-price" ${off}>Price</button>
+    <button type="button" class="fchip" data-act="b-stock" ${off}>Stock</button><button type="button" class="fchip danger" data-act="b-del" ${off}>Delete</button></div>`; };
+const selected = () => A.products.filter(p => A.sel && A.sel.has(p.id));
+/** runs many writes together (a batch holds at most 500) */
+async function writeAll(ops) {
+  const { fs } = X.FS;
+  for (let i = 0; i < ops.length; i += 400) { const b = fs.writeBatch(db()); ops.slice(i, i + 400).forEach(f => f(b, fs)); await b.commit(); }
+}
+const upd = (p, ch) => b => { const { fs } = X.FS; const d = { ...stripId(p), ...ch, updatedAt: fs.serverTimestamp() }; for (const k in d) if (d[k] === undefined) delete d[k]; b.set(fs.doc(db(), "products", p.id), d); };
+async function bulkRun(ops, msg) {
+  try { await writeAll(ops); toast(msg); } catch (e) { console.error("[admin] bulk", e); toast("Couldn't change all of them. Check your connection and try again."); }
+}
+function bulkDialog(kind) {
+  const n = A.sel.size, isP = kind === "price";
+  const modes = isP ? [["set", "Set price to (£)"], ["pct", "Change by (%)"], ["add", "Add or take off (£)"]] : [["set", "Set stock to"], ["add", "Add or take off"]];
+  $("#admDlgBody").innerHTML = `<h2>${isP ? "Change prices" : "Change stock"}</h2><p class="muted modal-sub">${n} product${n === 1 ? "" : "s"} selected</p>
+    <form id="bulkForm" data-kind="${kind}" novalidate>
+      <label class="inp"><span>What to do</span><select name="mode">${modes.map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}</select></label>
+      <label class="inp"><span>Amount</span><input name="val" inputmode="decimal" placeholder="${isP ? "e.g. 10 for 10%, or -0.50" : "e.g. 20, or -3"}" autocomplete="off"></label>
+      <p class="hint">${isP ? "Prices never go below £0. A sale price that is no longer lower than the new price is ended." : "Stock never goes below 0. Use a minus to take some off."}</p>
+      <p class="form-error" id="bulkErr" role="alert" hidden></p>
+      <button class="btn-primary wide" type="submit">Apply to ${n}</button></form>`;
+  openDialog($("#admDlg"));
+}
+async function applyBulk(f) {
+  const kind = f.dataset.kind, mode = f.elements.mode.value, raw = f.elements.val.value.replace(/[£,\s%]/g, ""), err = $("#bulkErr");
+  const v = Number(raw);
+  if (raw === "" || !Number.isFinite(v) || (mode === "set" && v < 0)) return showError(err, "Enter a number.");
+  if (kind === "stock" && !Number.isInteger(v)) return showError(err, "Stock must be a whole number.");
+  const ops = selected().map(p => {
+    if (kind === "price") {
+      const np = Math.max(0, Math.round((mode === "set" ? v : mode === "pct" ? p.price * (1 + v / 100) : p.price + v) * 100) / 100);
+      return upd(p, { price: np, salePrice: p.salePrice != null && p.salePrice >= np ? undefined : p.salePrice });
+    }
+    return upd(p, { stock: Math.max(0, mode === "set" ? v : p.stock + v) });
+  });
+  closeDialog($("#admDlg")); await bulkRun(ops, `${ops.length} updated`);
+}
+async function bulkDelete() {
+  const ps = selected(), keep = ps.filter(p => orderUses(p.id)), gone = ps.filter(p => !orderUses(p.id));
+  const text = `${gone.length} will be deleted for good.` + (keep.length ? ` ${keep.length} appear in past orders, so those are archived (taken off sale) instead.` : "") + " This can't be undone.";
+  if (!await confirmBox({ title: `Delete ${ps.length} product${ps.length === 1 ? "" : "s"}?`, text, ok: "Delete", danger: true })) return;
+  const ops = [...gone.map(p => (b, fs) => { b.delete(fs.doc(db(), "products", p.id)); if (p.imageCount) b.delete(fs.doc(db(), "productImages", p.id)); }), ...keep.map(p => upd(p, { archived: true, visible: false }))];
+  A.sel = new Set(); await bulkRun(ops, "Done"); paint();
+}
+
+/* Quick edit: one sheet to change many products and add many new ones (type, or paste rows from Excel / Google Sheets) */
+const QE_NEW = 5;
+const qeRow = p => { const o = A.categories.slice().sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)).map(c => `<option value="${esc(c.id)}" ${p?.categoryId === c.id ? "selected" : ""}>${esc(c.name)}</option>`).join("");
+  return `<tr ${p ? `data-id="${esc(p.id)}"` : "data-new"}><td><input name="name" maxlength="120" value="${esc(p?.name || "")}" placeholder="${p ? "" : "New product"}" aria-label="Name"></td>
+    <td><input name="price" inputmode="decimal" value="${p ? esc(String(p.price)) : ""}" placeholder="0.00" aria-label="Price"></td>
+    <td><input name="stock" inputmode="numeric" value="${p ? esc(String(p.stock)) : ""}" placeholder="0" aria-label="Stock"></td>
+    <td><select name="categoryId" aria-label="Category"><option value="">None</option>${o}</select></td>
+    <td class="qe-c"><input type="checkbox" name="visible" ${!p || p.visible ? "checked" : ""} aria-label="Shown in the shop"></td></tr>`; };
+function quickEdit() {
+  const q = A.pq.trim().toLowerCase();
+  const list = A.products.filter(p => !p.archived && (!q || `${p.name} ${catName(p.categoryId)}`.toLowerCase().includes(q))).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  $("#admDlgBody").innerHTML = `<h2>Quick edit</h2>
+    <p class="muted modal-sub">Change anything in the table, or fill the empty rows at the top to add new products. Nothing is saved until you press Save.</p>
+    <details class="qe-paste"><summary>Paste from Excel or Google Sheets</summary>
+      <textarea id="qePaste" rows="4" placeholder="One product per line:&#10;Name, Price, Stock, Category&#10;Medjool Dates 500g, 6.50, 10, Dates"></textarea>
+      <button class="btn-ghost tight" type="button" data-act="qe-paste">Add these rows</button></details>
+    <form id="qeForm" novalidate><div class="qe-wrap"><table class="qe"><thead><tr><th>Name</th><th>Price £</th><th>Stock</th><th>Category</th><th>Shown</th></tr></thead>
+      <tbody>${Array.from({ length: QE_NEW }, () => qeRow(null)).join("")}${list.map(qeRow).join("")}</tbody></table></div>
+      <button class="btn-ghost tight" type="button" data-act="qe-more">+ 5 more rows</button>
+      <p class="form-error" id="qeErr" role="alert" hidden></p>
+      <button class="btn-primary wide" id="qeSave" type="submit">Save</button></form>`;
+  openDialog($("#admDlg"));
+}
+function qePaste() {
+  const ta = $("#qePaste"), body = $("#qeForm tbody"); if (!ta.value.trim()) return;
+  const lines = ta.value.split(/\r?\n/).map(l => l.trim()).filter(Boolean).map(l => l.includes("\t") ? l.split("\t") : l.split(","));
+  if (lines.length && parsePrice(lines[0][1] ?? "") === null && /name|product/i.test(lines[0][0])) lines.shift();   // header line
+  const free = () => [...body.querySelectorAll("tr[data-new]")].find(r => !r.elements?.length && !["name", "price"].some(n => r.querySelector(`[name=${n}]`).value.trim()));
+  for (const c of lines) {
+    let row = free(); if (!row) { body.insertAdjacentHTML("afterbegin", qeRow(null)); row = body.firstElementChild; }
+    const set = (n, v) => { row.querySelector(`[name=${n}]`).value = (v || "").trim(); };
+    set("name", c[0]); set("price", String(c[1] || "").replace(/[£\s]/g, "")); set("stock", c[2]);
+    const cat = A.categories.find(k => k.name.toLowerCase() === String(c[3] || "").trim().toLowerCase()); if (cat) row.querySelector("[name=categoryId]").value = cat.id;
+  }
+  ta.value = ""; toast(`${lines.length} row${lines.length === 1 ? "" : "s"} added to the table`);
+}
+async function saveQuickEdit(f) {
+  const err = $("#qeErr"), ops = []; let added = 0, changed = 0, badRow = null, msg = "";
+  for (const tr of f.querySelectorAll("tbody tr")) {
+    tr.classList.remove("bad");
+    const g = n => tr.querySelector(`[name=${n}]`), v = n => g(n).value.trim();
+    const p = tr.dataset.id ? A.products.find(x => x.id === tr.dataset.id) : null;
+    if (!p && !v("name") && !v("price") && !v("stock")) continue;                       // an empty new row
+    const price = v("price") === "" ? null : parsePrice(v("price")), stock = v("stock") === "" && !p ? 0 : parseCount(v("stock"));
+    if (!v("name") || price === null || stock === null) { badRow ||= tr; tr.classList.add("bad"); msg ||= !v("name") ? "Every row needs a name." : price === null ? "Enter prices like 2.50." : "Stock must be a whole number, 0 or more."; continue; }
+    const ch = { name: v("name"), price, stock, categoryId: v("categoryId") || undefined, visible: g("visible").checked };
+    if (p) {
+      if (ch.name === p.name && price === p.price && stock === p.stock && (ch.categoryId || "") === (p.categoryId || "") && ch.visible === !!p.visible) continue;
+      ops.push(upd(p, { ...ch, salePrice: p.salePrice != null && p.salePrice >= price ? undefined : p.salePrice })); changed++;
+    } else {
+      ops.push((b, fs) => { const d = { ...ch, archived: false, createdAt: fs.serverTimestamp(), updatedAt: fs.serverTimestamp() }; if (!d.categoryId) delete d.categoryId; b.set(fs.doc(fs.collection(db(), "products")), d); }); added++;
+    }
+  }
+  if (badRow) { showError(err, msg); badRow.scrollIntoView({ block: "center" }); return; }
+  if (!ops.length) return showError(err, "Nothing to save yet.");
+  showError(err, ""); const btn = $("#qeSave"), dlg = $("#admDlg"); setBusy(dlg, btn, true);
+  try { await writeAll(ops); closeDialog(dlg); toast([changed && `${changed} updated`, added && `${added} added`].filter(Boolean).join(", ")); }
+  catch (e) { console.error("[admin] quick edit", e); showError(err, "Couldn't save. Check your connection and try again."); }
+  finally { setBusy(dlg, btn, false); }
 }
 
 /* ── sale prices ── */
@@ -1037,6 +1154,7 @@ function onInput(e) {
   if (t.dataset.act === "toggle-visible") fs.updateDoc(fs.doc(db(), "products", t.dataset.id), { visible: t.checked, updatedAt: fs.serverTimestamp() }).catch(() => { toast("Couldn't change that."); paint(); });
   if (t.dataset.act === "cat-visible") fs.updateDoc(fs.doc(db(), "categories", t.dataset.id), { visible: t.checked, updatedAt: fs.serverTimestamp() }).catch(() => { toast("Couldn't change that."); paint(); });
   if (t.dataset.act === "ev-live") fs.updateDoc(fs.doc(db(), "events", t.dataset.id), { active: t.checked, updatedAt: fs.serverTimestamp() }).then(() => toast(t.checked ? "Event is live" : "Event switched off")).catch(() => { toast("Couldn't change that."); paint(); });
+  if (t.dataset.act === "psel") { t.checked ? A.sel.add(t.dataset.id) : A.sel.delete(t.dataset.id); return paint(); }
   if (t.dataset.act === "sound") store.set("adm.sound", t.checked);
 }
 
@@ -1054,6 +1172,18 @@ async function onClick(e) {
     case "ofilter": A.of = t.dataset.f; return paint();
     case "ffilter": A.ff = t.dataset.f; return paint();
     case "new-product": return productDialog(null);
+    case "qe-open": return quickEdit();
+    case "qe-paste": return qePaste();
+    case "qe-more": return void $("#qeForm tbody").insertAdjacentHTML("afterbegin", Array.from({ length: QE_NEW }, () => qeRow(null)).join(""));
+    case "bsel-mode": A.sel = A.sel ? null : new Set(); return paint();
+    case "bsel-all": $$("#admMain .prow[data-id]").forEach(r => A.sel.add(r.dataset.id)); return paint();
+    case "bsel-none": A.sel.clear(); return paint();
+    case "b-show": case "b-hide": return bulkRun(selected().filter(p => !p.archived).map(p => upd(p, { visible: act === "b-show" })), act === "b-show" ? "Now shown in the shop" : "Hidden from the shop");
+    case "b-cat": { const c = await pickBox({ title: "Move to a category", text: `${A.sel.size} selected`, options: [["", "No category"], ...A.categories.slice().sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)).map(k => [k.id, k.name])] });
+      return c === null ? void 0 : bulkRun(selected().map(p => upd(p, { categoryId: c || undefined })), "Category changed"); }
+    case "b-price": return bulkDialog("price");
+    case "b-stock": return bulkDialog("stock");
+    case "b-del": return bulkDelete();
     case "edit-product": return productDialog(id);
     case "sale": return saleDialog(id);
     case "sale-pct": { const f = $("#saleForm"), p = A.products.find(x => x.id === f.dataset.id); if (p) f.elements.sale.value = (Math.round(p.price * (1 - Number(t.dataset.pct) / 100) * 100) / 100).toFixed(2); return; }
@@ -1147,6 +1277,8 @@ document.addEventListener("submit", e => {
   if (f.id === "prodForm") { e.preventDefault(); saveProduct(f); }
   else if (f.id === "catForm") { e.preventDefault(); saveCategory(f); }
   else if (f.id === "setForm") { e.preventDefault(); saveSettings(f); }
+  else if (f.id === "qeForm") { e.preventDefault(); saveQuickEdit(f); }
+  else if (f.id === "bulkForm") { e.preventDefault(); applyBulk(f); }
   else if (f.id === "saleForm") { e.preventDefault(); saveSale(f); }
   else if (f.id === "evForm") { e.preventDefault(); saveEvent(f); }
 });

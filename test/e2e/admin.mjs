@@ -259,6 +259,55 @@ await test("events: owner event form is usable on a phone (390px)", async ({ pag
   await p.screenshot({ path: "/tmp/claude-0/-home-claude/fa786b1c-808f-5474-a40b-c6b83a368183/scratchpad/ev-admin-eid.png" });
 }, {}, { width: 390, height: 800 });
 
+/* ── bulk tools ── */
+await test("quick edit: change several products, add new ones (typed + pasted) in one save", async ({ page: p }) => {
+  await openAdmin(p); await tab(p, "products");
+  await p.click('[data-act="qe-open"]'); await p.waitForSelector("#qeForm");
+  const row = n => p.locator(`#qeForm tbody tr[data-id="${n}"]`);
+  await row("p1").locator('[name="price"]').fill("7.25"); await row("p2").locator('[name="stock"]').fill("40");
+  const nw = p.locator("#qeForm tr[data-new]").first();
+  await nw.locator('[name="name"]').fill("Typed Item"); await nw.locator('[name="price"]').fill("1.5");
+  await p.click(".qe-paste summary");
+  await p.locator("#qePaste").fill("Name, Price, Stock, Category\nPasted One, £2.20, 7, Dates\nPasted Two\t3\t0\tDrinks");
+  await p.click('[data-act="qe-paste"]');
+  await p.click("#qeSave"); await p.waitForSelector("#admDlg", { state: "hidden" });
+  const d = (await db(p)).products, by = n => Object.values(d).find(x => x.name === n);
+  assert.equal(d.p1.price, 7.25); assert.equal(d.p2.stock, 40); assert.equal(d.p3.stock, 0);       // untouched rows keep their values
+  assert.equal(by("Typed Item").stock, 0); assert.equal(by("Pasted One").price, 2.2); assert.equal(by("Pasted One").categoryId, "c1");
+  assert.equal(by("Pasted Two").categoryId, "c2"); assert.equal(by("Pasted Two").visible, true);
+});
+await test("quick edit: a half-filled row blocks the save and nothing is written", async ({ page: p }) => {
+  await openAdmin(p); await tab(p, "products");
+  await p.click('[data-act="qe-open"]');
+  await p.locator('#qeForm tr[data-new] [name="name"]').first().fill("No price");
+  await p.locator('#qeForm tbody tr[data-id="p1"] [name="price"]').fill("9");
+  await p.click("#qeSave");
+  await p.waitForFunction(() => /prices like/.test(document.querySelector("#qeErr").textContent));
+  const d = (await db(p)).products; assert.equal(d.p1.price, 6.5); assert.equal(Object.keys(d).length, 3);
+});
+await test("select mode: hide, then price +10%, stock, and delete in bulk (orders keep their products archived)", async ({ page: p }) => {
+  await openAdmin(p); await tab(p, "products");
+  await p.click('[data-act="bsel-mode"]'); await p.click('[data-act="bsel-all"]');
+  assert.match(await p.locator(".bulkbar b").innerText(), /3 selected/);
+  await p.click('[data-act="b-hide"]'); await p.waitForFunction(() => Object.values(window.__FAKE.dump().products).every(x => x.visible === false));
+  await p.click('[data-act="b-price"]'); await p.locator('#bulkForm [name="mode"]').selectOption("pct"); await p.locator('#bulkForm [name="val"]').fill("10");
+  await p.click('#bulkForm [type="submit"]'); await p.waitForSelector("#admDlg", { state: "hidden" });
+  await p.waitForFunction(() => window.__FAKE.dump().products.p1.price === 7.15);
+  await p.click('[data-act="b-stock"]'); await p.locator('#bulkForm [name="mode"]').selectOption("add"); await p.locator('#bulkForm [name="val"]').fill("-5");
+  await p.click('#bulkForm [type="submit"]'); await p.waitForSelector("#admDlg", { state: "hidden" });
+  await p.waitForFunction(() => window.__FAKE.dump().products.p1.stock === 5 && window.__FAKE.dump().products.p2.stock === 0);   // never below 0
+  await p.click('[data-act="b-del"]'); await p.click("#admConfirm [data-yes]");
+  await p.waitForFunction(() => Object.keys(window.__FAKE.dump().products).length === 0);
+}, {});
+await test("bulk delete keeps products that are in past orders (archives them instead)", async ({ page: p }) => {
+  await openAdmin(p); await tab(p, "products");
+  await p.click('[data-act="bsel-mode"]'); await p.click('[data-act="bsel-all"]'); await p.click('[data-act="b-del"]');
+  assert.match(await p.locator("#admConfirm").innerText(), /1 appear in past orders/);
+  await p.click("#admConfirm [data-yes]");
+  await p.waitForFunction(() => Object.keys(window.__FAKE.dump().products).length === 1);
+  const d = (await db(p)).products; assert.equal(d.p1.archived, true); assert.equal(d.p1.visible, false);
+}, { orders: { o1: ORDER() } });
+
 console.log(results.map(r => (r[0] ? "PASS " : "FAIL ") + r[1] + (r[0] ? "" : "\n     " + r[2] + (r[3] ? "\n     shot: " + r[3] : ""))).join("\n"));
 console.log(`\n${results.filter(r => r[0]).length}/${results.length} passed`);
 await closeAll(); srv.close();
