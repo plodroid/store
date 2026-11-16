@@ -430,3 +430,8 @@ html.native-dock .adm-main { padding-bottom: calc(var(--dock-h, 0px) + 16px); }
 .locbar .adm-grow { flex: 1 1 140px; }
 /* Mapbox's stylesheet loads later and sets .mapboxgl-map { position: relative }, which collapsed the full-screen map to nothing */
 .nav-map.mapboxgl-map, .nav-panel .nav-map { position: absolute; inset: 0; width: 100%; height: 100%; }
+.nav-btns:has(#navG[hidden]) .btn-quiet { grid-column: 1 / -1; }
+.owrap .nav-btn { margin-top: 10px; }
+/* phone: long product names must not stretch the row past the screen; bulk buttons sit on one row */
+.adm-list { min-width: 0; } .prow { min-width: 0; max-width: 100%; } .pmain { min-width: 0; }
+@media (max-width: 520px) { .adm-bar-btns { width: 100%; } .adm-bar-btns .btn-primary { margin-left: auto; } .adm-search { flex: 1 1 100%; } }
