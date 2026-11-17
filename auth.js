@@ -261,9 +261,9 @@ export function createAuth({ FS, onChange = () => {} }) {
   }
 
   async function googleSignIn() {
-    await persistence();
     const g = nativeGoogle();
-    if (g) {   // the Android app: ask the phone's own Google account picker, then hand the token to Firebase
+    if (g) {
+      await persistence();   // the Android app: ask the phone's own Google account picker, then hand the token to Firebase
       const r = await g.signInWithGoogle(), idToken = r && r.credential && r.credential.idToken;
       if (!idToken) throw Object.assign(new Error("no token"), { code: "google/no-token" });
       const { user } = await au.signInWithCredential(auth, au.GoogleAuthProvider.credential(idToken));
@@ -271,6 +271,7 @@ export function createAuth({ FS, onChange = () => {} }) {
     }
     const provider = new au.GoogleAuthProvider();
     provider.setCustomParameters({ prompt: "select_account" });
+    // no awaits before the popup: it must open straight from the click or the browser delays/blocks it (web persistence is already "local" by default)
     const { user } = await au.signInWithPopup(auth, provider);
     await afterSignIn(user);
   }
