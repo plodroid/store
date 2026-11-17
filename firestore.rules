@@ -18,10 +18,10 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     function signedIn() { return request.auth != null; }
-    // "Verified" = signed in with Google or an email + password account (not anonymous). Orders are paid through
+    // "Verified" = signed in with Google or an email + password or phone account (not anonymous). Orders are paid through
     // Stripe, so a fake address gets nobody anywhere; the rate limits below still apply.
     function verified() {
-      return signedIn() && request.auth.token.firebase.sign_in_provider in ['password', 'google.com', 'custom'];
+      return signedIn() && request.auth.token.firebase.sign_in_provider in ['password', 'google.com', 'phone', 'custom'];
     }
     // The owner signs in with Google as the address below. (Extra owners can also be added by creating
     // a document at owners/{uid} in the Firebase console.) Email-code logins can never be the owner.

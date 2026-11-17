@@ -10,6 +10,13 @@ const MAIL_URL = () => String(window.STORE_AUTH_URL || "");
 const mailerReady = () => /^https:\/\/script\.google\.com\//.test(MAIL_URL());
 
 const MESSAGES = {
+  "auth/invalid-phone-number": "That phone number doesn't look right. Include the country code, like +44 7700 900123.",
+  "auth/missing-phone-number": "Enter your phone number first.",
+  "auth/invalid-verification-code": "That code isn't right. Check the text message and try again.",
+  "auth/code-expired": "That code has expired. Go back and request a new one.",
+  "auth/quota-exceeded": "We've sent too many texts today. Please log in with email or Google instead.",
+  "auth/too-many-requests": "Too many attempts. Please wait a bit, or log in with email or Google.",
+  "auth/captcha-check-failed": "Couldn't verify you're human. Please reload the page and try again.",
   "auth/invalid-credential": "That email and password don't match. Try again, or tap \"Forgot password?\".",
   "auth/wrong-password": "That email and password don't match. Try again, or tap \"Forgot password?\".",
   "auth/user-not-found": "That email and password don't match. Try again, or tap \"Forgot password?\".",
@@ -39,6 +46,7 @@ const CODE_ERRORS = {
   expired: () => "That code has expired or was used up. Tap \"Resend code\" to get a new one.",
   locked: () => "Too many wrong codes. Please try again in an hour.",
 };
+const PHONE = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/></svg>`;
 const SILENT = new Set(["auth/popup-closed-by-user", "auth/cancelled-popup-request"]);
 
 /** Inside the Android app Google blocks its sign-in page, so newer app builds carry a native Google sign-in plugin instead.
@@ -52,7 +60,7 @@ function nativeGoogle() {
 }
 if (nativeGoogle()) document.documentElement.dataset.gnative = "1";
 const CANCELLED = /popup-closed|cancelled|canceled|12501|-5\b|user.?cancel/i;
-const errText = e => MESSAGES[e && e.code] || (/DEVELOPER_ERROR|\b10\b|12500/.test(`${e && e.code} ${e && e.message}`) && nativeGoogle() && "Google doesn't recognise this app build yet. Please sign in with the email code instead, and tell the shop.") || (e && e.code === "google/no-token" && "Google didn't send back a sign-in. Please try again.") || "Something went wrong. Please try again in a moment.";
+const errText = e => MESSAGES[e && e.code] || (/DEVELOPER_ERROR|\b10\b|12500/.test(`${e && e.code} ${e && e.message}`) && nativeGoogle() && "Google doesn't recognise this app build yet. Please sign in with email and password instead, and tell the shop.") || (e && e.code === "google/no-token" && "Google didn't send back a sign-in. Please try again.") || "Something went wrong. Please try again in a moment.";
 
 /** One call to the mailer script. Resolves to its JSON reply; throws {code} only when it can't be reached. */
 async function mailer(body) {
@@ -73,17 +81,17 @@ export function createAuth({ FS, onChange = () => {} }) {
   const st = { user: null, email: "", verified: false, profile: {}, owner: false, ready: false };
   let pending = null;            // { resolve } while requireLogin() is waiting
   let markReady; const readyP = new Promise(r => (markReady = r));   // first auth answer from Firebase
-  let view = "in", reason = "", pendingEmail = "";
+  let view = "in", reason = "", pendingEmail = "", pendingPhone = "", confirmation = null;
 
   const dlg = $("#au"), acct = $("#acct"), loc = $("#loc");
 
   /* ── who is this, are they verified, are they the owner ── */
   async function loadProfile(user) {
-    st.profile = {}; st.owner = false; st.email = ""; st.verified = false;
+    st.profile = {}; st.owner = false; st.email = ""; st.phone = ""; st.verified = false;
     if (!user) return;
     try {
       const tok = await user.getIdTokenResult();
-      st.email = user.email || tok.claims.mail || "";
+      st.email = user.email || tok.claims.mail || ""; st.phone = user.phoneNumber || "";
       st.verified = !!user;   // password and Google accounts can order; payment itself goes through Stripe
     } catch (e) { console.warn("[auth] token", e && e.code); }
     if (!st.verified) return;
@@ -146,7 +154,7 @@ export function createAuth({ FS, onChange = () => {} }) {
     menu.hidden = !open;
     $("#acctBtn").setAttribute("aria-expanded", String(open));
     dockAcct.setAttribute("aria-expanded", String(open));
-    $("#menuEmail").textContent = st.email;
+    $("#menuEmail").textContent = st.email || st.phone;
     if (open) { placeMenu(); $("#menuAcct").focus({ preventScroll: true }); }
     tell();
   }
@@ -169,9 +177,28 @@ export function createAuth({ FS, onChange = () => {} }) {
   /* ── sign-in dialog ───────────────────────────────── */
   const social = () => `
     <div class="or"><span>or</span></div>
-    <div class="social"><button class="soc" type="button" data-google>${GOOGLE}<span>Continue with Google</span></button></div>`;
+    <div class="social"><button class="soc" type="button" data-google>${GOOGLE}<span>Continue with Google</span></button>
+    <button class="soc" type="button" data-go="phone">${PHONE}<span>Continue with phone</span></button></div>`;
 
   const VIEWS = {
+    phone: () => `
+      <form class="auth-form" data-form="phone" novalidate>
+        <h2 id="auTitle">Log in with phone</h2>
+        <p class="auth-sub">We'll text you one 6-digit code. Include your country code, or start with 0 for a UK number.</p>
+        <label class="inp"><span>Phone number</span><input name="phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="+44 7700 900123" required maxlength="20" value="${esc(pendingPhone)}"></label>
+        <p class="form-error" role="alert" hidden></p>
+        <button class="btn-grad" type="submit">Text me a code</button>
+        <p class="auth-switch"><button class="link" type="button" data-go="in">Use email instead</button></p>
+      </form>`,
+    code: () => `
+      <form class="auth-form" data-form="code" novalidate>
+        <h2 id="auTitle">Enter your code</h2>
+        <p class="auth-sub">We texted a 6-digit code to ${esc(pendingPhone)}. It can take a minute to arrive.</p>
+        <label class="inp"><span>6-digit code</span><input name="code" type="text" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]*" placeholder="123456" required maxlength="6"></label>
+        <p class="form-error" role="alert" hidden></p>
+        <button class="btn-grad" type="submit">Log in</button>
+        <p class="auth-switch"><button class="link" type="button" data-go="phone">Wrong number?</button></p>
+      </form>`,
     in: () => passView("in"),
     up: () => passView("up"),
     reset: () => `
@@ -226,6 +253,7 @@ export function createAuth({ FS, onChange = () => {} }) {
     const btn = form.querySelector(".btn-grad");
     const err = form.querySelector(".form-error");
     showError(err, ""); err.classList.remove("ok");
+    if (kind === "phone" || kind === "code") return phoneStep(kind, form, btn, err);
     const email = form.elements.email.value.trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 120) {
       form.elements.email.setAttribute("aria-invalid", "true");
@@ -246,6 +274,31 @@ export function createAuth({ FS, onChange = () => {} }) {
     } catch (e2) { console.warn("[auth]", e2 && (e2.code || e2.message)); showError(err, errText(e2)); }
     finally { setBusy(dlg, btn, false); }
   });
+
+  /* Phone login: ONE text per attempt (the free Firebase plan allows only ~10 a day), so there is no resend button. */
+  const e164 = raw => { let n = raw.replace(/[\s().-]/g, ""); if (n.startsWith("00")) n = "+" + n.slice(2); else if (n.startsWith("0")) n = "+44" + n.slice(1); return /^\+[1-9]\d{7,14}$/.test(n) ? n : ""; };
+  let verifier = null;
+  async function phoneStep(kind, form, btn, err) {
+    setBusy(dlg, btn, true);
+    try {
+      await persistence();
+      if (kind === "phone") {
+        const n = e164(form.elements.phone.value.trim());
+        if (!n) return showError(err, MESSAGES["auth/invalid-phone-number"]);
+        pendingPhone = n;
+        try { verifier?.clear(); } catch {}
+        verifier = new au.RecaptchaVerifier(auth, btn, { size: "invisible" });
+        confirmation = await au.signInWithPhoneNumber(auth, n, verifier);
+        go("code");
+      } else {
+        const c = form.elements.code.value.replace(/\D/g, "");
+        if (c.length !== 6) return showError(err, MESSAGES["auth/invalid-verification-code"]);
+        const { user } = await confirmation.confirm(c);
+        await afterSignIn(user);
+      }
+    } catch (e) { console.warn("[auth]", e && (e.code || e.message)); try { verifier?.clear(); } catch {} verifier = null; showError(err, errText(e)); }
+    finally { setBusy(dlg, btn, false); }
+  }
 
   async function persistence() {
     try { await au.setPersistence(auth, au.browserLocalPersistence); } catch {}
@@ -316,7 +369,7 @@ export function createAuth({ FS, onChange = () => {} }) {
           <label class="inp"><span>Full name</span><input name="name" autocomplete="name" maxlength="80" value="${esc(p.name || st.user.displayName || "")}"></label>
           <label class="inp"><span>Mobile number <em>(UK)</em></span><input name="phone" type="tel" autocomplete="tel" inputmode="tel" maxlength="20" placeholder="07123 456789" value="${esc(showUkPhone(p.phone || ""))}"></label>
           <div class="inp"><span>Email</span>
-            <div class="static">${esc(st.email)} <span class="badge ok">Verified</span></div>
+            <div class="static">${esc(st.email || st.phone)} <span class="badge ok">Verified</span></div>
           </div>
         </div>
         <div class="form-section">
