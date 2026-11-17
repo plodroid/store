@@ -1,8 +1,4 @@
-/* Customer accounts: sign in with an emailed 4-digit code (or Google), the account page and the UK location picker.
-
-How the code login works: the browser asks a tiny Google Apps Script (see apps-script/Code.gs and the README)
-to email a random 4-digit code. The script remembers only a hash of the code, checks it, and hands back a
-Firebase sign-in token. Firebase itself can't email codes on the free plan, so the script does that part. */
+/* Customer accounts: log in with email + password (or Google), the account page and the UK location picker. */
 
 import { $, $$, esc, openDialog, closeDialog, showError, setBusy, toast } from "./ui.js?v=16";
 import { streetFor, geocodeAddress, makeMap } from "./geo.js?v=20";
@@ -14,6 +10,13 @@ const MAIL_URL = () => String(window.STORE_AUTH_URL || "");
 const mailerReady = () => /^https:\/\/script\.google\.com\//.test(MAIL_URL());
 
 const MESSAGES = {
+  "auth/invalid-credential": "That email and password don't match. Try again, or tap \"Forgot password?\".",
+  "auth/wrong-password": "That email and password don't match. Try again, or tap \"Forgot password?\".",
+  "auth/user-not-found": "That email and password don't match. Try again, or tap \"Forgot password?\".",
+  "auth/email-already-in-use": "There's already an account with that email. Log in instead, or use Google if you signed up with it.",
+  "auth/weak-password": "Please choose a password with at least 6 characters.",
+  "auth/invalid-email": "Please enter a valid email address.",
+  "auth/operation-not-allowed": "Email and password sign-in isn't switched on yet. The shop owner needs to enable it.",
   "auth/network-request-failed": "We couldn't reach the server. Check your connection and try again.",
   "auth/too-many-requests": "Too many attempts. Please wait a few minutes and try again.",
   "auth/popup-blocked": "Your browser blocked the sign-in window. Allow pop-ups for this site and try again.",
@@ -71,7 +74,6 @@ export function createAuth({ FS, onChange = () => {} }) {
   let pending = null;            // { resolve } while requireLogin() is waiting
   let markReady; const readyP = new Promise(r => (markReady = r));   // first auth answer from Firebase
   let view = "in", reason = "", pendingEmail = "";
-  let cooldownTimer = null;
 
   const dlg = $("#au"), acct = $("#acct"), loc = $("#loc");
 
@@ -82,7 +84,7 @@ export function createAuth({ FS, onChange = () => {} }) {
     try {
       const tok = await user.getIdTokenResult();
       st.email = user.email || tok.claims.mail || "";
-      st.verified = user.emailVerified === true || tok.claims.cv === true;   // cv = "code verified" claim set by the mailer script
+      st.verified = !!user;   // password and Google accounts can order; payment itself goes through Stripe
     } catch (e) { console.warn("[auth] token", e && e.code); }
     if (!st.verified) return;
     try {
@@ -105,7 +107,6 @@ export function createAuth({ FS, onChange = () => {} }) {
   au.onAuthStateChanged(auth, async user => {
     st.user = user;
     await loadProfile(user);
-    if (user && !st.verified) { await au.signOut(auth); return; }    // old unverified password accounts: signed out
     st.ready = true;
     markReady();
     paintNav();
@@ -171,32 +172,37 @@ export function createAuth({ FS, onChange = () => {} }) {
     <div class="social"><button class="soc" type="button" data-google>${GOOGLE}<span>Continue with Google</span></button></div>`;
 
   const VIEWS = {
-    in: () => `
-      <form class="auth-form" data-form="in" novalidate>
-        <h2 id="auTitle">Sign in</h2>
-        <p class="auth-sub">${esc(reason || "Enter your email and we'll send you a 4-digit code. No password needed.")}</p>
+    in: () => passView("in"),
+    up: () => passView("up"),
+    reset: () => `
+      <form class="auth-form" data-form="reset" novalidate>
+        <h2 id="auTitle">Reset password</h2>
+        <p class="auth-sub">Enter your email and we'll send you a link to choose a new password.</p>
         <label class="inp"><span>Email address</span><input name="email" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com" required maxlength="120" value="${esc(pendingEmail)}"></label>
         <p class="form-error" role="alert" hidden></p>
-        <button class="btn-grad" type="submit">Send code</button>
-        ${social()}
-      </form>`,
-    code: () => `
-      <form class="auth-form" data-form="code" novalidate>
-        <h2 id="auTitle">Enter your code</h2>
-        <p class="auth-sub">We sent a 4-digit code to <strong>${esc(pendingEmail)}</strong>. It expires in 10 minutes. Check your spam folder if it doesn't arrive.</p>
-        <div class="otp" id="otp">${[0, 1, 2, 3].map(i => `<input inputmode="numeric" autocomplete="${i ? "off" : "one-time-code"}" aria-label="Digit ${i + 1} of 4">`).join("")}</div>
-        <p class="form-error" role="alert" hidden></p>
-        <button class="btn-grad" type="submit">Verify and sign in</button>
-        <button class="btn-quiet" type="button" data-resend>Resend code</button>
-        <p class="auth-switch"><button class="link" type="button" data-go="in">Use a different email</button></p>
+        <button class="btn-grad" type="submit">Send reset link</button>
+        <p class="auth-switch"><button class="link" type="button" data-go="in">Back to log in</button></p>
       </form>`,
   };
+  function passView(mode) {
+    const up = mode === "up";
+    return `
+      <form class="auth-form" data-form="${mode}" novalidate>
+        <h2 id="auTitle">${up ? "Create account" : "Log in"}</h2>
+        <p class="auth-sub">${esc(reason || (up ? "Pick a password and you're in. No codes to wait for." : "Welcome back. Enter your email and password."))}</p>
+        <label class="inp"><span>Email address</span><input name="email" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com" required maxlength="120" value="${esc(pendingEmail)}"></label>
+        <label class="inp"><span>Password</span><input name="password" type="password" autocomplete="${up ? "new-password" : "current-password"}" placeholder="${up ? "At least 6 characters" : "Your password"}" required minlength="6" maxlength="128"></label>
+        <p class="form-error" role="alert" hidden></p>
+        <button class="btn-grad" type="submit">${up ? "Create account" : "Log in"}</button>
+        ${up ? "" : `<button class="btn-quiet" type="button" data-go="reset">Forgot password?</button>`}
+        ${social()}
+        <p class="auth-switch">${up ? `Already have an account? <button class="link" type="button" data-go="in">Log in</button>` : `New here? <button class="link" type="button" data-go="up">Create an account</button>`}</p>
+      </form>`;
+  }
 
   function go(next) {
     view = next;
     $("#auView").innerHTML = VIEWS[next]();
-    clearInterval(cooldownTimer);
-    if (next === "code") startCooldown();
     $("#auView input")?.focus({ preventScroll: true });
   }
 
@@ -211,40 +217,6 @@ export function createAuth({ FS, onChange = () => {} }) {
     const goBtn = e.target.closest("[data-go]");
     if (goBtn) return go(goBtn.dataset.go);
     if (e.target.closest("[data-google]")) return withBusy(e.target.closest("button"), googleSignIn);
-    if (e.target.closest("[data-resend]")) return resend(e.target.closest("button"));
-  });
-
-  /* the four code boxes: type, paste, or let the phone autofill; backspace walks back */
-  const boxes = () => $$("#otp input");
-  const readCode = () => boxes().map(b => b.value).join("");
-  function fillFrom(i, digits) {
-    const bs = boxes();
-    digits.split("").slice(0, 4 - i).forEach((d, k) => { bs[i + k].value = d; });
-    const next = Math.min(i + digits.length, 3);
-    bs[next].focus();
-    if (readCode().length === 4) $("#auView form").requestSubmit();
-  }
-  dlg.addEventListener("input", e => {
-    const bs = boxes(), i = bs.indexOf(e.target);
-    if (i < 0) return;
-    const digits = e.target.value.replace(/\D/g, "");
-    e.target.value = "";
-    $("#otp").classList.remove("bad");
-    if (digits) fillFrom(i, digits);
-  });
-  dlg.addEventListener("keydown", e => {
-    const bs = boxes(), i = bs.indexOf(e.target);
-    if (i < 0) return;
-    if (e.key === "Backspace" && !e.target.value && i > 0) { bs[i - 1].value = ""; bs[i - 1].focus(); e.preventDefault(); }
-    if (e.key === "ArrowLeft" && i > 0) bs[i - 1].focus();
-    if (e.key === "ArrowRight" && i < 3) bs[i + 1].focus();
-  });
-  dlg.addEventListener("paste", e => {
-    const bs = boxes(), i = bs.indexOf(e.target);
-    if (i < 0) return;
-    e.preventDefault();
-    const digits = (e.clipboardData?.getData("text") || "").replace(/\D/g, "");
-    if (digits) fillFrom(0, digits);
   });
 
   dlg.addEventListener("submit", async e => {
@@ -253,44 +225,26 @@ export function createAuth({ FS, onChange = () => {} }) {
     const kind = form?.dataset.form;
     const btn = form.querySelector(".btn-grad");
     const err = form.querySelector(".form-error");
-    showError(err, "");
-    const fail = d => showError(err, (CODE_ERRORS[d.error] || (() => "Something went wrong. Please try again."))(d));
-
-    if (kind === "in") {
-      const email = form.elements.email.value.trim().toLowerCase();
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 120) {
-        form.elements.email.setAttribute("aria-invalid", "true");
-        return showError(err, "Please enter a valid email address.");
+    showError(err, ""); err.classList.remove("ok");
+    const email = form.elements.email.value.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 120) {
+      form.elements.email.setAttribute("aria-invalid", "true");
+      return showError(err, "Please enter a valid email address.");
+    }
+    pendingEmail = email;
+    const password = form.elements.password?.value || "";
+    if (kind !== "reset" && password.length < 6) return showError(err, "Your password needs at least 6 characters.");
+    setBusy(dlg, btn, true);
+    try {
+      if (kind === "reset") {
+        await au.sendPasswordResetEmail(auth, email);
+        showError(err, "If that email has an account, a reset link is on its way. Check your spam folder too."); err.classList.add("ok"); return;
       }
-      setBusy(dlg, btn, true);
-      try {
-        const r = await mailer({ a: "send", email });
-        if (!r.ok) return fail(r);
-        pendingEmail = email;
-        go("code");
-      } catch (e2) { console.warn("[auth]", e2 && (e2.code || e2.message)); showError(err, errText(e2)); }
-      finally { setBusy(dlg, btn, false); }
-    }
-
-    if (kind === "code") {
-      const code = readCode();
-      if (code.length < 4) return showError(err, "Please enter all 4 digits.");
-      setBusy(dlg, btn, true);
-      try {
-        const r = await mailer({ a: "verify", email: pendingEmail, code });
-        if (!r.ok || !r.token) {
-          fail(r);
-          $("#otp").classList.add("bad");
-          boxes().forEach(b => { b.value = ""; });
-          boxes()[0].focus();
-          return;
-        }
-        await persistence();
-        const { user } = await au.signInWithCustomToken(auth, r.token);
-        await afterSignIn(user);
-      } catch (e2) { console.warn("[auth]", e2 && (e2.code || e2.message)); showError(err, errText(e2)); }
-      finally { setBusy(dlg, btn, false); }
-    }
+      await persistence();
+      const { user } = kind === "up" ? await au.createUserWithEmailAndPassword(auth, email, password) : await au.signInWithEmailAndPassword(auth, email, password);
+      await afterSignIn(user);
+    } catch (e2) { console.warn("[auth]", e2 && (e2.code || e2.message)); showError(err, errText(e2)); }
+    finally { setBusy(dlg, btn, false); }
   });
 
   async function persistence() {
@@ -329,38 +283,13 @@ export function createAuth({ FS, onChange = () => {} }) {
     finish(true);
   }
 
-  function startCooldown(secs = 30) {
-    const btn = $("#auView [data-resend]");
-    if (!btn) return;
-    let left = secs;
-    const tick = () => {
-      btn.disabled = left > 0;
-      btn.textContent = left > 0 ? `Resend code (${left}s)` : "Resend code";
-      if (left-- <= 0) clearInterval(cooldownTimer);
-    };
-    tick();
-    cooldownTimer = setInterval(tick, 1000);
-  }
-
-  async function resend(btn) {
-    const err = $("#auView .form-error");
-    showError(err, "");
-    try {
-      const r = await mailer({ a: "send", email: pendingEmail });
-      if (!r.ok) return showError(err, (CODE_ERRORS[r.error] || (() => "Something went wrong. Please try again."))(r));
-      toast("New code sent");
-      boxes().forEach(b => { b.value = ""; });
-      boxes()[0]?.focus();
-      startCooldown();
-    } catch (e) { showError(err, errText(e)); }
-  }
-
   function finish(ok) {
     const p = pending; pending = null;
     closeDialog(dlg);
     if (p) p.resolve(ok);
   }
-  dlg.addEventListener("close", () => { clearInterval(cooldownTimer); if (pending) { const p = pending; pending = null; p.resolve(false); } });
+
+  dlg.addEventListener("close", () => { if (pending) { const p = pending; pending = null; p.resolve(false); } });
 
   /** Resolves true once the customer is signed in and verified; false if they close the dialog. */
   async function requireLogin(why = "") {

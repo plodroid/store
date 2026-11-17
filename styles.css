@@ -665,6 +665,7 @@ em { font-style: normal; color: var(--faint); font-weight: 400; }
   margin-top: 16px; padding: 12px 14px; border-radius: 12px; font-size: 14px; line-height: 1.5;
   background: var(--bad-bg); border: 1px solid color-mix(in srgb, var(--bad) 30%, transparent); color: var(--bad);
 }
+.form-error.ok { background: var(--surface-2); border-color: var(--line); color: var(--text); }
 .btn-primary.wide { width: 100%; margin-top: 18px; }
 .btn-primary.busy { position: relative; color: transparent; }
 .btn-primary.busy::after {
