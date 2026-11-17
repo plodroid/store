@@ -20,4 +20,5 @@ firebase-debug.log
 
 # the shared debug key for the Android apps is public on purpose (see apps/README.md)
 !apps/debug.keystore
+!apps/owner.keystore
 !apps/owner/android/app/google-services.json
