@@ -1,7 +1,7 @@
 /* Customer accounts: log in with email + password (or Google), the account page and the UK location picker. */
 
 import { $, $$, esc, openDialog, closeDialog, showError, setBusy, toast } from "./ui.js?v=16";
-import { flag } from "./flags.js?v=16";
+import { flag } from "./flags.js?v=17";
 import { streetFor, geocodeAddress, makeMap } from "./geo.js?v=20";
 import { normalisePostcode, normaliseUkPhone, showUkPhone, lookupPostcode, nearestPostcode, townMatches, REASONS } from "./uk.js?v=16";
 
@@ -48,8 +48,7 @@ const CODE_ERRORS = {
   locked: () => "Too many wrong codes. Please try again in an hour.",
 };
 const PHONE = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/></svg>`;
-/* Calling codes for the phone login: [ISO country, name, dial code]. Flags exist for some; the rest show their 2-letter code. */
-const FLAGGED = new Set("gb us fr it de es dz tr in pk bd pl ro pt nl ru cn jp kr id".split(" "));
+/* Calling codes for the phone login: [ISO country, name, dial code]. */
 const COUNTRIES = [["GB","United Kingdom","44"],["FR","France","33"],["DZ","Algeria","213"],["US","United States","1"],["CA","Canada","1"],["IE","Ireland","353"],["DE","Germany","49"],["ES","Spain","34"],["IT","Italy","39"],["NL","Netherlands","31"],["BE","Belgium","32"],["CH","Switzerland","41"],["PT","Portugal","351"],["PL","Poland","48"],["RO","Romania","40"],["TR","Turkey","90"],["MA","Morocco","212"],["TN","Tunisia","216"],["EG","Egypt","20"],["SA","Saudi Arabia","966"],["AE","United Arab Emirates","971"],["IN","India","91"],["PK","Pakistan","92"],["BD","Bangladesh","880"],["RU","Russia","7"],["CN","China","86"],["JP","Japan","81"],["KR","South Korea","82"],["ID","Indonesia","62"],["AU","Australia","61"]];
 const TZ = { "Europe/London": "GB", "Europe/Paris": "FR", "Africa/Algiers": "DZ", "Europe/Dublin": "IE", "Europe/Berlin": "DE", "Europe/Madrid": "ES", "Europe/Rome": "IT", "Europe/Amsterdam": "NL", "Europe/Brussels": "BE", "Europe/Zurich": "CH", "Europe/Lisbon": "PT", "Europe/Warsaw": "PL", "Europe/Bucharest": "RO", "Europe/Istanbul": "TR", "Africa/Casablanca": "MA", "Africa/Tunis": "TN", "Africa/Cairo": "EG", "Asia/Riyadh": "SA", "Asia/Dubai": "AE", "Asia/Kolkata": "IN", "Asia/Karachi": "PK", "Asia/Dhaka": "BD", "Europe/Moscow": "RU", "Asia/Shanghai": "CN", "Asia/Tokyo": "JP", "Asia/Seoul": "KR", "Asia/Jakarta": "ID", "America/New_York": "US", "America/Chicago": "US", "America/Denver": "US", "America/Los_Angeles": "US", "America/Toronto": "CA", "Australia/Sydney": "AU" };
 const known = c => COUNTRIES.some(x => x[0] === c);
@@ -193,7 +192,7 @@ export function createAuth({ FS, onChange = () => {} }) {
     <div class="social"><button class="soc" type="button" data-google>${GOOGLE}<span>Continue with Google</span></button>
     <button class="soc" type="button" data-go="phone">${PHONE}<span>Continue with phone</span></button></div>`;
 
-  const ccFlag = c => FLAGGED.has(c.toLowerCase()) ? flag(c.toLowerCase()) : `<span class="fl-txt">${c}</span>`;
+  const ccFlag = c => flag(c.toLowerCase());
   const ccFace = () => `${ccFlag(country)}<span translate="no">+${dialOf(country)}</span><svg class="lang-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>`;
   function pickCountry(c) {
     country = c; const f = $("#auView form"); if (!f) return;

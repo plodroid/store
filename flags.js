@@ -26,4 +26,18 @@ const FLAGS = {
   kr: `<rect width="60" height="40" fill="#fff"/><circle cx="30" cy="20" r="10" fill="#CD2E3A"/><path d="M20 20a10 10 0 0 0 20 0a5 5 0 0 0-10 0a5 5 0 0 1-10 0z" fill="#0047A0"/><g stroke="#000" stroke-width="2"><path d="M8 7l5 -3M9 10l5 -3M47 4l5 3M46 7l5 3M8 33l5 3M9 30l5 3M47 36l5 -3M46 33l5 -3"/></g>`,
   id: bands("h", "#CE1126", "#fff"),
 };
+/* more flags, for the phone-login country list */
+Object.assign(FLAGS, {
+  ie: bands("v", "#169B62", "#fff", "#FF883E"),
+  be: bands("v", "#000", "#FAE042", "#ED2939"),
+  ch: `<rect width="60" height="40" fill="#DA291C"/><path d="M26 9h8v10h10v8H34v10h-8V27H16v-8h10z" fill="#fff" transform="translate(0 -3) scale(1 .85) translate(0 5.5)"/>`,
+  ca: `<rect width="60" height="40" fill="#fff"/><rect width="15" height="40" fill="#D52B1E"/><rect x="45" width="15" height="40" fill="#D52B1E"/><path d="M30 8l2.6 5 3-1-1 7 4-3 1 2.5-5.5 4.5.8 2.5-5-.6V33h-1.8v-6.1l-5 .6.8-2.5L21 19.5l1-2.5 4 3-1-7 3 1z" fill="#D52B1E"/>`,
+  ma: `<rect width="60" height="40" fill="#C1272D"/><path d="M30 11l3.2 9.9H43l-8.3 6 3.2 9.9-8-6.1-8 6.1 3.2-9.9-8.3-6h9.8z" fill="none" stroke="#006233" stroke-width="1.6" transform="translate(0 -3) scale(1 .95) translate(0 2)"/>`,
+  tn: `<rect width="60" height="40" fill="#E70013"/><circle cx="30" cy="20" r="11" fill="#fff"/><circle cx="30" cy="20" r="8" fill="#E70013"/><circle cx="31.6" cy="20" r="6.4" fill="#fff"/>${star(31.4, 20, 4, "#E70013")}`,
+  eg: `${bands("h", "#CE1126", "#fff", "#000")}<rect x="26" y="15" width="8" height="10" rx="2" fill="#C09300"/>`,
+  sa: `<rect width="60" height="40" fill="#006C35"/><rect x="14" y="13" width="32" height="3" rx="1.5" fill="#fff"/><rect x="16" y="19" width="28" height="3" rx="1.5" fill="#fff"/><rect x="17" y="27" width="26" height="2.4" rx="1.2" fill="#fff"/>`,
+  ae: `<rect width="60" height="40" fill="#fff"/><rect x="15" width="45" height="13.4" fill="#00732F"/><rect x="15" y="26.6" width="45" height="13.4" fill="#000"/><rect width="15" height="40" fill="#FF0000"/>`,
+});
+FLAGS.au = `<rect width="60" height="40" fill="#012169"/><svg width="30" height="20" viewBox="0 0 60 40">${FLAGS.gb}</svg>${star(15, 30, 5, "#fff")}${star(44, 8, 2.6, "#fff")}${star(52, 18, 2.6, "#fff")}${star(44, 31, 2.6, "#fff")}${star(37, 19, 2.6, "#fff")}`;
+
 export const flag = code => `<svg class="fl" viewBox="0 0 60 40" aria-hidden="true" focusable="false">${FLAGS[code] || FLAGS.gb}</svg>`;
