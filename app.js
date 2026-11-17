@@ -7,7 +7,7 @@ import { startNativeDock } from "./nativedock.js?v=17";
 import { initAppUpdate } from "./appupdate.js?v=17";
 import { $, $$, esc, store, money, pence, reduced, uid, openDialog, closeDialog, wireDialogs,
          toast, showError, setBusy, priceOf, onSale, percentOff, millis } from "./ui.js?v=16";
-import { createAuth } from "./auth.js?v=23";
+import { createAuth } from "./auth.js?v=24";
 import { normaliseUkPhone, showUkPhone } from "./uk.js?v=16";
 import { liveEvents, withEvents, applyTheme, paintMeta, heroHtml, heroVars, tickerText } from "./events.js?v=16";
 import { paintTicker, splitMessages, resetTicker } from "./ticker.js?v=16";
