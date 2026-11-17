@@ -72,7 +72,7 @@ function nativeGoogle() {
 }
 if (nativeGoogle()) document.documentElement.dataset.gnative = "1";
 const CANCELLED = /popup-closed|cancelled|canceled|12501|-5\b|user.?cancel/i;
-const errText = e => MESSAGES[e && e.code] || (/DEVELOPER_ERROR|\b10\b|12500/.test(`${e && e.code} ${e && e.message}`) && nativeGoogle() && "Google doesn't recognise this app build yet. Please sign in with email and password instead, and tell the shop.") || (e && e.code === "google/no-token" && "Google didn't send back a sign-in. Please try again.") || "Something went wrong. Please try again in a moment.";
+const errText = e => MESSAGES[e && e.code] || (/DEVELOPER_ERROR|\b10\b|12500/.test(`${e && e.code} ${e && e.message}`) && nativeGoogle() && "Google doesn't recognise this app build yet. Please sign in with email and password instead, and tell the shop.") || (e && e.code === "google/no-token" && "Google didn't send back a sign-in. Please try again.") || `Something went wrong. Please try again in a moment.${e && e.code ? " (" + e.code + ")" : ""}`;
 
 /** One call to the mailer script. Resolves to its JSON reply; throws {code} only when it can't be reached. */
 async function mailer(body) {
@@ -344,7 +344,9 @@ export function createAuth({ FS, onChange = () => {} }) {
         if (!n) return showError(err, MESSAGES["auth/invalid-phone-number"]);
         pendingPhone = n; pendingPhoneLocal = form.elements.phone.value.trim();
         try { verifier?.clear(); } catch {}
-        verifier = new au.RecaptchaVerifier(auth, btn, { size: "invisible" });
+        document.getElementById("rcv")?.remove();
+        const box = Object.assign(document.createElement("div"), { id: "rcv" }); form.append(box);
+        verifier = new au.RecaptchaVerifier(auth, box, { size: "invisible" });
         confirmation = await au.signInWithPhoneNumber(auth, n, verifier);
         go("code");
       } else {
