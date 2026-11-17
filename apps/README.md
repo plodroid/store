@@ -14,7 +14,7 @@ Every push that touches `apps/` runs `.github/workflows/mobile-apps.yml` (GitHub
 
 ## Notes
 - Customers sign in with the emailed code, or with Google through the native plugin (build 7 onward; older builds hide the Google button). The customer app needs an Android OAuth client for `com.plodroid.beehive` + the SHA-1 of the signing key in Google Cloud / Firebase, same as the owner app. The owner app uses native Google sign-in (`@capacitor-firebase/authentication`), config in `apps/owner/android/app/google-services.json`.
-- Debug APKs are signed with the shared `apps/debug.keystore` (public on purpose, test builds only).
+- Debug APKs are signed with committed keys (public on purpose, test builds only): the customer app with `apps/debug.keystore`, the owner app with its own `apps/owner.keystore`. Each package + SHA-1 pair can only be registered in one Google project, which is why the owner app has its own key.
 - Card payments open Stripe Checkout inside the app and return to it.
 - The owner app asks for **location** the first time you tap *Directions* on a delivery order (turn-by-turn map, and the live position the customer sees). It's only used while the directions screen is open.
 - No push notifications yet (the owner still sees new orders live while the app is open).

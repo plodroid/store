@@ -12,7 +12,7 @@ A small shop website (https://plodroid.github.io/store/) on **GitHub Pages + Fir
 
 Time: about 15 minutes. You need to be signed in to Google as **housikiki@gmail.com** for all of it.
 
-### 1. Check Google sign-in is on (already done for `asimsstore`)
+### 1. Check Google sign-in is on (already done for `beehive-shop-uk`)
 Firebase console → **Authentication → Sign-in method** → **Google** = Enabled.
 **Settings → Authorized domains** has `plodroid.github.io`.
 
@@ -41,7 +41,7 @@ It lets the script mint a login for someone who typed the right code. Treat it l
 
    | Property | Value |
    |---|---|
-   | `FB_CLIENT_EMAIL` | `client_email` from the JSON file (looks like `firebase-adminsdk-xxxx@asimsstore.iam.gserviceaccount.com`) |
+   | `FB_CLIENT_EMAIL` | `client_email` from the JSON file (looks like `firebase-adminsdk-xxxx@beehive-shop-uk.iam.gserviceaccount.com`) |
    | `FB_PRIVATE_KEY` | `private_key` from the JSON file: everything from `-----BEGIN PRIVATE KEY-----` to `-----END PRIVATE KEY-----`, without the surrounding quotes. The `\n` pieces are fine as they are. |
 
 2. **Save script properties.**

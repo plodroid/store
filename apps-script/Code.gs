@@ -18,7 +18,7 @@
 const SETTINGS = {
   STORE_NAME: 'Bee Hive',
   SITE_URL: 'https://plodroid.github.io/store/',   // notify emails may only link here
-  FIREBASE_API_KEY: 'AIzaSyAyEC7cTlTsNibzK7zVFm3NTds1ezcJDa0',   // the public web key from firebase-config.js (used to check the owner's login)
+  FIREBASE_API_KEY: 'AIzaSyDvXzdxig3eEGKAnQReP4HmjDKFISoJQH4',   // the public web key from firebase-config.js (used to check the owner's login)
   CODE_MINUTES: 10,          // a code stops working after this long
   RESEND_SECONDS: 30,        // gap between two codes for the same email
   TRIES_PER_CODE: 3,         // wrong guesses before a code is thrown away
@@ -27,7 +27,7 @@ const SETTINGS = {
   SENDS_PER_DAY: 80,         // codes for the whole shop per day (a free Gmail can send about 100 emails a day)
   GOOGLE_ONLY: ['housikiki@gmail.com'],   // these emails must use "Continue with Google" (a 4-digit code is too weak for the owner)
   NOTIFY_MAX: 40,            // customers per back-in-stock send
-  PROJECT_ID: 'asimsstore',  // Firebase project (orders are read and marked paid here)
+  PROJECT_ID: 'beehive-shop-uk',  // Firebase project (orders are read and marked paid here)
   OWNER_EMAIL: 'housikiki@gmail.com',   // gets an email for every paid order
 };
 

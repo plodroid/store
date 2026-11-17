@@ -4,5 +4,5 @@
     <string name="title_activity_main">Bee Hive Owner</string>
     <string name="package_name">com.plodroid.beehive.owner</string>
     <string name="custom_url_scheme">com.plodroid.beehive.owner</string>
-    <string name="default_web_client_id" translatable="false">696286412872-loq59fd8cms9m1ctscl9mpms83t0fj0j.apps.googleusercontent.com</string>
+    <string name="default_web_client_id" translatable="false">81393078838-f08l6ni20ttne8djd57b136n0atorlhh.apps.googleusercontent.com</string>
 </resources>

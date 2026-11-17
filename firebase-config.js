@@ -11,12 +11,12 @@
    ────────────────────────────────────────────────────────────── */
 
 window.FIREBASE_CONFIG = {
-  apiKey:            "AIzaSyAyEC7cTlTsNibzK7zVFm3NTds1ezcJDa0",
-  authDomain:        "asimsstore.firebaseapp.com",
-  projectId:         "asimsstore",
-  storageBucket:     "asimsstore.firebasestorage.app",
-  messagingSenderId: "696286412872",
-  appId:             "1:696286412872:web:f6ef9d5a8bd27cfb1cd87d",
+  apiKey:            "AIzaSyDvXzdxig3eEGKAnQReP4HmjDKFISoJQH4",
+  authDomain:        "beehive-shop-uk.firebaseapp.com",
+  projectId:         "beehive-shop-uk",
+  storageBucket:     "beehive-shop-uk.firebasestorage.app",
+  messagingSenderId: "81393078838",
+  appId:             "1:81393078838:web:feba2dd010d04ead1fbe97",
 };
 
 /* Must match the region in functions/index.js */

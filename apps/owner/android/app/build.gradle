@@ -17,9 +17,9 @@ android {
         }
     }
     signingConfigs {
-        // one shared debug key, committed on purpose (apps/debug.keystore) so the SHA-1 never changes and Google sign-in keeps working
+        // the owner app has its own debug key, committed on purpose (apps/owner.keystore) so the SHA-1 never changes and Google sign-in keeps working
         debug {
-            storeFile file('../../../debug.keystore')
+            storeFile file('../../../owner.keystore')
             storePassword 'android'
             keyAlias 'androiddebugkey'
             keyPassword 'android'
