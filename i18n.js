@@ -4,7 +4,7 @@
    descriptions, categories, events, the announcement bar) has no dictionary entry, so it is machine-translated on
    the fly (OWN below), cached on the device, and shown in English until the translation lands. Arabic flips the
    page right-to-left. */
-import { flag } from "./flags.js?v=17";
+import { flag } from "./flags.js?v=16";
 
 export const LANGS = [
   { code: "en", tag: "en-GB", short: "EN", name: "English", flag: "gb" },

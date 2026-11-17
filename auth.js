@@ -1,7 +1,6 @@
 /* Customer accounts: log in with email + password (or Google), the account page and the UK location picker. */
 
 import { $, $$, esc, openDialog, closeDialog, showError, setBusy, toast } from "./ui.js?v=16";
-import { flag } from "./flags.js?v=17";
 import { streetFor, geocodeAddress, makeMap } from "./geo.js?v=20";
 import { normalisePostcode, normaliseUkPhone, showUkPhone, lookupPostcode, nearestPostcode, townMatches, REASONS } from "./uk.js?v=16";
 
@@ -11,13 +10,6 @@ const MAIL_URL = () => String(window.STORE_AUTH_URL || "");
 const mailerReady = () => /^https:\/\/script\.google\.com\//.test(MAIL_URL());
 
 const MESSAGES = {
-  "auth/invalid-phone-number": "That phone number doesn't look right. Include the country code, like +44 7700 900123.",
-  "auth/missing-phone-number": "Enter your phone number first.",
-  "auth/invalid-verification-code": "That code isn't right. Check the text message and try again.",
-  "auth/code-expired": "That code has expired. Go back and request a new one.",
-  "auth/quota-exceeded": "We've sent too many texts today. Please log in with email or Google instead.",
-  "auth/too-many-requests": "Too many attempts. Please wait a bit, or log in with email or Google.",
-  "auth/captcha-check-failed": "Couldn't verify you're human. Please reload the page and try again.",
   "auth/invalid-credential": "That email and password don't match. Try again, or tap \"Forgot password?\".",
   "auth/wrong-password": "That email and password don't match. Try again, or tap \"Forgot password?\".",
   "auth/user-not-found": "That email and password don't match. Try again, or tap \"Forgot password?\".",
@@ -47,18 +39,6 @@ const CODE_ERRORS = {
   expired: () => "That code has expired or was used up. Tap \"Resend code\" to get a new one.",
   locked: () => "Too many wrong codes. Please try again in an hour.",
 };
-const PHONE = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/></svg>`;
-/* Calling codes for the phone login: [ISO country, name, dial code]. */
-const COUNTRIES = [["GB","United Kingdom","44"],["FR","France","33"],["DZ","Algeria","213"],["US","United States","1"],["CA","Canada","1"],["IE","Ireland","353"],["DE","Germany","49"],["ES","Spain","34"],["IT","Italy","39"],["NL","Netherlands","31"],["BE","Belgium","32"],["CH","Switzerland","41"],["PT","Portugal","351"],["PL","Poland","48"],["RO","Romania","40"],["TR","Turkey","90"],["MA","Morocco","212"],["TN","Tunisia","216"],["EG","Egypt","20"],["SA","Saudi Arabia","966"],["AE","United Arab Emirates","971"],["IN","India","91"],["PK","Pakistan","92"],["BD","Bangladesh","880"],["RU","Russia","7"],["CN","China","86"],["JP","Japan","81"],["KR","South Korea","82"],["ID","Indonesia","62"],["AU","Australia","61"]];
-const TZ = { "Europe/London": "GB", "Europe/Paris": "FR", "Africa/Algiers": "DZ", "Europe/Dublin": "IE", "Europe/Berlin": "DE", "Europe/Madrid": "ES", "Europe/Rome": "IT", "Europe/Amsterdam": "NL", "Europe/Brussels": "BE", "Europe/Zurich": "CH", "Europe/Lisbon": "PT", "Europe/Warsaw": "PL", "Europe/Bucharest": "RO", "Europe/Istanbul": "TR", "Africa/Casablanca": "MA", "Africa/Tunis": "TN", "Africa/Cairo": "EG", "Asia/Riyadh": "SA", "Asia/Dubai": "AE", "Asia/Kolkata": "IN", "Asia/Karachi": "PK", "Asia/Dhaka": "BD", "Europe/Moscow": "RU", "Asia/Shanghai": "CN", "Asia/Tokyo": "JP", "Asia/Seoul": "KR", "Asia/Jakarta": "ID", "America/New_York": "US", "America/Chicago": "US", "America/Denver": "US", "America/Los_Angeles": "US", "America/Toronto": "CA", "Australia/Sydney": "AU" };
-const known = c => COUNTRIES.some(x => x[0] === c);
-/** Best guess at the customer's country from their browser language, then their time zone, else the UK. No permission needed. */
-function guessCountry() {
-  try { for (const l of navigator.languages || [navigator.language]) { const r = (l.split("-")[1] || "").toUpperCase(); if (known(r)) return r; } } catch {}
-  try { const c = TZ[Intl.DateTimeFormat().resolvedOptions().timeZone]; if (c) return c; } catch {}
-  return "GB";
-}
-const dialOf = c => (COUNTRIES.find(x => x[0] === c) || COUNTRIES[0])[2];
 const SILENT = new Set(["auth/popup-closed-by-user", "auth/cancelled-popup-request"]);
 
 /** Inside the Android app Google blocks its sign-in page, so newer app builds carry a native Google sign-in plugin instead.
@@ -72,7 +52,7 @@ function nativeGoogle() {
 }
 if (nativeGoogle()) document.documentElement.dataset.gnative = "1";
 const CANCELLED = /popup-closed|cancelled|canceled|12501|-5\b|user.?cancel/i;
-const errText = e => MESSAGES[e && e.code] || (/DEVELOPER_ERROR|\b10\b|12500/.test(`${e && e.code} ${e && e.message}`) && nativeGoogle() && "Google doesn't recognise this app build yet. Please sign in with email and password instead, and tell the shop.") || (e && e.code === "google/no-token" && "Google didn't send back a sign-in. Please try again.") || `Something went wrong. Please try again in a moment.${e && e.code ? " (" + e.code + ")" : ""}`;
+const errText = e => MESSAGES[e && e.code] || (/DEVELOPER_ERROR|\b10\b|12500/.test(`${e && e.code} ${e && e.message}`) && nativeGoogle() && "Google doesn't recognise this app build yet. Please sign in with the email code instead, and tell the shop.") || (e && e.code === "google/no-token" && "Google didn't send back a sign-in. Please try again.") || "Something went wrong. Please try again in a moment.";
 
 /** One call to the mailer script. Resolves to its JSON reply; throws {code} only when it can't be reached. */
 async function mailer(body) {
@@ -93,17 +73,17 @@ export function createAuth({ FS, onChange = () => {} }) {
   const st = { user: null, email: "", verified: false, profile: {}, owner: false, ready: false };
   let pending = null;            // { resolve } while requireLogin() is waiting
   let markReady; const readyP = new Promise(r => (markReady = r));   // first auth answer from Firebase
-  let view = "in", reason = "", pendingEmail = "", pendingPhone = "", pendingPhoneLocal = "", confirmation = null, country = guessCountry(), ccOpen = false;
+  let view = "in", reason = "", pendingEmail = "";
 
   const dlg = $("#au"), acct = $("#acct"), loc = $("#loc");
 
   /* ── who is this, are they verified, are they the owner ── */
   async function loadProfile(user) {
-    st.profile = {}; st.owner = false; st.email = ""; st.phone = ""; st.verified = false;
+    st.profile = {}; st.owner = false; st.email = ""; st.verified = false;
     if (!user) return;
     try {
       const tok = await user.getIdTokenResult();
-      st.email = user.email || tok.claims.mail || ""; st.phone = user.phoneNumber || "";
+      st.email = user.email || tok.claims.mail || "";
       st.verified = !!user;   // password and Google accounts can order; payment itself goes through Stripe
     } catch (e) { console.warn("[auth] token", e && e.code); }
     if (!st.verified) return;
@@ -166,7 +146,7 @@ export function createAuth({ FS, onChange = () => {} }) {
     menu.hidden = !open;
     $("#acctBtn").setAttribute("aria-expanded", String(open));
     dockAcct.setAttribute("aria-expanded", String(open));
-    $("#menuEmail").textContent = st.email || st.phone;
+    $("#menuEmail").textContent = st.email;
     if (open) { placeMenu(); $("#menuAcct").focus({ preventScroll: true }); }
     tell();
   }
@@ -189,63 +169,9 @@ export function createAuth({ FS, onChange = () => {} }) {
   /* ── sign-in dialog ───────────────────────────────── */
   const social = () => `
     <div class="or"><span>or</span></div>
-    <div class="social"><button class="soc" type="button" data-google>${GOOGLE}<span>Continue with Google</span></button>
-    <button class="soc" type="button" data-go="phone">${PHONE}<span>Continue with phone</span></button></div>`;
-
-  const ccFlag = c => flag(c.toLowerCase());
-  const ccFace = () => `${ccFlag(country)}<span translate="no">+${dialOf(country)}</span><svg class="lang-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>`;
-  function pickCountry(c) {
-    country = c; const f = $("#auView form"); if (!f) return;
-    f.querySelector(".cc-btn").innerHTML = ccFace();
-    f.querySelectorAll("[data-cc]").forEach(b => b.setAttribute("aria-selected", String(b.dataset.cc === c)));
-    toggleCc(false);
-  }
-  function toggleCc(on) {
-    const f = $("#auView form"), m = f && f.querySelector(".cc-menu"); if (!m) return;
-    ccOpen = on; m.hidden = !on; f.querySelector(".cc-btn").setAttribute("aria-expanded", String(on));
-    if (on) m.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "center" });
-  }
-  /** Asks the browser for the position (only when the customer taps the button), then turns it into a country. */
-  async function locateCountry(btn, err) {
-    if (!navigator.geolocation) return showError(err, "Your browser can't share its location. Pick your country from the list.");
-    setBusy(dlg, btn, true);
-    try {
-      const pos = await new Promise((ok, no) => navigator.geolocation.getCurrentPosition(ok, no, { timeout: 10000, maximumAge: 600000 }));
-      const r = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${pos.coords.latitude}&longitude=${pos.coords.longitude}&localityLanguage=en`).then(x => x.json());
-      const c = String(r.countryCode || "").toUpperCase();
-      if (known(c)) pickCountry(c); else showError(err, "We can't text that country yet. Please log in with email or Google.");
-    } catch (e) { showError(err, e && e.code === 1 ? "Location is blocked for this site. Pick your country from the list." : "Couldn't work out your location. Pick your country from the list."); }
-    finally { setBusy(dlg, btn, false); }
-  }
+    <div class="social"><button class="soc" type="button" data-google>${GOOGLE}<span>Continue with Google</span></button></div>`;
 
   const VIEWS = {
-    phone: () => `
-      <form class="auth-form" data-form="phone" novalidate>
-        <h2 id="auTitle">Log in with phone</h2>
-        <p class="auth-sub">Choose your country and enter your number. We'll text you a one-time code.</p>
-        <div class="inp"><span>Phone number</span>
-          <div class="phone-row">
-            <div class="cc">
-              <button class="cc-btn" type="button" data-cc-toggle aria-haspopup="listbox" aria-expanded="false" aria-label="Country calling code">${ccFace()}</button>
-              <div class="lang-menu glass-strong cc-menu" role="listbox" translate="no" hidden>${COUNTRIES.map(c => `<button type="button" role="option" data-cc="${c[0]}" aria-selected="${c[0] === country}">${ccFlag(c[0])}<span class="lang-name">${esc(c[1])}</span><b>+${c[2]}</b></button>`).join("")}</div>
-            </div>
-            <input name="phone" type="tel" autocomplete="tel-national" inputmode="tel" placeholder="7700 900123" required maxlength="18" value="${esc(pendingPhoneLocal)}">
-          </div>
-        </div>
-        <button class="btn-quiet" type="button" data-locate>Use my location to pick the country</button>
-        <p class="form-error" role="alert" hidden></p>
-        <button class="btn-grad" type="submit">Text me a code</button>
-        <p class="auth-switch"><button class="link" type="button" data-go="in">Use email instead</button></p>
-      </form>`,
-    code: () => `
-      <form class="auth-form" data-form="code" novalidate>
-        <h2 id="auTitle">Enter your code</h2>
-        <p class="auth-sub">We texted a 6-digit code to ${esc(pendingPhone)}. Enter it below to continue. It can take a minute to arrive.</p>
-        <label class="inp"><span>6-digit code</span><input name="code" type="text" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]*" placeholder="123456" required maxlength="6"></label>
-        <p class="form-error" role="alert" hidden></p>
-        <button class="btn-grad" type="submit">Log in</button>
-        <p class="auth-switch"><button class="link" type="button" data-go="phone">Wrong number?</button></p>
-      </form>`,
     in: () => passView("in"),
     up: () => passView("up"),
     reset: () => `
@@ -275,7 +201,7 @@ export function createAuth({ FS, onChange = () => {} }) {
   }
 
   function go(next) {
-    view = next; ccOpen = false;
+    view = next;
     $("#auView").innerHTML = VIEWS[next]();
     $("#auView input")?.focus({ preventScroll: true });
   }
@@ -290,10 +216,6 @@ export function createAuth({ FS, onChange = () => {} }) {
   dlg.addEventListener("click", e => {
     const goBtn = e.target.closest("[data-go]");
     if (goBtn) return go(goBtn.dataset.go);
-    if (e.target.closest("[data-cc-toggle]")) return toggleCc(!ccOpen);
-    const cc = e.target.closest("[data-cc]"); if (cc) return pickCountry(cc.dataset.cc);
-    if (e.target.closest("[data-locate]")) return locateCountry(e.target.closest("button"), $("#auView .form-error"));
-    if (ccOpen && !e.target.closest(".cc")) toggleCc(false);
     if (e.target.closest("[data-google]")) return withBusy(e.target.closest("button"), googleSignIn);
   });
 
@@ -304,7 +226,6 @@ export function createAuth({ FS, onChange = () => {} }) {
     const btn = form.querySelector(".btn-grad");
     const err = form.querySelector(".form-error");
     showError(err, ""); err.classList.remove("ok");
-    if (kind === "phone" || kind === "code") return phoneStep(kind, form, btn, err);
     const email = form.elements.email.value.trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 120) {
       form.elements.email.setAttribute("aria-invalid", "true");
@@ -325,39 +246,6 @@ export function createAuth({ FS, onChange = () => {} }) {
     } catch (e2) { console.warn("[auth]", e2 && (e2.code || e2.message)); showError(err, errText(e2)); }
     finally { setBusy(dlg, btn, false); }
   });
-
-  /* Phone login: ONE text per attempt (the free Firebase plan allows only ~10 a day), so there is no resend button. */
-  /** Country + what they typed → +E.164. A number typed with its own +code or 00 wins; a leading 0 (UK-style) is dropped. */
-  const e164 = raw => {
-    let n = raw.replace(/[\s().-]/g, "");
-    if (n.startsWith("00")) n = "+" + n.slice(2);
-    if (!n.startsWith("+")) { n = n.replace(/\D/g, ""); if (country !== "IT") n = n.replace(/^0+/, ""); n = "+" + dialOf(country) + n; }
-    return /^\+[1-9]\d{7,14}$/.test(n) ? n : "";
-  };
-  let verifier = null;
-  async function phoneStep(kind, form, btn, err) {
-    setBusy(dlg, btn, true);
-    try {
-      await persistence();
-      if (kind === "phone") {
-        const n = e164(form.elements.phone.value.trim());
-        if (!n) return showError(err, MESSAGES["auth/invalid-phone-number"]);
-        pendingPhone = n; pendingPhoneLocal = form.elements.phone.value.trim();
-        try { verifier?.clear(); } catch {}
-        document.getElementById("rcv")?.remove();
-        const box = Object.assign(document.createElement("div"), { id: "rcv" }); form.append(box);
-        verifier = new au.RecaptchaVerifier(auth, box, { size: "invisible" });
-        confirmation = await au.signInWithPhoneNumber(auth, n, verifier);
-        go("code");
-      } else {
-        const c = form.elements.code.value.replace(/\D/g, "");
-        if (c.length !== 6) return showError(err, MESSAGES["auth/invalid-verification-code"]);
-        const { user } = await confirmation.confirm(c);
-        await afterSignIn(user);
-      }
-    } catch (e) { console.warn("[auth]", e && (e.code || e.message)); try { verifier?.clear(); } catch {} verifier = null; showError(err, errText(e)); }
-    finally { setBusy(dlg, btn, false); }
-  }
 
   async function persistence() {
     try { await au.setPersistence(auth, au.browserLocalPersistence); } catch {}
@@ -428,7 +316,7 @@ export function createAuth({ FS, onChange = () => {} }) {
           <label class="inp"><span>Full name</span><input name="name" autocomplete="name" maxlength="80" value="${esc(p.name || st.user.displayName || "")}"></label>
           <label class="inp"><span>Mobile number <em>(UK)</em></span><input name="phone" type="tel" autocomplete="tel" inputmode="tel" maxlength="20" placeholder="07123 456789" value="${esc(showUkPhone(p.phone || ""))}"></label>
           <div class="inp"><span>Email</span>
-            <div class="static">${esc(st.email || st.phone)} <span class="badge ok">Verified</span></div>
+            <div class="static">${esc(st.email)} <span class="badge ok">Verified</span></div>
           </div>
         </div>
         <div class="form-section">
