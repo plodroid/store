@@ -200,64 +200,19 @@ button.stat:active { transform: scale(.98); }
 
 /* ── directions (owner) ── */
 body.nav-open { overflow: hidden; }
-.nav-panel { position: fixed; inset: 0; z-index: 300; background: var(--bg); color: var(--text); overflow: hidden; }
-.nav-map { position: absolute; inset: 0; }
-.nav-top { position: absolute; z-index: 500; left: 12px; right: 12px; top: max(12px, env(safe-area-inset-top)); display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 20px; background: #12301f; color: #fff; box-shadow: 0 10px 30px -10px rgba(0,0,0,.5); }
-.nav-arrow { width: 44px; height: 44px; flex: none; display: grid; place-items: center; } .nav-arrow svg { width: 36px; height: 36px; }
-.nav-next { flex: 1; min-width: 0; display: grid; } .nav-next b { font-size: 17px; line-height: 1.25; } .nav-next span { font-size: 14px; opacity: .8; }
-.nav-x { width: 40px; height: 40px; flex: none; border-radius: 50%; display: grid; place-items: center; background: rgba(255,255,255,.14); color: #fff; } .nav-x svg { width: 20px; height: 20px; }
-.nav-sheet { position: absolute; z-index: 500; left: 0; right: 0; bottom: 0; max-height: 62vh; overflow: auto; padding: 16px 16px max(16px, env(safe-area-inset-bottom)); border-radius: 24px 24px 0 0; background: var(--surface); box-shadow: 0 -12px 40px -16px rgba(0,0,0,.45); }
-.nav-eta { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; }
-.nav-eta b { display: block; font-size: 28px; letter-spacing: -.02em; line-height: 1.1; } .nav-eta span { display: block; color: var(--muted); font-size: 13px; }
-.nav-where { color: var(--muted); font-size: 13px; text-align: right; max-width: 45%; }
-.nav-share { margin-top: 6px; } .nav-note { min-height: 0; margin: 4px 0 0; font-size: 13px; color: var(--warn); } .nav-note:empty { display: none; }
-.nav-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; } .nav-btns .btn-primary { grid-column: 1 / -1; background: var(--ok); color: #fff; }
-.nav-btns .btn-ghost, .nav-btns .btn-quiet { display: inline-flex; align-items: center; justify-content: center; min-height: 46px; padding: 0 14px; border-radius: 999px; text-align: center; font-size: 14px; }
-.nav-steps { list-style: none; margin: 12px 0 0; padding: 0; display: grid; }
-.nav-steps li { display: flex; align-items: center; gap: 12px; padding: 11px 2px; border-top: 1px solid var(--line); font-size: 14.5px; }
-.nav-steps li span:nth-child(2) { flex: 1; } .nav-steps em { color: var(--muted); font-style: normal; font-size: 13px; }
 .nav-ic { width: 30px; height: 30px; flex: none; display: grid; place-items: center; border-radius: 50%; background: var(--fill-2); } .nav-ic svg { width: 18px; height: 18px; }
-.nav-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; } .nav-btn svg { width: 18px; height: 18px; }
-.ocard .nav-btn { margin-bottom: 8px; width: 100%; }
 
 /* Orders tab: each order is its row, its progress bar and (delivery) the directions button, in one card */
 .owrap { border-radius: 14px; background: var(--surface); border: 1px solid var(--line); overflow: hidden; display: grid; gap: 4px; padding-bottom: 10px; }
 .owrap .orow { border: 0; border-radius: 0; background: transparent; }
 @media (hover: hover) { .owrap .orow:hover { background: var(--surface-2); } }
 .owrap .trk { margin: 2px 14px 0; }
-.owrap .nav-btn { margin: 6px 14px 0; width: calc(100% - 28px); }
 
 /* location bar (top of Today) */
-.locbar { display: flex; align-items: center; gap: 12px; margin: 0 0 12px; padding: 12px 14px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); font-size: 14px; }
-.locbar .adm-grow b { display: block; font-size: 14.5px; }
-.locbar .adm-grow span { display: block; margin-top: 2px; font-size: 13px; color: var(--muted); line-height: 1.35; }
-.locbar .lb-dot { flex: none; width: 12px; height: 12px; border-radius: 50%; background: var(--faint); }
-.locbar.on { background: color-mix(in srgb, #1E8E4A 10%, var(--surface)); border-color: color-mix(in srgb, #1E8E4A 35%, transparent); }
-.locbar.on .lb-dot { background: #1E8E4A; box-shadow: 0 0 0 0 rgba(30,142,74,.5); animation: me-pulse 2s ease-in-out infinite; }
-.locbar.ask { background: color-mix(in srgb, var(--accent) 14%, var(--surface)); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
-.locbar.ask .lb-dot { background: var(--accent); }
-.locbar.bad .lb-dot { background: var(--coral, #D93025); }
-.locbar.ready .lb-dot { background: #1E8E4A; opacity: .55; }
-@media (max-width: 480px) { .locbar { flex-wrap: wrap; } .locbar .btn-primary, .locbar .btn-ghost, .locbar .btn-quiet { margin-left: 24px; } }
 
 /* deliveries map (top of Today) */
 .dm { padding-bottom: 14px; }
-.dm-map { height: min(46vh, 320px); min-height: 230px; border-radius: 16px; overflow: hidden; margin: 8px 0 10px; border: 1px solid var(--line); background: var(--surface-2); position: relative; z-index: 0; }
-.dm-chips { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0 10px; scrollbar-width: none; }
-.dm-chips::-webkit-scrollbar { display: none; }
-.dm-chip { flex: none; display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 14px 0 6px; border-radius: 999px; font-size: 14px; font-weight: 550; background: var(--surface); border: 1px solid var(--line-2); }
-.dm-chip b { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; background: var(--fill-2); }
-.dm-chip[aria-selected="true"] { background: var(--text); color: var(--bg); border-color: transparent; }
-.dm-chip[aria-selected="true"] b { background: var(--accent); color: var(--on-accent); }
-.dm-go { min-height: 56px; font-size: 16px; gap: 10px; display: flex; align-items: center; justify-content: center; text-align: left; }
-.dm-go svg { width: 22px; height: 22px; flex: none; }
-.dm-go span { min-width: 0; line-height: 1.25; overflow-wrap: anywhere; }
 .dm .pin-me i { display: block; box-sizing: content-box; }
-.dm-hint { margin: 8px 2px 0; text-align: center; }
-.dm-pin { background: none; border: 0; }
-.dm-pin b { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); background: var(--text); color: var(--bg); border: 3px solid #fff; box-shadow: 0 4px 10px rgba(0,0,0,.35); }
-.dm-pin i { transform: rotate(45deg); font-style: normal; font-weight: 700; font-size: 14px; }
-.dm-pin.on b { background: var(--accent); color: var(--on-accent); width: 40px; height: 40px; margin: -3px 0 0 -3px; }
 
 /* iPhone app: the real iOS tab bar (nativedock.js) replaces the section tabs */
 html.native-dock .adm-tabs { display: none; }
@@ -426,12 +381,13 @@ html.native-dock .adm-main { padding-bottom: calc(var(--dock-h, 0px) + 16px); }
 .qe-paste { margin: 8px 0; } .qe-paste summary { cursor: pointer; font-weight: 500; } .qe-paste textarea { width: 100%; margin: 8px 0; padding: 10px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface-2); font-size: 16px; }
 #admDlg:has(.qe) { width: min(780px, 96vw); max-width: 96vw; }
 /* location card: the buttons must not squeeze the text (btn-quiet is full width elsewhere) */
-.locbar .btn-primary, .locbar .btn-ghost, .locbar .btn-quiet { flex: none; width: auto; height: 40px; margin-top: 0; padding: 0 18px; }
-.locbar .adm-grow { flex: 1 1 140px; }
-/* Mapbox's stylesheet loads later and sets .mapboxgl-map { position: relative }, which collapsed the full-screen map to nothing */
-.nav-map.mapboxgl-map, .nav-panel .nav-map { position: absolute; inset: 0; width: 100%; height: 100%; }
-.nav-btns:has(#navG[hidden]) .btn-quiet { grid-column: 1 / -1; }
-.owrap .nav-btn { margin-top: 10px; }
 /* phone: long product names must not stretch the row past the screen; bulk buttons sit on one row */
 .adm-list { min-width: 0; } .prow { min-width: 0; max-width: 100%; } .pmain { min-width: 0; }
 @media (max-width: 520px) { .adm-bar-btns { width: 100%; } .adm-bar-btns .btn-primary { margin-left: auto; } .adm-search { flex: 1 1 100%; } }
+
+/* shipping settings */
+.ship-set { margin: 8px 0 16px; padding: 12px 14px; border-radius: 14px; background: var(--surface-2); border: 1px solid var(--line); }
+.ship-set summary { cursor: pointer; } .ship-set summary h3 { display: inline; margin: 0; }
+.ship-set h4 { margin: 18px 0 8px; font-size: 14px; }
+.ship-to { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0 12px; max-height: 190px; overflow: auto; }
+.row3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0 10px; }

@@ -29,7 +29,7 @@
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js">
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js">
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js">
-<link rel="stylesheet" href="./styles.css?v=28">
+<link rel="stylesheet" href="./styles.css?v=29">
 <link rel="stylesheet" href="./events.css?v=16">
 </head>
 
@@ -181,7 +181,7 @@
         <button class="footer-link" id="footAcct" type="button">Your account</button>
         <button class="footer-link" id="footOrders" type="button">Your orders</button>
         <button class="footer-link" id="footSaved" type="button">Saved items</button>
-        <button class="footer-link" id="footDelivery" type="button">Delivery &amp; pick-up</button>
+        <button class="footer-link" id="footDelivery" type="button">Shipping &amp; pick-up</button>
         <button class="footer-link" id="openFeedback" type="button">Help &amp; feedback</button>
         <a id="contact" class="footer-link" href="#" target="_blank" rel="noopener" hidden>WhatsApp</a>
       </nav>
@@ -243,7 +243,7 @@
 
     <div class="notice" role="note">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
-      <p id="coNote"><strong>Test checkout.</strong> Nothing is charged. The shop confirms your order, then you can pay at pick-up or delivery. Your order is marked as a test.</p>
+      <p id="coNote"><strong>Test checkout.</strong> Nothing is charged. The shop confirms your order, then you can pay at pick-up. Your order is marked as a test.</p>
     </div>
 
     <div class="form-section">
@@ -260,16 +260,18 @@
       <h3>Your details</h3>
       <label class="inp"><span>Name</span><input name="name" autocomplete="name" required minlength="2" maxlength="80"></label>
       <div class="row2">
-        <label class="inp"><span>Mobile number <em id="coPhoneHint">(UK, optional)</em></span><input name="phone" type="tel" autocomplete="tel" inputmode="tel" maxlength="20" placeholder="07123 456789"></label>
+        <label class="inp"><span>Mobile number <em id="coPhoneHint">(optional)</em></span><input name="phone" type="tel" autocomplete="tel" inputmode="tel" maxlength="24" placeholder="07123 456789 or +44 7123 456789"></label>
         <div class="inp"><span>Email</span><div class="static" id="coEmail"></div></div>
       </div>
       <p class="hint">Saved to your account, so next time it's already filled in.</p>
     </div>
 
     <div class="form-section" id="coAddress" hidden>
-      <h3>Delivery location</h3>
+      <h3>Delivery address</h3>
       <div class="addr-card" id="coAddrCard"></div>
-      <button class="btn-ghost tight" type="button" id="coAddrBtn">Set location</button>
+      <button class="btn-ghost tight" type="button" id="coAddrBtn">Add address</button>
+      <h3 class="rates-h">Courier</h3>
+      <div id="coRates" aria-live="polite"></div>
     </div>
 
     <div class="form-section">
@@ -391,7 +393,7 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="./firebase-config.js?v=17"></script>
-<script type="module" src="./app.js?v=30"></script>
+<script src="./firebase-config.js?v=18"></script>
+<script type="module" src="./app.js?v=31"></script>
 </body>
 </html>

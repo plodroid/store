@@ -66,6 +66,8 @@
       if (!acc || acc.password !== pw) throw err("auth/invalid-credential");
       return { user: signInAs(email) };
     },
+    signInWithRedirect: async () => { throw err("auth/operation-not-supported-in-this-environment"); },
+    getRedirectResult: async () => null,
     signInWithPopup: async () => {
       if (F.popupClosed) throw err("auth/popup-closed-by-user");
       const g = F.nextGoogle, acc = accounts();
@@ -146,8 +148,8 @@
   const hasOnly = (d, keys) => Object.keys(d).every(k => keys.includes(k));
   const hasAll = (d, keys) => keys.every(k => k in d);
   const isNum = v => typeof v === "number" && Number.isFinite(v);
-  const validAddress = a => a == null || (typeof a === "object" && hasOnly(a, ["line1", "line2", "city", "postcode", "lat", "lng", "verified"])
-    && ["line1", "line2"].every(k => isStr(a[k] ?? "", 120)) && isStr(a.city ?? "", 60) && isStr(a.postcode ?? "", 12)
+  const validAddress = a => a == null || (typeof a === "object" && hasOnly(a, ["country", "line1", "line2", "city", "state", "postcode", "lat", "lng", "verified"])
+    && ["line1", "line2"].every(k => isStr(a[k] ?? "", 120)) && isStr(a.city ?? "", 60) && isStr(a.postcode ?? "", 12) && isStr(a.country ?? "", 2) && isStr(a.state ?? "", 40)
     && (a.lat == null || isNum(a.lat)) && (a.lng == null || isNum(a.lng)) && (a.verified == null || typeof a.verified === "boolean"));
   const throttle = (before, after, k, secs, t) => {
     if (before && k in before && !(k in after)) return false;
@@ -175,19 +177,21 @@
       if (op === "create") {
         const d = raw;
         if (!w.verified) deny("orders: not verified");
-        if (!hasOnly(d, ["uid", "ref", "requestId", "status", "paymentStatus", "isTest", "fulfilment", "items", "customer", "address", "note", "estTotal", "createdAt", "updatedAt"])) deny("orders: keys " + Object.keys(d));
+        if (!hasOnly(d, ["uid", "ref", "requestId", "status", "paymentStatus", "isTest", "fulfilment", "items", "customer", "address", "shipping", "note", "estTotal", "createdAt", "updatedAt"])) deny("orders: keys " + Object.keys(d));
         if (!hasAll(d, ["uid", "ref", "requestId", "status", "paymentStatus", "isTest", "fulfilment", "items", "customer", "note", "createdAt", "updatedAt"])) deny("orders: missing keys");
         if (d.uid !== w.uid) deny("orders: uid");
         if (!/^[A-Za-z0-9-]{8,64}$/.test(d.requestId) || id !== "o_" + d.requestId) deny("orders: id");
         if (!/^BH-[A-Z0-9]{6}$/.test(d.ref)) deny("orders: ref");
         if (d.status !== "new" || !["mock", "awaiting"].includes(d.paymentStatus) || d.isTest !== true) deny("orders: status");
-        if (!["collection", "delivery"].includes(d.fulfilment)) deny("orders: fulfilment");
+        if (!["collection", "shipping"].includes(d.fulfilment)) deny("orders: fulfilment");
         if (!Array.isArray(d.items) || d.items.length < 1 || d.items.length > 50) deny("orders: items");
         const cu = d.customer;
         if (!cu || !hasOnly(cu, ["name", "phone", "email"]) || !isStr(cu.name, 80) || cu.name.length < 2 || !isStr(cu.phone, 20) || !isStr(cu.email, 120)) deny("orders: customer");
-        if (d.fulfilment === "delivery") {
-          if (!d.address || !validAddress(d.address) || !(d.address.line1 || "").length || !(d.address.city || "").length || (d.address.postcode || "").length < 5 || cu.phone.length < 7) deny("orders: delivery address/phone");
-        } else if (d.address != null) deny("orders: collection with address");
+        if (d.fulfilment === "shipping") {
+          const s = d.shipping;
+          if (!d.address || !validAddress(d.address) || (d.address.country || "").length !== 2 || (d.address.line1 || "").length < 3 || (d.address.city || "").length < 2 || !(d.address.postcode || "").length || !/^\+[0-9]{8,15}$/.test(cu.phone)) deny("orders: shipping address/phone");
+          if (!s || !hasOnly(s, ["serviceId", "courier", "service", "price", "etaMin", "etaMax"]) || !isStr(s.serviceId, 80) || !s.serviceId.length || !isNum(s.price ?? 0) || (s.price ?? 0) < 0 || (s.price ?? 0) > 1000) deny("orders: shipping choice");
+        } else if (d.address != null || "shipping" in d) deny("orders: collection with address");
         if (!isStr(d.note, 500)) deny("orders: note");
         if ("estTotal" in d && !(isNum(d.estTotal) && d.estTotal >= 0)) deny("orders: estTotal");
         if (!isSV(d.createdAt) || !isSV(d.updatedAt)) deny("orders: timestamps");
@@ -198,9 +202,9 @@
       if (!w.owner) deny("orders: owner only");
       if (op === "update") {
         const changed = Object.keys(raw).filter(k => key(enc(raw[k], t)) !== key(before[k]));
-        if (!changed.every(k => ["status", "paymentStatus", "lines", "subtotal", "deliveryFee", "total", "updatedAt"].includes(k))) deny("orders: owner changed " + changed);
+        if (!changed.every(k => ["status", "paymentStatus", "lines", "subtotal", "shippingFee", "total", "updatedAt"].includes(k))) deny("orders: owner changed " + changed);
         if (before.status === "cancelled") deny("orders: cancelled is final");
-        if (!["new", "confirmed", "preparing", "ontheway", "arrived", "ready", "completed", "cancelled"].includes(raw.status)) deny("orders: status value");
+        if (!["new", "confirmed", "preparing", "shipped", "ready", "completed", "cancelled"].includes(raw.status)) deny("orders: status value");
         if (raw.paymentStatus !== before.paymentStatus && before.isTest !== false) deny("orders: test payment stays mock");
         if (!isSV(raw.updatedAt)) deny("orders: updatedAt");
         return;
@@ -278,8 +282,8 @@
       if (!isSV(d.updatedAt)) deny("events: updatedAt");
     }
     if (c === "settings" && id === "site") {
-      if (!hasOnly(raw, ["storeName", "heroTitle", "heroSubtitle", "announcement", "whatsapp", "collection", "delivery", "deliveryFee", "collectionNote", "deliveryNote", "currency", "updatedAt"])) deny("settings: keys " + Object.keys(raw));
-      if ("deliveryFee" in raw && !(isNum(raw.deliveryFee) && raw.deliveryFee >= 0 && raw.deliveryFee <= 1000)) deny("settings: fee");
+      if (!hasOnly(raw, ["storeName", "heroTitle", "heroSubtitle", "announcement", "whatsapp", "collection", "shipping", "shipTo", "freeShippingOver", "packagingG", "defaultWeightG", "boxL", "boxW", "boxH", "shipCategory", "collectionNote", "currency", "updatedAt"])) deny("settings: keys " + Object.keys(raw));
+      if ("freeShippingOver" in raw && !(isNum(raw.freeShippingOver) && raw.freeShippingOver >= 0 && raw.freeShippingOver <= 100000)) deny("settings: free shipping");
     }
   }
 

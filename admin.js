@@ -4,44 +4,21 @@
    transaction (so customers can never choose their own price). */
 
 import { $, $$, esc, money, openDialog, closeDialog, showError, setBusy, toast, millis, timeAgo, store, priceOf, onSale } from "./ui.js?v=16";
-import { lookupPostcode } from "./uk.js?v=16";
-import { trackerHtml } from "./flow.js?v=16";
-import { createTracker } from "./track.js?v=16";
+import { addressFormHtml, readAddressForm, validateAddress, validatePhone, formatAddress, COUNTRIES, countryName } from "./address.js?v=1";
+import { trackerHtml } from "./flow.js?v=17";
 import { analyticsHtml, wireAnalytics } from "./analytics.js?v=19";
-import { createDeliveryMap, deliveries } from "./dmap.js?v=20";
 import { LOOKS, SWATCHES, isLive, todayUK, heroHtml, heroVars } from "./events.js?v=16";
 
 const css = document.createElement("link");
-css.rel = "stylesheet"; css.href = new URL("./admin.css?v=24", import.meta.url).href;
+css.rel = "stylesheet"; css.href = new URL("./admin.css?v=25", import.meta.url).href;
 const css2 = document.createElement("link");
 css2.rel = "stylesheet"; css2.href = new URL("./events.css?v=16", import.meta.url).href;
 document.head.append(css, css2);
 
 let X = null;                 // { FS, acct, getSite }
 
-/* ── his position, shared with customers only while a delivery is out ── */
-const tracker = createTracker(() => X && X.FS, () => { const el = $("#locBar"); if (el) el.innerHTML = locBarHtml(); dm && dm.update(A.orders, tracker.state().last); });
-let dm = null;                // the deliveries map (built once, moved back into the page after each redraw)
-function locBarHtml() {
-  const t = tracker.state();
-  if (!t.supported) return "";
-  let cls = "ready", head, sub, btn = "";
-  if (!t.wants) { cls = "off"; head = "Location sharing is off"; sub = "Customers can't see where you are on their deliveries."; btn = `<button class="btn-ghost tight" type="button" data-act="loc-on">Turn on</button>`; }
-  else if (t.perm === "denied") { cls = "bad"; head = "Location is blocked"; sub = "Allow location for this app in your phone's settings so customers can watch you arrive."; }
-  else if (t.perm !== "granted") { cls = "ask"; head = "Let customers see you on the way"; sub = "Allow location. It is only used while you're out delivering."; btn = `<button class="btn-primary tight" type="button" data-act="loc-allow">Allow location</button>`; }
-  else if (t.tracking) { cls = "on"; head = "Sharing your location"; sub = `${t.n} deliver${t.n === 1 ? "y is" : "ies are"} out. It stops by itself when you finish.`; btn = `<button class="btn-quiet" type="button" data-act="loc-off">Pause</button>`; }
-  else { head = "Location is ready"; sub = "It is only shared while a delivery is on its way, never otherwise."; btn = `<button class="btn-quiet" type="button" data-act="loc-off">Turn off</button>`; }
-  return `<div class="locbar ${cls}"><i class="lb-dot" aria-hidden="true"></i><div class="adm-grow"><b>${head}</b><span>${sub}</span></div>${btn}</div>`;
-}
-function syncDeliveryMap() {
-  const ph = $("[data-dmap]", $("#admMain"));
-  if (!ph) { if (dm) { dm.destroy(); dm = null; } return; }
-  if (!dm) dm = createDeliveryMap({ onGo: id => navigateTo(id), created });
-  if (dm.box.parentNode !== ph.parentNode || !dm.box.isConnected) { ph.replaceWith(dm.box); dm.refit(); }
-  dm.update(A.orders, tracker.state().last);
-}
 const A = {
-  products: [], categories: [], orders: [], feedback: [], alerts: [], events: [],
+  products: [], categories: [], orders: [], feedback: [], alerts: [], events: [], owner: {},
   loaded: { products: false, categories: false, orders: false, feedback: false, alerts: false, events: false },
   errors: {}, tab: "home", more: false, open: false, started: false, unsubs: [],
   pf: "all", pq: "", sel: null, range: 30, of: "active", ff: "inbox",
@@ -61,7 +38,6 @@ const ICON = {
   close: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>`,
   bell: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9a6 6 0 1 1 12 0c0 6 2 7.5 2 7.5H4S6 15 6 9z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>`,
   plus: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>`,
-  nav: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 11 16-7-7 16-2-7z"/></svg>`,
   up: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 15 6-6 6 6"/></svg>`,
   down: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>`,
 };
@@ -79,7 +55,6 @@ export function watchAlerts(ctx) {
       const docs = snap.docs.filter(x => keep(x.data()));
       A[key] = docs.map(x => ({ id: x.id, ...x.data() }));
       A.loaded[key] = true; delete A.errors[key];
-      if (key === "orders") tracker.sync(A.orders);
       if (!first && onAdd) docs.forEach(x => { if (!had.has(x.id) && !x.metadata.hasPendingWrites) onAdd({ id: x.id, ...x.data() }); });
       first = false;
       paintDot(); if (A.open) paint();
@@ -95,13 +70,9 @@ export function watchAlerts(ctx) {
   sub("alerts", fs.collection(d, "stockAlerts"));
   sub("events", fs.collection(d, "events"));
   sub("orders", fs.query(fs.collection(d, "orders"), fs.orderBy("createdAt", "desc"), fs.limit(300)),
-    o => alertMe("New order " + (o.ref || ""), `${(o.items || []).reduce((n, i) => n + (i.qty || 0), 0)} items · ${o.fulfilment === "delivery" ? "Delivery" : "Pick-up"}`),
+    o => alertMe("New order " + (o.ref || ""), `${(o.items || []).reduce((n, i) => n + (i.qty || 0), 0)} items · ${isShip(o) ? "Shipping" : "Pick-up"}`),
     o => !(o.status === "new" && o.paymentStatus === "awaiting"));      // a checkout the customer hasn't paid yet isn't an order
-  tracker.readPerm().then(() => {            // the first time on a phone: ask for location up front, with the banner explaining why
-    let asked = false; try { asked = localStorage.getItem("locAsked") === "1"; } catch {}
-    const t = tracker.state();
-    if (!asked && t.supported && t.wants && t.perm !== "granted" && t.perm !== "denied") { try { localStorage.setItem("locAsked", "1"); } catch {} tracker.ask(); }
-  });
+  fs.onSnapshot(fs.doc(d, "settings", "owner"), snap => { A.owner = snap.exists() ? snap.data() : {}; if (A.open && A.tab === "settings" && !$("#setForm")?.contains(document.activeElement)) paint(); }, () => {});
   sub("feedback", fs.query(fs.collection(d, "feedback"), fs.orderBy("createdAt", "desc"), fs.limit(200)),
     f => alertMe(f.kind === "bug" ? "New problem report" : f.kind === "question" ? "New question" : "New feedback", (f.message || "").slice(0, 80)));
 }
@@ -109,7 +80,7 @@ export function watchAlerts(ctx) {
 /** Owner signed out (or someone else signed in): stop listening and drop the shop data from memory. */
 export function stopAlerts() {
   A.unsubs.forEach(u => { try { u(); } catch {} });
-  A.unsubs = []; A.started = false; tracker.stop(); if (dm) { dm.destroy(); dm = null; }
+  A.unsubs = []; A.started = false;
   for (const k of ["products", "categories", "orders", "feedback", "alerts", "events"]) { A[k] = []; A.loaded[k] = false; }
   A.errors = {};
   if (A.open) close();
@@ -212,7 +183,6 @@ function paint() {
   const keep = main.scrollTop, focused = document.activeElement;
   const refocus = focused && main.contains(focused) && focused.matches("input[type=search]") ? { sel: "#" + focused.id, pos: focused.selectionStart } : null;
   main.innerHTML = VIEW[A.tab]();
-  syncDeliveryMap();
   if (A.tab === "home") wireAnalytics(main);
   main.scrollTop = keep;
   if (refocus) { const f = $(refocus.sel, main); if (f) { f.focus(); try { f.setSelectionRange(refocus.pos, refocus.pos); } catch {} } }
@@ -247,7 +217,7 @@ function homeView() {
   const now = Date.now(), DAY = 864e5;
   const since = n => live.filter(o => created(o) >= now - n * DAY);
   const orderValue = o => o.total != null ? o.total : (o.estTotal || 0);
-  const open = A.orders.filter(o => ["preparing", "ontheway", "arrived", "ready"].includes(o.status)).length;
+  const open = A.orders.filter(o => ["preparing", "shipped", "ontheway", "arrived", "ready"].includes(o.status)).length;
   const jobs = A.orders.filter(o => !["completed", "cancelled"].includes(o.status)).sort((x, y) => created(x) - created(y));
   const sellable = A.products.filter(p => !p.archived);
   const low = sellable.filter(p => stockState(p) === "low"), out = sellable.filter(p => stockState(p) === "out");
@@ -274,8 +244,6 @@ function homeView() {
 
   return `${errorBanner(["products", "orders", "feedback"])}
     ${hero}
-    <div id="locBar">${locBarHtml()}</div>
-    ${deliveries(A.orders, created).length ? `<div data-dmap></div>` : ""}
     <section class="adm-card flat"><h3>Orders to do${jobs.length ? ` <span class="adm-badge">${jobs.length}</span>` : ""}</h3>
       ${jobs.length ? jobs.slice(0, 12).map(orderCard).join("") : `<p class="adm-empty small">No orders waiting. When a customer pays, you get an email and a beep here, and the order shows up on this screen.</p>`}
     </section>
@@ -291,8 +259,8 @@ function homeView() {
     </section>
     <details class="adm-card guide" id="admGuide" ${store.get("adm.guideSeen", false) ? "" : "open"}><summary><h3>How does this work?</h3></summary>
       <ol>
-        <li><b>A customer pays.</b> They choose pick-up or delivery in the shop and pay by card. You get an email and a beep, and the order appears at the top of this screen.</li>
-        <li><b>Delivery:</b> press <b>I'm on my way</b> when you set off. The customer gets an email. Press <b>I've arrived</b> when you're outside (they get another email). Press <b>Delivered. All done</b> at the end.</li>
+        <li><b>A customer pays.</b> They choose pick-up or shipping in the shop and pay by card. You get an email and a beep, and the order appears at the top of this screen.</li>
+        <li><b>Shipping:</b> the order is already created in Easyship. Open Easyship, pay for the label and print it, then press <b>Shipped</b> here. The customer gets an email with their tracking link.</li>
         <li><b>Pick-up:</b> press <b>Order is ready to collect</b> (the customer gets an email), then <b>Handed over. All done</b> when they take it.</li>
         <li><b>You only ever press the one big button.</b> Tap an order's name to see the address, phone number and what they bought.</li>
         <li><b>Stock goes down by itself</b> when someone pays. To change what you sell, prices or how many you have, use the <b>Products</b> tab.</li>
@@ -399,6 +367,10 @@ function productDialog(id) {
         <label class="inp"><span>Sold by <em>(optional)</em></span><input name="unit" maxlength="30" placeholder="each, kg, bottle…" value="${esc(p?.unit || "")}"></label>
         <label class="inp"><span>Low-stock alert at <em>(optional)</em></span><input name="low" inputmode="numeric" placeholder="5" value="${Number.isInteger(p?.lowStockThreshold) ? p.lowStockThreshold : ""}"></label>
       </div>
+      <div class="row2">
+        <label class="inp"><span>Weight (grams) <em>(for shipping)</em></span><input name="weightG" inputmode="numeric" placeholder="250" value="${Number.isInteger(p?.weightG) ? p.weightG : ""}"></label>
+        <label class="inp"><span>Customs code <em>(optional, for abroad)</em></span><input name="hsCode" maxlength="12" placeholder="0804.10" value="${esc(p?.hsCode || "")}"></label>
+      </div>
       <label class="inp"><span>Description <em>(optional)</em></span><textarea name="description" rows="3" maxlength="2000">${esc(p?.description || "")}</textarea></label>
       <div class="form-section"><h3>Photos</h3>
         <div id="photos">${photosHtml()}</div>
@@ -431,6 +403,9 @@ async function saveProduct(form) {
   if (v("salePrice") && (sale === null || sale >= price)) return bad("salePrice", "The sale price must be lower than the normal price.");
   const low = v("low") ? parseCount(v("low")) : null;
   if (v("low") && low === null) return bad("low", "Low-stock alert must be a whole number.");
+  const wt = v("weightG") ? parseCount(v("weightG")) : null;
+  if (v("weightG") && (wt === null || wt < 1 || wt > 30000)) return bad("weightG", "Weight is in grams, a whole number from 1 to 30000.");
+  if (v("hsCode") && !/^[0-9.]{4,12}$/.test(v("hsCode"))) return bad("hsCode", "A customs code is just numbers, like 0804.10.");
   if (v("imageUrl") && !/^https:\/\//i.test(v("imageUrl"))) return bad("imageUrl", "Image links must start with https://");
   if (v("imageUrl")) { if (draft.photos.length < MAXPH) draft.photos.push(v("imageUrl")); }
 
@@ -441,6 +416,8 @@ async function saveProduct(form) {
   if (v("unit")) doc.unit = v("unit");
   if (v("description")) doc.description = v("description");
   if (low !== null) doc.lowStockThreshold = low;
+  if (wt !== null) doc.weightG = wt;
+  if (v("hsCode")) doc.hsCode = v("hsCode");
   if (form.elements.featured.checked) doc.featured = true;
   const old = draft.id ? A.products.find(x => x.id === draft.id) : null;
   if (old && Number.isInteger(old.sortOrder)) doc.sortOrder = old.sortOrder;
@@ -841,20 +818,20 @@ async function deleteEvent(id) {
 }
 
 /* ═════════ ORDERS ═════════ */
-const STATUS = { new: "New", confirmed: "Paid", preparing: "Preparing", ontheway: "On the way", arrived: "Arrived", ready: "Ready to collect", completed: "Done", cancelled: "Cancelled" };
+const STATUS = { new: "New", confirmed: "Paid", preparing: "Preparing", shipped: "Shipped", ontheway: "Shipped", arrived: "Shipped", ready: "Ready to collect", completed: "Done", cancelled: "Cancelled" };
+const isShip = o => o.fulfilment === "shipping" || o.fulfilment === "delivery";
 const statusLabel = o => o.status === "confirmed" && o.paymentStatus !== "paid" ? "Confirmed" : STATUS[o.status] || o.status;
-/* The ONE button an order needs next. Delivery: on my way > arrived > done. Pick-up: ready > done. */
+/* The ONE button an order needs next. Shipping: label bought in Easyship > shipped > done. Pick-up: ready > done. */
 const STEP = {
-  confirmed: o => o.fulfilment === "delivery"
-    ? ["ontheway", "I'm on my way", "The customer gets an email saying you're on your way."]
+  confirmed: o => isShip(o)
+    ? ["shipped", "Shipped", "Do this once the parcel is with the courier. The customer gets an email with their tracking link."]
     : ["ready", "Order is ready to collect", "The customer gets an email saying it's ready."],
-  ontheway: () => ["arrived", "I've arrived", "The customer gets an email saying you're outside."],
-  arrived: () => ["completed", "Delivered. All done", "Finishes the order. No email is sent."],
+  shipped: () => ["completed", "Delivered. All done", "Finishes the order. No email is sent."],
   ready: () => ["completed", "Handed over. All done", "Finishes the order. No email is sent."],
 };
-STEP.preparing = STEP.confirmed;
+STEP.preparing = STEP.confirmed; STEP.ontheway = STEP.arrived = STEP.shipped;
 const stepOf = o => { const f = STEP[o.status]; if (!f) return null; const [to, label, hint] = f(o); return { to, label, hint }; };
-const MAILED = ["ontheway", "arrived", "ready"];
+const MAILED = ["shipped", "ready"];
 
 /** Tells the customer the order's new step by email (the script decides the wording). Resolves true if it was sent. */
 async function emailStage(orderId) {
@@ -873,36 +850,20 @@ async function advance(o) {
   const st = stepOf(o); if (!st) return "";
   const { fs } = X.FS;
   await fs.updateDoc(fs.doc(db(), "orders", o.id), { status: st.to, updatedAt: fs.serverTimestamp() });
-  if (st.to === "completed") fs.deleteDoc(fs.doc(db(), "tracking", o.id)).catch(() => {});      // he's done: stop showing his position
   if (!MAILED.includes(st.to)) return "Order finished. Nice one!";
   return (await emailStage(o.id)) ? "Done. The customer has been emailed." : "Saved, but the email didn't send. Message the customer yourself.";
-}
-
-/** Delivery orders that have been confirmed and aren't finished: he can get directions to them. */
-const canNavigate = o => o.fulfilment === "delivery" && o.address && ["confirmed", "preparing", "ontheway", "arrived", "ready"].includes(o.status);
-
-/** Full-screen directions + live position for the customer. */
-async function navigateTo(id) {
-  const o = A.orders.find(x => x.id === id); if (!o) return;
-  closeDialog($("#admDlg"));
-  try {
-    const { openNav } = await import("./nav.js?v=21");
-    await openNav({ FS: X.FS, order: o, tracker,
-      getAction: () => { const cur = A.orders.find(x => x.id === id), st = cur && stepOf(cur); return st ? { label: st.label, run: async () => toast(await advance(cur), 3500) } : null; } });
-  } catch (e) { console.error("[admin] nav", e); toast("Couldn't open the map. Check your connection."); }
 }
 
 /** An order as a card with its one big button: used on the Today screen. */
 function orderCard(o) {
   const st = stepOf(o), n = (o.items || []).reduce((t, i) => t + (i.qty || 0), 0), total = o.total != null ? o.total : o.estTotal;
-  const where = o.fulfilment === "delivery" ? `Deliver to ${esc(o.address?.postcode || "the customer")}` : "Customer collects";
+  const where = isShip(o) ? `Ship to ${esc(o.address?.postcode || "the customer")}` : "Customer collects";
   return `<article class="ocard r-${esc(o.status)}">
     <button class="ocard-top" type="button" data-act="open-order" data-id="${esc(o.id)}">
       <span class="chip ${o.status}">${esc(statusLabel(o))}</span>
       <span class="adm-grow"><b>${esc(o.customer?.name || "Customer")}</b> · ${esc(o.ref)}<br><span class="muted">${where} · ${n} item${n === 1 ? "" : "s"} · ${total != null ? money(total) : ""}${o.paymentStatus === "paid" ? " · <b>Paid</b>" : ""}</span></span>
     </button>
     ${trackerHtml(o, { compact: true })}
-    ${canNavigate(o) ? `<button class="btn-ghost wide nav-btn" type="button" data-act="nav-order" data-id="${esc(o.id)}">${ICON.nav} Directions to ${esc(o.address?.postcode || "the customer")}</button>` : ""}
     ${st ? `<button class="btn-primary wide" type="button" data-act="advance-order" data-id="${esc(o.id)}">${esc(st.label)}</button><p class="hint">${esc(st.hint)}</p>`
       : `<button class="btn-primary wide" type="button" data-act="open-order" data-id="${esc(o.id)}">Check this order</button>`}
   </article>`;
@@ -922,10 +883,9 @@ function ordersView() {
       const total = o.total != null ? o.total : o.estTotal;
       return `<article class="owrap"><button class="orow" type="button" data-act="open-order" data-id="${esc(o.id)}">
         <span class="chip ${o.status}">${esc(statusLabel(o))}</span>
-        <span class="adm-grow"><b>${esc(o.ref)}</b> · ${esc(o.customer?.name || "Customer")}${o.paymentStatus === "paid" ? " · <b>Paid</b>" : ""}<br><span class="muted">${n} item${n === 1 ? "" : "s"} · ${o.fulfilment === "delivery" ? "Delivery" : "Pick-up"} · ${timeAgo(created(o))}</span></span>
+        <span class="adm-grow"><b>${esc(o.ref)}</b> · ${esc(o.customer?.name || "Customer")}${o.paymentStatus === "paid" ? " · <b>Paid</b>" : ""}<br><span class="muted">${n} item${n === 1 ? "" : "s"} · ${isShip(o) ? "Shipping" : "Pick-up"} · ${timeAgo(created(o))}</span></span>
         <span class="otot">${total != null ? money(total) : ""}${o.total == null ? `<small>estimate</small>` : ""}</span></button>
-        ${trackerHtml(o, { compact: true })}
-        ${canNavigate(o) ? `<button class="btn-ghost wide nav-btn" type="button" data-act="nav-order" data-id="${esc(o.id)}">${ICON.nav} Directions to ${esc(o.address?.postcode || "the customer")}</button>` : ""}</article>`;
+        ${trackerHtml(o, { compact: true })}</article>`;
     }).join("")}</div>` : `<p class="adm-empty">${A.orders.length ? "Nothing here." : "No orders yet. They'll appear here the moment a customer orders."}</p>`}`;
 }
 
@@ -940,8 +900,7 @@ function orderDialog(id) {
     return { productId: i.productId, name: p?.name || i.name || "Unknown product", qty: i.qty, unitPrice: p ? priceOf(p) : null, stock: p ? p.stock : null, gone: !p || p.archived || !p.visible };
   });
   const sub = lines.reduce((t, l) => t + (l.unitPrice != null ? Math.round(l.unitPrice * 100) * l.qty : 0), 0) / 100;
-  const site = X.getSite() || {};
-  const fee = o.fulfilment === "delivery" ? (locked ? (o.deliveryFee || 0) : (Number(site.deliveryFee) || 0)) : 0;
+  const fee = isShip(o) ? (locked ? (o.shippingFee || 0) : (o.shipping && Number(o.shipping.price)) || 0) : 0;
   const total = locked ? o.total : sub + fee;
   const problems = !locked ? lines.filter(l => l.gone || l.stock == null || l.stock < l.qty) : [];
   const mismatch = !locked && o.estTotal != null && Math.abs(o.estTotal - total) > 0.005;
@@ -952,21 +911,22 @@ function orderDialog(id) {
   $("#admDlgBody").innerHTML = `
     <h2>${esc(o.ref)} <span class="chip ${o.status}">${esc(statusLabel(o))}</span></h2>
     ${trackerHtml(o)}
-    <p class="muted modal-sub">${new Date(created(o)).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })} · ${o.paymentStatus === "paid" ? "Paid by card" : "Not paid online yet (pay at pick-up or delivery)"}</p>
+    <p class="muted modal-sub">${new Date(created(o)).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })} · ${o.paymentStatus === "paid" ? "Paid by card" : "Not paid online yet (pay at pick-up)"}</p>
     <div class="form-section"><h3>Customer</h3>
       <div class="kv"><span>Name</span><b>${esc(o.customer?.name || "")}</b></div>
       ${o.customer?.phone ? `<div class="kv"><span>Phone</span><a href="tel:${esc(o.customer.phone)}">${esc(o.customer.phone)}</a></div>` : ""}
       ${o.customer?.email ? `<div class="kv"><span>Email</span><a href="mailto:${esc(o.customer.email)}">${esc(o.customer.email)}</a></div>` : ""}
     </div>
-    <div class="form-section"><h3>${o.fulfilment === "delivery" ? "Delivery to" : "Pick-up from the shop"}</h3>
-      ${a ? `<div class="addr-card"><div class="addr-text">${[a.line1, a.line2, a.city, a.postcode].filter(Boolean).map(esc).join("<br>")}</div></div>
-        <p class="pc-status wait" id="ordPc">Checking postcode…</p>
-        ${canNavigate(o) ? `<button class="btn-primary tight nav-btn" type="button" data-act="nav-order" data-id="${esc(o.id)}">${ICON.nav} Directions &amp; live map</button> ` : ""}
-        <a class="btn-ghost tight" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([a.line1, a.city, a.postcode].filter(Boolean).join(", "))}">Open in Maps</a>` : `<p class="muted">The customer will collect this order.</p>`}
+    <div class="form-section"><h3>${isShip(o) ? "Ship to" : "Pick-up from the shop"}</h3>
+      ${a ? `<div class="addr-card"><div class="addr-text">${formatAddress(a).map(esc).join("<br>")}</div></div>
+        ${o.shipping ? `<p class="muted">${esc(o.shipping.courier || "")} ${esc(o.shipping.service || "")}${o.shipping.etaMax ? ` · ${o.shipping.etaMin ? o.shipping.etaMin + "-" : "up to "}${o.shipping.etaMax} days` : ""}</p>` : ""}
+        ${isShip(o) ? `<a class="btn-primary tight" target="_blank" rel="noopener noreferrer" href="https://app.easyship.com/shipments">${o.shipment ? "Open in Easyship (buy the label)" : "Open Easyship"}</a> ` : ""}
+        ${o.shipment && o.shipment.trackingUrl ? `<a class="btn-ghost tight" target="_blank" rel="noopener noreferrer" href="${esc(o.shipment.trackingUrl)}">Tracking page</a>` : ""}
+        ${isShip(o) && !o.shipment && o.paymentStatus === "paid" ? `<p class="hint">The shipment wasn't created automatically. Create it in Easyship with the address above.</p>` : ""}` : `<p class="muted">The customer will collect this order.</p>`}
     </div>
     <div class="form-section"><h3>Items</h3>
       ${lines.map(l => `<div class="sum-row"><span>${esc(l.name)} × ${l.qty}${!locked && (l.gone || (l.stock != null && l.stock < l.qty)) ? ` <span class="chip bad">${l.gone ? "unavailable" : `only ${l.stock} in stock`}</span>` : ""}</span><span>${l.unitPrice != null ? money(Math.round(l.unitPrice * 100) * l.qty / 100) : "—"}</span></div>`).join("")}
-      ${fee ? `<div class="sum-row"><span>Delivery</span><span>${money(fee)}</span></div>` : ""}
+      ${isShip(o) ? `<div class="sum-row"><span>Shipping</span><span>${fee ? money(fee) : "Free"}</span></div>` : ""}
       <div class="sum-row total"><span>${locked ? "Total (confirmed)" : "Total at today's prices"}</span><span>${money(total)}</span></div>
       ${mismatch ? `<p class="form-error">The customer saw ${money(o.estTotal)}, but today's prices make it ${money(total)}. Prices changed since they ordered.</p>` : ""}
       ${o.note ? `<div class="note-box"><span class="muted">Note from the customer</span><p>${esc(o.note)}</p></div>` : ""}
@@ -977,13 +937,6 @@ function orderDialog(id) {
     : next ? `<button class="btn-primary wide" id="ordMain" type="button" data-act="advance-order" data-id="${esc(o.id)}">${esc(next.label)}</button><p class="hint">${esc(next.hint)}</p>` : ""}
     ${canCancel ? `<button class="btn-quiet danger" type="button" data-act="cancel-order">Cancel order</button>` : ""}`;
   openDialog($("#admDlg"));
-
-  if (a && a.postcode) lookupPostcode(a.postcode).then(info => {
-    const el = $("#ordPc"); if (!el || viewing !== id) return;
-    el.className = `pc-status ${info.ok ? "ok" : info.reason === "network" ? "warn" : "bad"}`;
-    el.textContent = info.ok ? `✓ ${info.postcode} is a real postcode · ${[info.district, info.country].filter(Boolean).join(", ")}`
-      : info.reason === "network" ? "Couldn't check the postcode right now." : "⚠ That postcode doesn't exist. Call the customer to confirm the address.";
-  });
 }
 
 async function runOrderAction(label, fn) {
@@ -1004,7 +957,6 @@ async function runOrderAction(label, fn) {
 /** Locks prices and takes stock — all in one transaction, so two orders can't both take the last item. */
 async function confirmOrder(o) {
   const { fs } = X.FS, d = db();
-  const site = X.getSite() || {};
   await fs.runTransaction(d, async tx => {
     const oref = fs.doc(d, "orders", o.id);
     const cur = await tx.get(oref);
@@ -1024,9 +976,9 @@ async function confirmOrder(o) {
     // all reads done; now write
     for (const l of lines) tx.update(l._s.ref, { stock: l._p.stock - l.qty, updatedAt: fs.serverTimestamp() });
     const subtotal = lines.reduce((t, l) => t + Math.round(l.unitPrice * 100) * l.qty, 0) / 100;
-    const fee = cur.data().fulfilment === "delivery" ? (Number(site.deliveryFee) || 0) : 0;
+    const c = cur.data(), fee = c.fulfilment === "shipping" ? (Number(c.shipping && c.shipping.price) || 0) : 0;      // the courier price the customer chose
     tx.update(oref, {
-      status: "confirmed", lines: lines.map(({ _s, _p, ...l }) => l), subtotal, deliveryFee: fee,
+      status: "confirmed", lines: lines.map(({ _s, _p, ...l }) => l), subtotal, shippingFee: fee,
       total: Math.round((subtotal + fee) * 100) / 100, updatedAt: fs.serverTimestamp(),
     });
   });
@@ -1071,17 +1023,48 @@ function feedbackView() {
 function settingsView() {
   const s = X.getSite() || {};
   const perm = "Notification" in window ? Notification.permission : "unsupported";
+  const sf = A.owner.shipFrom || {}, shipTo = String(s.shipTo || "GB").toUpperCase().split(/[^A-Z]+/).filter(Boolean);
   return `<form class="adm-card" id="setForm" novalidate>
       <h3>Shop details</h3>
       <label class="inp"><span>Shop name</span><input name="storeName" maxlength="60" value="${esc(s.storeName || "")}"></label>
       <label class="inp"><span>Headline</span><input name="heroTitle" maxlength="120" value="${esc((s.heroTitle || "").replace(/\n/g, " "))}"></label>
       <label class="inp"><span>Sub-headline</span><input name="heroSubtitle" maxlength="200" value="${esc(s.heroSubtitle || "")}"></label>
-      <label class="inp"><span>Scrolling bar at the top <em>(optional, one message per line)</em></span><textarea name="announcement" rows="3" maxlength="400" placeholder="Free delivery over £30&#10;Closed on Sunday">${esc(s.announcement || "")}</textarea></label>
+      <label class="inp"><span>Scrolling bar at the top <em>(optional, one message per line)</em></span><textarea name="announcement" rows="3" maxlength="400" placeholder="Free shipping over £30&#10;Closed on Sunday">${esc(s.announcement || "")}</textarea></label>
       <label class="inp"><span>WhatsApp link <em>(optional)</em></span><input name="whatsapp" maxlength="200" value="${esc(s.whatsapp || "")}" placeholder="https://wa.me/447123456789"></label>
       <h3 class="gap">How customers get their order</h3>
       <label class="check"><input type="checkbox" name="collection" ${s.collection !== false ? "checked" : ""}><span>Pick-up from the shop</span></label>
-      <label class="check"><input type="checkbox" name="delivery" ${s.delivery !== false ? "checked" : ""}><span>Delivery (UK addresses)</span></label>
-      <label class="inp"><span>Delivery fee (£)</span><input name="deliveryFee" inputmode="decimal" value="${s.deliveryFee ? esc(String(s.deliveryFee)) : "0"}"></label>
+      <label class="check"><input type="checkbox" name="shipping" ${s.shipping === true ? "checked" : ""}><span>Courier shipping (Royal Mail, Evri, DPD and more, priced live by Easyship)</span></label>
+      <details class="ship-set" ${s.shipping === true ? "" : "open"}><summary><h3>Shipping setup</h3></summary>
+        <p class="muted">Shipping only works once the Easyship token is saved in your Apps Script (see the README) and the address you post from is filled in below.</p>
+        <h4>Where you post from</h4>
+        <div class="row2">
+          <label class="inp"><span>Your name*</span><input name="sfName" maxlength="80" autocomplete="off" value="${esc(sf.name || "")}"></label>
+          <label class="inp"><span>Shop / company <em>(optional)</em></span><input name="sfCompany" maxlength="80" autocomplete="off" value="${esc(sf.company || "")}"></label>
+        </div>
+        <div class="row2">
+          <label class="inp"><span>Phone* <em>(with +code)</em></span><input name="sfPhone" type="tel" maxlength="24" autocomplete="off" placeholder="+44 7123 456789" value="${esc(sf.phone || "")}"></label>
+          <label class="inp"><span>Email*</span><input name="sfEmail" type="email" maxlength="120" autocomplete="off" value="${esc(sf.email || "")}"></label>
+        </div>
+        <div id="sfAddr">${addressFormHtml({ ...sf, line1: sf.line1 || "" })}</div>
+        <h4>Where you post to</h4>
+        <div class="ship-to">${COUNTRIES.map(c => `<label class="check"><input type="checkbox" name="shipTo" value="${c.code}" ${shipTo.includes(c.code) ? "checked" : ""}><span>${esc(c.name)}</span></label>`).join("")}</div>
+        <h4>Parcel and prices</h4>
+        <div class="row2">
+          <label class="inp"><span>Free shipping over (£) <em>(0 = never)</em></span><input name="freeShippingOver" inputmode="decimal" value="${s.freeShippingOver ? esc(String(s.freeShippingOver)) : "0"}"></label>
+          <label class="inp"><span>Item category</span><input name="shipCategory" maxlength="40" value="${esc(s.shipCategory || "home_appliances")}"></label>
+        </div>
+        <p class="hint">The category is Easyship's name for what you sell, like fashion, health_beauty, toys or home_appliances. It decides customs and duty abroad.</p>
+        <div class="row2">
+          <label class="inp"><span>Packaging weight (g)</span><input name="packagingG" inputmode="numeric" value="${esc(String(s.packagingG ?? 100))}"></label>
+          <label class="inp"><span>Weight if a product has none (g)</span><input name="defaultWeightG" inputmode="numeric" value="${esc(String(s.defaultWeightG ?? 300))}"></label>
+        </div>
+        <div class="row3">
+          <label class="inp"><span>Box length (cm)</span><input name="boxL" inputmode="numeric" value="${esc(String(s.boxL ?? 25))}"></label>
+          <label class="inp"><span>Width (cm)</span><input name="boxW" inputmode="numeric" value="${esc(String(s.boxW ?? 20))}"></label>
+          <label class="inp"><span>Height (cm)</span><input name="boxH" inputmode="numeric" value="${esc(String(s.boxH ?? 12))}"></label>
+        </div>
+        <p class="hint">Set each product's weight when you edit it, so the courier prices are right.</p>
+      </details>
       <p class="form-error" id="setErr" role="alert" hidden></p>
       <button class="btn-primary wide" id="setSave" type="submit">Save settings</button>
     </form>
@@ -1098,18 +1081,39 @@ function settingsView() {
 }
 async function saveSettings(form) {
   const v = n => (form.elements[n]?.value || "").trim();
-  const err = $("#setErr");
-  const fee = v("deliveryFee") === "" ? 0 : parsePrice(v("deliveryFee"));
-  if (fee === null || fee > 1000) return showError(err, "Delivery fee must be a number between 0 and 1000.");
+  const err = $("#setErr"), num = (n, lo, hi) => /^\d{1,6}$/.test(v(n)) && Number(v(n)) >= lo && Number(v(n)) <= hi ? Number(v(n)) : null;
+  const free = v("freeShippingOver") === "" ? 0 : parsePrice(v("freeShippingOver"));
+  if (free === null || free > 100000) return showError(err, "Free shipping over must be a number like 30, or 0 for never.");
   if (v("whatsapp") && !/^https:\/\//i.test(v("whatsapp"))) return showError(err, "The WhatsApp link must start with https://");
+  const ship = form.elements.shipping.checked;
+  const fail = m => { const d = form.querySelector(".ship-set"); if (d) d.open = true; return showError(err, m); };   // the broken box may be hidden in the folded "Shipping setup"
+  const shipTo = [...form.querySelectorAll('input[name="shipTo"]:checked')].map(x => x.value);
+  const packagingG = num("packagingG", 0, 5000), defaultWeightG = num("defaultWeightG", 1, 30000), boxL = num("boxL", 1, 200), boxW = num("boxW", 1, 200), boxH = num("boxH", 1, 200);
+  if ([packagingG, defaultWeightG, boxL, boxW, boxH].includes(null)) return fail("Check the parcel sizes and weights: whole numbers only.");
+  if (!/^[a-z_]{2,40}$/.test(v("shipCategory"))) return fail("The item category is lower-case letters, like home_appliances.");
+  let shipFrom = null;
+  if (ship) {                                           // can't switch shipping on without a real address to post from
+    if (!shipTo.length) return fail("Tick at least one country you post to.");
+    if (v("sfName").length < 2 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v("sfEmail"))) return fail("Fill in your name and email under \"Where you post from\".");
+    const sfRead = readAddressForm(form), a = validateAddress(sfRead, { allowed: shipTo });
+    if (!a.ok) return fail("Where you post from: " + Object.values(a.errors)[0]);
+    const ph = await validatePhone(v("sfPhone"), a.value.country);
+    if (!ph.ok) return fail("Where you post from: that phone number isn't real. Use +44... for the UK.");
+    shipFrom = { name: v("sfName"), company: v("sfCompany"), phone: ph.e164, email: v("sfEmail"), ...a.value };
+  }
   const { fs } = X.FS;
   const doc = {
     storeName: v("storeName"), heroTitle: v("heroTitle"), heroSubtitle: v("heroSubtitle"), announcement: v("announcement"), whatsapp: v("whatsapp"),
-    collection: form.elements.collection.checked, delivery: form.elements.delivery.checked, deliveryFee: fee, updatedAt: fs.serverTimestamp(),
+    collection: form.elements.collection.checked, shipping: ship, shipTo: shipTo.join(",") || "GB", freeShippingOver: free,
+    packagingG, defaultWeightG, boxL, boxW, boxH, shipCategory: v("shipCategory"), updatedAt: fs.serverTimestamp(),
   };
   showError(err, "");
   const btn = $("#setSave"); setBusy(null, btn, true);
-  try { await fs.setDoc(fs.doc(db(), "settings", "site"), doc); toast("Settings saved"); }
+  try {
+    await fs.setDoc(fs.doc(db(), "settings", "site"), doc);
+    if (shipFrom) await fs.setDoc(fs.doc(db(), "settings", "owner"), { shipFrom, updatedAt: fs.serverTimestamp() }, { merge: true });
+    toast("Settings saved");
+  }
   catch (e) { console.error(e); showError(err, "Couldn't save settings. Please try again."); }
   finally { setBusy(null, btn, false); }
 }
@@ -1189,10 +1193,6 @@ async function onClick(e) {
     case "sale-pct": { const f = $("#saleForm"), p = A.products.find(x => x.id === f.dataset.id); if (p) f.elements.sale.value = (Math.round(p.price * (1 - Number(t.dataset.pct) / 100) * 100) / 100).toFixed(2); return; }
     case "sale-off": return endSale(id);
     case "notify-stock": return notifyWaiting(id);
-    case "nav-order": return navigateTo(id);
-    case "loc-allow": return void tracker.ask().then(r => { if (r === "denied") toast("Location is blocked. Allow it in your phone's settings.", 4000); tracker.sync(); });
-    case "loc-on": return tracker.setShare(true);
-    case "loc-off": return tracker.setShare(false);
     case "new-event": return eventDialog(null);
     case "edit-event": return eventDialog(id);
     case "delete-event": return deleteEvent(id);
@@ -1289,6 +1289,13 @@ document.addEventListener("input", e => {
   if (e.target.name === "colorCustom") { e.target.dataset.on = "1"; f.querySelectorAll('input[name="color"]').forEach(r => { r.checked = false; }); }
   if (e.target.name === "color") f.elements.colorCustom.dataset.on = "";
   evSync(f, e.target.name === "look" ? "look" : "");
+});
+document.addEventListener("change", e => {          // the address form's state box depends on the country
+  const f = e.target.closest("#setForm");
+  if (!f || e.target.name !== "country") return;
+  const keep = readAddressForm(f);
+  $("#sfAddr").innerHTML = addressFormHtml({ country: keep.country, line2: keep.line2, city: keep.city });
+  f.elements.number.value = keep.number; f.elements.street.value = keep.street; f.elements.postcode.value = keep.postcode;
 });
 document.addEventListener("change", e => { const f = e.target.closest("#evForm"); if (f && e.target.name === "look") evSync(f, "look"); });
 document.addEventListener("click", e => {          // buttons inside #admDlg (dialog is outside #admin)

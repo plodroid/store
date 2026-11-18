@@ -31,10 +31,8 @@ const names = p => p.locator("#grid .tile-name").allInnerTexts();
 const signedIn = async (p, t, email = "gina@example.com") => {
   await p.click("#signInBtn");
   await p.locator('form[data-form="in"] [name="email"]').fill(email);
+  await p.locator('form[data-form="in"] [name="password"]').fill("secret1");
   await p.locator('form[data-form="in"] button[type="submit"]').click();
-  await p.locator('[data-form="code"]').waitFor({ state: "visible" });
-  await p.locator("#otp input").first().click();
-  await p.keyboard.type(t.mail.codes[email]);
   await p.waitForSelector("#acctBtn:not([hidden])");
 };
 const owner = async p => {            // the owner has a page of their own now: /admin/
@@ -222,10 +220,6 @@ const checkoutWith = async (p, t, how = "collection") => {
   await p.click("#cartBtn"); await p.click("#checkout");
   await p.waitForSelector("#coChoices input");
   await p.locator('#coForm [name="name"]').fill("Gina Test");
-  if (how === "delivery") {
-    await p.locator('#coChoices input[value="delivery"]').check();
-    await p.locator('#coForm [name="phone"]').fill("07123456789");
-  }
 };
 
 await test("card checkout: the button says Pay, the order is saved unpaid, then you go straight to Stripe", async (t) => {
@@ -261,15 +255,15 @@ await test("card checkout: a customer who never paid sees 'Waiting for payment' 
   assert.match(await p.locator("#moBody").innerText(), /isn't placed until it's paid/);
 });
 
-await test("checkout: delivery shows as 'Not available yet' when the owner has it off", async (t) => {
+await test("checkout: shipping shows as 'Not available yet' when the owner has it off", async (t) => {
   const p = t.page;
   await signedIn(p, t);
   await p.locator("#grid .tile", { hasText: "Zamzam" }).locator("[data-add]").click();
   await p.click("#cartBtn"); await p.click("#checkout");
   await p.waitForSelector("#coChoices");
   assert.match(await p.locator("#coChoices").innerText(), /Not available yet/);
-  assert.equal(await p.locator('#coChoices input[value="delivery"]').count(), 0);
-}, { seed: withProducts({}, { delivery: false }) });
+  assert.equal(await p.locator('#coChoices input[value="shipping"]').count(), 0);
+}, { seed: withProducts({}, { shipping: false }) });
 
 await test("owner: Sale button starts and ends a sale (rules-checked)", async ({ page: p }) => {
   await owner(p); await admTab(p, "products");

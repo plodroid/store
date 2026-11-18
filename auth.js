@@ -1,15 +1,13 @@
-/* Customer accounts: log in with email + password (or Google), the account page and the UK location picker. */
+/* Customer accounts: log in with email + password (or Google), the account page and the exact-address form. */
 
 import { $, $$, esc, openDialog, closeDialog, showError, setBusy, toast } from "./ui.js?v=16";
-import { streetFor, geocodeAddress, makeMap } from "./geo.js?v=20";
-import { normalisePostcode, normaliseUkPhone, showUkPhone, lookupPostcode, nearestPostcode, townMatches, REASONS } from "./uk.js?v=16";
+import { lookupPostcode, REASONS } from "./uk.js?v=16";
+import { addressFormHtml, readAddressForm, validateAddress, tidyPostcode, countryOf, countryName, formatAddress, validatePhone, PHONE_HELP, ERR } from "./address.js?v=1";
 
 const GOOGLE = `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.4h6.5a5.6 5.6 0 0 1-2.4 3.7v3h3.9c2.3-2.1 3.5-5.2 3.5-8.8z"/><path fill="#34A853" d="M12 24c3.2 0 6-1.1 7.9-2.9l-3.9-3c-1.1.7-2.5 1.2-4 1.2-3.1 0-5.7-2.1-6.6-4.9H1.4v3.1A12 12 0 0 0 12 24z"/><path fill="#FBBC05" d="M5.4 14.3a7.2 7.2 0 0 1 0-4.6V6.6H1.4a12 12 0 0 0 0 10.8z"/><path fill="#EA4335" d="M12 4.8c1.8 0 3.3.6 4.6 1.8l3.4-3.4A12 12 0 0 0 1.4 6.6l4 3.1C6.3 6.9 8.9 4.8 12 4.8z"/></svg>`;
 
-const MAIL_URL = () => String(window.STORE_AUTH_URL || "");
-const mailerReady = () => /^https:\/\/script\.google\.com\//.test(MAIL_URL());
-
 const MESSAGES = {
+  "app/update": "This version of the app can't open Google sign-in. Update the app (tap the green download icon) or log in with email.",
   "auth/invalid-credential": "That email and password don't match. Try again, or tap \"Forgot password?\".",
   "auth/wrong-password": "That email and password don't match. Try again, or tap \"Forgot password?\".",
   "auth/user-not-found": "That email and password don't match. Try again, or tap \"Forgot password?\".",
@@ -23,21 +21,6 @@ const MESSAGES = {
   "auth/operation-not-allowed": "This way of signing in isn't switched on yet. The shop owner needs to enable it.",
   "auth/unauthorized-domain": "This website address isn't approved for sign-in yet. The shop owner needs to add it in Firebase.",
   "auth/user-disabled": "This account has been disabled.",
-  "store/not-configured": "Email codes aren't set up yet. You can still continue with Google.",
-  "store/bad-reply": "Something went wrong on our side. Please try again in a moment.",
-};
-const CODE_ERRORS = {
-  bad_email: () => "Please enter a valid email address.",
-  wait: d => `Please wait ${d.wait || 30} seconds before asking for another code.`,
-  limit: () => "Too many codes requested for this email. Please try again in an hour.",
-  busy: () => "We can't send more codes today. Please continue with Google or try again tomorrow.",
-  use_google: () => document.documentElement.dataset.native && !document.documentElement.dataset.gnative
-    ? "This account signs in with Google, which needs the newest Bee Hive app. Update the app, or sign in on the website."
-    : "This account signs in with Google. Tap \"Continue with Google\" instead.",
-  send_failed: () => "We couldn't send the email just now. Please try again in a minute.",
-  bad_code: d => d.left ? `That code isn't right. ${d.left} ${d.left === 1 ? "try" : "tries"} left.` : "That code isn't right.",
-  expired: () => "That code has expired or was used up. Tap \"Resend code\" to get a new one.",
-  locked: () => "Too many wrong codes. Please try again in an hour.",
 };
 const SILENT = new Set(["auth/popup-closed-by-user", "auth/cancelled-popup-request"]);
 
@@ -46,27 +29,14 @@ const SILENT = new Set(["auth/popup-closed-by-user", "auth/cancelled-popup-reque
 function nativeGoogle() {
   try {
     const c = window.Capacitor; if (!c || !c.isNativePlatform || !c.isNativePlatform()) return null;
-    if (c.isPluginAvailable && !c.isPluginAvailable("FirebaseAuthentication")) return null;
+    const has = (c.isPluginAvailable && c.isPluginAvailable("FirebaseAuthentication")) || (c.PluginHeaders || []).some(h => h && h.name === "FirebaseAuthentication") || !!(c.Plugins && c.Plugins.FirebaseAuthentication);
+    if (!has) return null;
     return (typeof c.registerPlugin === "function" ? c.registerPlugin("FirebaseAuthentication") : c.Plugins && c.Plugins.FirebaseAuthentication) || null;
   } catch { return null; }
 }
 if (nativeGoogle()) document.documentElement.dataset.gnative = "1";
 const CANCELLED = /popup-closed|cancelled|canceled|12501|-5\b|user.?cancel/i;
-const errText = e => MESSAGES[e && e.code] || (/DEVELOPER_ERROR|\b10\b|12500/.test(`${e && e.code} ${e && e.message}`) && nativeGoogle() && "Google doesn't recognise this app build yet. Please sign in with the email code instead, and tell the shop.") || (e && e.code === "google/no-token" && "Google didn't send back a sign-in. Please try again.") || "Something went wrong. Please try again in a moment.";
-
-/** One call to the mailer script. Resolves to its JSON reply; throws {code} only when it can't be reached. */
-async function mailer(body) {
-  if (!mailerReady()) throw Object.assign(new Error("not configured"), { code: "store/not-configured" });
-  let res;
-  try {
-    // text/plain keeps this a "simple" request, so the browser doesn't need a CORS preflight
-    res = await fetch(MAIL_URL(), { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(body) });
-  } catch { throw Object.assign(new Error("network"), { code: "auth/network-request-failed" }); }
-  let data = null;
-  try { data = await res.json(); } catch {}
-  if (!data || typeof data !== "object") throw Object.assign(new Error("bad reply"), { code: "store/bad-reply" });
-  return data;
-}
+const errText = e => MESSAGES[e && e.code] || (/DEVELOPER_ERROR|\b10\b|12500/.test(`${e && e.code} ${e && e.message}`) && nativeGoogle() && "Google doesn't recognise this app build yet. Please sign in with email and password instead, and tell the shop.") || (e && e.code === "google/no-token" && "Google didn't send back a sign-in. Please try again.") || "Something went wrong. Please try again in a moment.";
 
 export function createAuth({ FS, onChange = () => {} }) {
   const { db, fs, auth, au } = FS;
@@ -104,6 +74,7 @@ export function createAuth({ FS, onChange = () => {} }) {
     paintNav();
   }
 
+  au.getRedirectResult(auth).catch(e => console.warn("[auth] redirect", e && e.code));   // finishes a Google sign-in that went through a full-page redirect
   au.onAuthStateChanged(auth, async user => {
     st.user = user;
     await loadProfile(user);
@@ -260,8 +231,10 @@ export function createAuth({ FS, onChange = () => {} }) {
     finally { setBusy(dlg, btn, false); }
   }
 
+  const inApp = () => { try { const c = window.Capacitor; return !!(c && c.isNativePlatform && c.isNativePlatform()); } catch { return false; } };
   async function googleSignIn() {
     const g = nativeGoogle();
+    if (!g && inApp()) throw Object.assign(new Error("old app"), { code: "app/update" });   // Google refuses its sign-in page inside an app's web view
     if (g) {
       await persistence();   // the Android app: ask the phone's own Google account picker, then hand the token to Firebase
       const r = await g.signInWithGoogle(), idToken = r && r.credential && r.credential.idToken;
@@ -272,8 +245,14 @@ export function createAuth({ FS, onChange = () => {} }) {
     const provider = new au.GoogleAuthProvider();
     provider.setCustomParameters({ prompt: "select_account" });
     // no awaits before the popup: it must open straight from the click or the browser delays/blocks it (web persistence is already "local" by default)
-    const { user } = await au.signInWithPopup(auth, provider);
-    await afterSignIn(user);
+    try {
+      const { user } = await au.signInWithPopup(auth, provider);
+      await afterSignIn(user);
+    } catch (e) {
+      // some phone browsers refuse pop-ups: go to Google in the same tab instead and come back signed in
+      if (e && /popup-blocked|operation-not-supported-in-this-environment/.test(e.code || "")) return au.signInWithRedirect(auth, provider);
+      throw e;
+    }
   }
 
   async function afterSignIn(user) {
@@ -303,7 +282,7 @@ export function createAuth({ FS, onChange = () => {} }) {
   }
 
   /* ── account page ─────────────────────────────────── */
-  const addrText = a => a ? [a.line1, a.line2, a.city, a.postcode].filter(Boolean).map(esc).join("<br>") : "";
+  const addrText = a => a ? formatAddress(a).map(esc).join("<br>") : "";
 
   function openAccount() {
     if (!st.user) return openAuth("in");
@@ -315,15 +294,15 @@ export function createAuth({ FS, onChange = () => {} }) {
         <div class="form-section">
           <h3>Details</h3>
           <label class="inp"><span>Full name</span><input name="name" autocomplete="name" maxlength="80" value="${esc(p.name || st.user.displayName || "")}"></label>
-          <label class="inp"><span>Mobile number <em>(UK)</em></span><input name="phone" type="tel" autocomplete="tel" inputmode="tel" maxlength="20" placeholder="07123 456789" value="${esc(showUkPhone(p.phone || ""))}"></label>
+          <label class="inp"><span>Mobile number</span><input name="phone" type="tel" autocomplete="tel" inputmode="tel" maxlength="24" placeholder="+44 7123 456789" value="${esc(p.phone || "")}"></label>
           <div class="inp"><span>Email</span>
             <div class="static">${esc(st.email)} <span class="badge ok">Verified</span></div>
           </div>
         </div>
         <div class="form-section">
-          <h3>Location</h3>
+          <h3>Delivery address</h3>
           <div class="addr-card" id="acctAddr">${a ? `<div class="addr-text">${addrText(a)}</div>` : `<div class="addr-empty">No address saved yet.</div>`}</div>
-          <button class="btn-ghost tight" type="button" id="acctLoc">${a ? "Change location" : "Set location"}</button>
+          <button class="btn-ghost tight" type="button" id="acctLoc">${a ? "Change address" : "Add address"}</button>
         </div>
         <p class="form-error" id="acctErr" role="alert" hidden></p>
         <button class="btn-primary wide" id="acctSave" type="submit">Save changes</button>
@@ -334,7 +313,7 @@ export function createAuth({ FS, onChange = () => {} }) {
   acct.addEventListener("click", e => {
     if (e.target.closest("#acctLoc")) openLocation(a => {
       $("#acctAddr").innerHTML = `<div class="addr-text">${addrText(a)}</div>`;
-      $("#acctLoc").textContent = "Change location";
+      $("#acctLoc").textContent = "Change address";
     });
     if (e.target.closest("#acctOut")) { closeDialog(acct); signOut(); }
   });
@@ -343,15 +322,16 @@ export function createAuth({ FS, onChange = () => {} }) {
     const f = e.target, err = $("#acctErr"), btn = $("#acctSave");
     const name = f.elements.name.value.trim();
     const rawPhone = f.elements.phone.value.trim();
-    const phone = rawPhone ? normaliseUkPhone(rawPhone) : "";
     f.elements.phone.removeAttribute("aria-invalid");
-    if (rawPhone && !phone) {
-      f.elements.phone.setAttribute("aria-invalid", "true");
-      return showError(err, "Please enter a UK mobile or landline number, like 07123 456789.");
-    }
     showError(err, "");
     setBusy(acct, btn, true);
     try {
+      let phone = "";
+      if (rawPhone) {                                  // must be a number that really exists (country from the saved address, else UK)
+        const ph = await validatePhone(rawPhone, (p.address && p.address.country) || "GB");
+        if (!ph.ok) { f.elements.phone.setAttribute("aria-invalid", "true"); return showError(err, PHONE_HELP((p.address && p.address.country) || "GB")); }
+        phone = ph.e164;
+      }
       await saveProfile({ name, phone });
       toast("Saved");
       closeDialog(acct);
@@ -361,182 +341,83 @@ export function createAuth({ FS, onChange = () => {} }) {
     } finally { setBusy(acct, btn, false); }
   });
 
-  /* ── location picker (shared by account + checkout) ── */
-  let locDone = null, locCheck = null, locSeq = 0, locTimer, pinMap = null, pinOk = false, pinTimer, pinSeq = 0, pinGuess = null;
+  /* ── delivery address form (shared by account + checkout): every part in its own box, checked per country ── */
+  let locDone = null, locSeq = 0, locTimer;
 
-  /** "1 Thoresby Street" → { number: "1", street: "Thoresby Street" } (a house name stays in the street box). */
-  const split = line => { const m = /^(\d+[A-Za-z]?(?:\s?[-–/]\s?\d+[A-Za-z]?)?)\s+(.+)$/.exec(String(line || "").trim()); return m ? { number: m[1], street: m[2] } : { number: "", street: String(line || "") }; };
+  const fieldErr = (f, errors) => {
+    ["country", "postcode", "number", "street", "city", "state"].forEach(k => { const el = f.elements[k]; if (el) errors[k] ? el.setAttribute("aria-invalid", "true") : el.removeAttribute("aria-invalid"); });
+    const first = Object.keys(errors)[0];
+    return first ? errors[first] : "";
+  };
+  const setStatus = (kind, html) => { const el = $("#locForm [data-pcstatus]"); if (el) { el.className = `pc-status ${kind || ""}`; el.innerHTML = html || ""; } };
 
   function openLocation(done) {
     locDone = done || null;
     const a = st.profile.address || {};
     $("#locBody").innerHTML = `
-      <h2 id="locTitle">Your location</h2>
-      <p class="muted modal-sub">United Kingdom only. We check your postcode is real so deliveries go to the right place.</p>
-      <form id="locForm" novalidate>
-        <button class="btn-ghost tight geo" type="button" id="locGeo">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="7.5"/></svg>
-          Use my current location</button>
-        <label class="inp"><span>Postcode*</span><input name="postcode" autocomplete="postal-code" autocapitalize="characters" placeholder="Postcode" maxlength="9" required value="${esc(a.postcode || "")}"></label>
-        <p class="pc-status" id="locStatus" role="status" aria-live="polite"></p>
-        <div class="inp-row">
-          <label class="inp num"><span>Door no.*</span><input name="number" autocomplete="off" placeholder="1" maxlength="20" required value="${esc(split(a.line1).number)}" aria-label="Door number or house name"></label>
-          <label class="inp"><span>Street*</span><input name="line1" autocomplete="address-line1" placeholder="Street" maxlength="100" required value="${esc(split(a.line1).street)}"></label>
-        </div>
-        <label class="inp"><span>Flat, building or area <em>(optional)</em></span><input name="line2" autocomplete="address-line2" maxlength="120" value="${esc(a.line2 || "")}"></label>
-        <label class="inp"><span>Town or city*</span><input name="city" autocomplete="address-level2" maxlength="60" required value="${esc(a.city || "")}"></label>
-        <div class="pinwrap" id="locPinWrap" hidden>
-          <h3>Pin your exact door</h3>
-          <p class="hint">Drag the map so the pin sits on your front door. Streets can be long, and this lets the shop find you exactly.</p>
-          <div class="pinbox"><div id="locMap" class="pinmap"></div>
-            <svg class="pin-cross" viewBox="0 0 30 38" aria-hidden="true"><path d="M15 37C15 37 2 23.5 2 14a13 13 0 0 1 26 0c0 9.500-13 23-13 23Z" fill="#D93025" stroke="#fff" stroke-width="2"/><circle cx="15" cy="14" r="4.500" fill="#fff"/></svg></div>
-          <button class="btn-ghost tight" type="button" id="pinConfirm">The pin is on my door</button>
-        </div>
-        <label class="inp ro"><span>Country</span><input value="United Kingdom" readonly tabindex="-1"></label>
+      <h2 id="locTitle">Delivery address</h2>
+      <p class="muted modal-sub">Fill in every box exactly as it appears on your door and post, so the courier finds you first time.</p>
+      <form id="locForm" novalidate><div id="locFields">${addressFormHtml(a, api.shipTo)}</div>
         <p class="form-error" id="locErr" role="alert" hidden></p>
-        <button class="btn-primary wide" id="locSave" type="submit" disabled>Save location</button>
+        <button class="btn-primary wide" id="locSave" type="submit">Save address</button>
       </form>`;
-    locCheck = null; pinMap = null; pinOk = false; pinGuess = null; pinSeq++;
     openDialog(loc);
-    if (a.postcode) runCheck();
-    else paintLoc();
+    if (a.postcode) checkPostcode();
   }
 
-  function paintLoc() {
-    const f = $("#locForm"); if (!f) return;
-    const ok = locCheck && locCheck.ok && f.elements.number.value.trim() && f.elements.line1.value.trim() && f.elements.city.value.trim() && (!pinMap || pinOk);
-    $("#locSave").disabled = !ok;
-    const c = $("#pinConfirm"); if (c) { c.textContent = pinOk ? "Pin confirmed ✓" : "The pin is on my door"; c.classList.toggle("on", pinOk); }
-    queuePin();
-  }
-
-  function setStatus(kind, html) {
-    const el = $("#locStatus");
-    el.className = `pc-status ${kind || ""}`;
-    el.innerHTML = html || "";
-  }
-
-  /** Pin picker: the map sits under a fixed pin, the customer drags it onto their door. Starts from the best guess for the address. */
-  function queuePin() { clearTimeout(pinTimer); pinTimer = setTimeout(placePin, 500); }
-  async function placePin() {
-    const f = $("#locForm"); if (!f || !locCheck || !locCheck.ok || !f.elements.number.value.trim() || !f.elements.line1.value.trim()) return;
-    const mine = pinSeq, wrap = $("#locPinWrap");
-    const guess = (await geocodeAddress({ line1: `${f.elements.number.value.trim()} ${f.elements.line1.value.trim()}`, city: f.elements.city.value.trim(), postcode: locCheck.postcode })) || { lat: locCheck.lat, lng: locCheck.lng };
-    if (mine !== pinSeq || !$("#locForm") || guess.lat == null) return;
-    pinGuess = { lat: Math.round(guess.lat * 1e6) / 1e6, lng: Math.round(guess.lng * 1e6) / 1e6 };
-    if (!pinMap) {
-      wrap.hidden = false;
-      try {
-        const m = await makeMap($("#locMap"), { satellite: true });
-        if (mine !== pinSeq) return m.map.remove();
-        pinMap = m.map; pinMap.setView([guess.lat, guess.lng], 19);
-        const touch = () => { if (!pinOk) { pinOk = true; paintLoc(); } };
-        $("#locMap").addEventListener("pointerdown", touch); $("#locMap").addEventListener("wheel", touch, { passive: true });
-        setTimeout(() => pinMap && pinMap.invalidateSize(), 300); paintLoc();
-      } catch (e) { console.warn("[pin] map unavailable", e); wrap.hidden = true; pinMap = null; }
-    } else if (!pinOk) pinMap.setView([guess.lat, guess.lng], 19);          // keep moving the pin while he types, until he has placed it himself
-  }
-  loc.addEventListener("click", e => { if (e.target.closest("#pinConfirm")) { pinOk = !pinOk; paintLoc(); } });
-
-  async function runCheck() {
-    const f = $("#locForm"); if (!f) return;
-    const raw = f.elements.postcode.value;
-    const pc = normalisePostcode(raw);
-    const mine = ++locSeq;
-    locCheck = null; paintLoc();
-    if (!raw.trim()) return setStatus("", "");
-    if (!pc) return setStatus("bad", REASONS.format);
+  /** UK postcodes are also looked up for real (postcodes.io); other countries are checked by their postcode shape. */
+  async function checkPostcode() {
+    const f = $("#locForm"); if (!f) return true;
+    const country = f.elements.country.value, raw = f.elements.postcode.value.trim(), mine = ++locSeq;
+    if (!raw) return setStatus("", ""), false;
+    const pc = tidyPostcode(country, raw), c = countryOf(country);
+    if (!pc) return setStatus("bad", esc(ERR.postcode(c))), f.elements.postcode.setAttribute("aria-invalid", "true"), false;
+    f.elements.postcode.removeAttribute("aria-invalid");
+    f.elements.postcode.value = pc === "-" ? "" : pc;
+    if (country !== "GB") return setStatus("", ""), true;
     setStatus("wait", "Checking postcode…");
     const info = await lookupPostcode(pc);
-    if (mine !== locSeq) return;                       // a newer check is already running
-    locCheck = info;
-    if (!info.ok) setStatus(info.reason === "network" ? "warn" : "bad", REASONS[info.reason]);
-    else {
-      f.elements.postcode.value = info.postcode;
-      const where = [info.district, info.country].filter(Boolean).map(esc).join(", ");
-      const soft = !townMatches(f.elements.city.value, info) ? ` <span class="soft">That postcode is in ${esc(info.district || info.region)}. Double-check your town.</span>` : "";
-      setStatus("ok", `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5 10 17 19 7"/></svg> ${esc(info.postcode)} is real${where ? ` · ${where}` : ""}.${soft}`);
-      fillStreet(f, info, mine);
-    }
-    paintLoc();
+    if (mine !== locSeq) return true;
+    if (!info.ok) { setStatus(info.reason === "network" ? "warn" : "bad", esc(REASONS[info.reason] || "")); return info.reason === "network"; }
+    setStatus("ok", `${esc(info.postcode)} is a real postcode${info.district ? ` · ${esc(info.district)}` : ""}.`);
+    if (!f.elements.city.value.trim() && info.district) f.elements.city.value = info.district;
+    return true;
   }
 
-  /** From the postcode, fill in the street and town (like "Thoresby Street, Leicester"); the customer adds the house number. */
-  async function fillStreet(f, info, mine) {
-    if (info.lat == null) return;
-    const s = await streetFor(info.lat, info.lng);
-    if (!s || mine !== locSeq) return;
-    const line1 = f.elements.line1, city = f.elements.city;
-    const mayLine = !line1.value.trim() || line1.dataset.auto === "1", mayCity = !city.value.trim() || city.dataset.auto === "1";
-    if (s.street && mayLine) { line1.value = s.street; line1.dataset.auto = "1"; }
-    if ((s.town || info.district) && mayCity) { city.value = s.town || info.district; city.dataset.auto = "1"; }
-    if (s.street && line1.dataset.auto === "1") {
-      if (!f.elements.number.value.trim()) setStatus("ok", `${$("#locStatus").innerHTML} <span class="hl">Now add your door number so the shop knows where to knock.</span>`);
-      if (!f.elements.number.value.trim() && (document.activeElement === f.elements.postcode || document.activeElement === document.body)) f.elements.number.focus({ preventScroll: true });
+  loc.addEventListener("change", e => {
+    const f = $("#locForm"); if (!f) return;
+    if (e.target.name === "country") {                               // each country has its own state list / postcode shape
+      const keep = readAddressForm(f);
+      $("#locFields").innerHTML = addressFormHtml({ country: keep.country, line1: "", line2: keep.line2, city: keep.city }, api.shipTo);
+      const g = $("#locForm");
+      g.elements.number.value = keep.number; g.elements.street.value = keep.street; g.elements.postcode.value = keep.postcode;
+      setStatus("", "");
     }
-    paintLoc();
-  }
-
+  });
   loc.addEventListener("input", e => {
-    if (e.target.name === "postcode") {
-      clearTimeout(locTimer);
-      locCheck = null; paintLoc();
-      const f = $("#locForm");
-      if (normalisePostcode(f.elements.postcode.value)) locTimer = setTimeout(runCheck, 350);
-      else setStatus("", "");
-    } else {
-      e.target.dataset.auto = "";                        // he typed here himself: never overwrite it
-      paintLoc();
-      if (e.target.name === "city" && locCheck && locCheck.ok) runCheck();
-    }
+    if (e.target.name === "postcode") { clearTimeout(locTimer); ++locSeq; setStatus("", ""); locTimer = setTimeout(() => { const f = $("#locForm"); if (f && tidyPostcode(f.elements.country.value, f.elements.postcode.value)) checkPostcode(); }, 400); }
   });
-  loc.addEventListener("focusout", e => { if (e.target.name === "postcode") { clearTimeout(locTimer); runCheck(); } });
-
-  loc.addEventListener("click", async e => {
-    if (!e.target.closest("#locGeo")) return;
-    const btn = e.target.closest("#locGeo"), err = $("#locErr");
-    showError(err, "");
-    if (!navigator.geolocation) return showError(err, "Your browser can't share its location. Please type your postcode instead.");
-    setBusy(null, btn, true);
-    navigator.geolocation.getCurrentPosition(async pos => {
-      const hit = await nearestPostcode(pos.coords.latitude, pos.coords.longitude);
-      setBusy(null, btn, false);
-      if (!hit.ok) return showError(err, hit.reason === "network" ? REASONS.network : "We couldn't match your position to a UK postcode. Please type it in.");
-      const f = $("#locForm");
-      f.elements.postcode.value = hit.postcode;
-      if (!f.elements.city.value.trim() && hit.district) f.elements.city.value = hit.district;
-      runCheck();
-      (f.elements.number.value.trim() ? f.elements.line1 : f.elements.number).focus({ preventScroll: true });
-    }, () => {
-      setBusy(null, btn, false);
-      showError(err, "We couldn't get your location. You can allow it in your browser, or just type your postcode.");
-    }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 });
-  });
+  loc.addEventListener("focusout", e => { if (e.target.name === "postcode") { clearTimeout(locTimer); checkPostcode(); } });
 
   loc.addEventListener("submit", async e => {
     e.preventDefault();
     const f = e.target, err = $("#locErr"), btn = $("#locSave");
-    if (!(locCheck && locCheck.ok)) return showError(err, "Please enter a valid UK postcode first.");
-    const address = {
-      line1: `${f.elements.number.value.trim()} ${f.elements.line1.value.trim()}`.trim(), line2: f.elements.line2.value.trim(), city: f.elements.city.value.trim(),
-      postcode: locCheck.postcode, lat: locCheck.lat, lng: locCheck.lng, verified: true,
-    };
-    if (pinMap && pinOk) { const c = pinMap.getCenter(); address.lat = Math.round(c.lat * 1e6) / 1e6; address.lng = Math.round(c.lng * 1e6) / 1e6; }
-    else if (pinGuess) { address.lat = pinGuess.lat; address.lng = pinGuess.lng; }            // no map available: still prefer the house over the middle of the postcode
-    if (!f.elements.number.value.trim() || !f.elements.line1.value.trim() || !address.city) return showError(err, "Please fill in the door number, street and town.");
+    const v = validateAddress(readAddressForm(f), { allowed: api.shipTo });
+    if (!v.ok) return showError(err, fieldErr(f, v.errors));
+    fieldErr(f, {});
     showError(err, "");
     setBusy(loc, btn, true);
     try {
+      if (!(await checkPostcode())) return showError(err, "That postcode isn't real. Please check it.");
+      const address = { ...v.value, verified: true };
       await saveProfile({ address });
       closeDialog(loc);
       if (locDone) locDone(address);
     } catch (e2) {
       console.warn("[location]", e2 && e2.code);
-      showError(err, "We couldn't save your location. Please try again.");
+      showError(err, "We couldn't save your address. Please try again.");
     } finally { setBusy(loc, btn, false); }
   });
-
-  loc.addEventListener("close", () => { pinSeq++; try { pinMap && pinMap.remove(); } catch {} pinMap = null; clearTimeout(pinTimer); });
 
   const api = {
     get user() { return st.user; },
@@ -545,6 +426,7 @@ export function createAuth({ FS, onChange = () => {} }) {
     get ready() { return st.ready; },
     get email() { return st.email; },
     get verified() { return st.verified; },
+    shipTo: null,                              // country codes the shop delivers to (set by the shop page)
     requireLogin, openAccount, openLocation, openAuth, saveProfile, signOut,
   };
   return api;

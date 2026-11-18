@@ -1,44 +1,41 @@
 /**
- * Bee Hive sign-in codes + back-in-stock emails (Google Apps Script). Setup: README.md, step 5.
+ * Bee Hive server helper (Google Apps Script). Setup: README.md.
  *
- * What it does
- *   send   {email}        -> emails a random 4-digit code to that address
- *   verify {email, code}  -> if the code is right, returns a Firebase sign-in token for that email
- *   notify {idToken, product, link, emails} -> owner only: emails customers that a product is back in stock
- *   pay    {idToken, orderId}   -> a customer's own confirmed order: returns a Stripe Checkout link for its total
+ *   rates  {idToken, address, customer, items}  -> shipping options + prices from Easyship (Evri, Royal Mail, UPS, DPD ...)
+ *   pay    {idToken, orderId}   -> a customer's own order: prices it from the live shop data (items + the chosen Easyship
+ *                                  service, re-quoted here, never trusted from the browser) and returns a Stripe Checkout link
  *   paid   {idToken, orderId, sid} -> after Stripe sends the customer back: checks the payment with Stripe, marks the order paid,
- *                                     confirms it, takes the stock and emails the owner + customer
- *   stage  {idToken, orderId}   -> owner only: emails the customer the order's new step (on my way / arrived / ready)
+ *                                     takes the stock, creates the shipment in Easyship and emails the owner + customer
+ *   stage  {idToken, orderId}   -> owner only: emails the customer the order's new step (shipped / ready to collect)
+ *   notify {idToken, product, link, emails} -> owner only: emails customers that a product is back in stock
  *
- * Why it exists: Firebase can't email 4-digit codes on the free plan. This script runs free in your
- * Google account, sends the emails from your Gmail, and signs the Firebase token with your project's
- * service-account key (stored in Script properties, never in the website).
+ * Secrets live in Script properties (never in the website): STRIPE_SECRET_KEY, EASYSHIP_TOKEN, FB_CLIENT_EMAIL, FB_PRIVATE_KEY.
  */
 
 const SETTINGS = {
   STORE_NAME: 'Bee Hive',
   SITE_URL: 'https://plodroid.github.io/store/',   // notify emails may only link here
-  FIREBASE_API_KEY: 'AIzaSyDvXzdxig3eEGKAnQReP4HmjDKFISoJQH4',   // the public web key from firebase-config.js (used to check the owner's login)
-  CODE_MINUTES: 10,          // a code stops working after this long
-  RESEND_SECONDS: 30,        // gap between two codes for the same email
-  TRIES_PER_CODE: 3,         // wrong guesses before a code is thrown away
-  FAILS_PER_HOUR: 6,         // wrong guesses per email per hour, across all its codes
-  SENDS_PER_HOUR: 5,         // codes per email per hour
-  SENDS_PER_DAY: 80,         // codes for the whole shop per day (a free Gmail can send about 100 emails a day)
-  GOOGLE_ONLY: ['housikiki@gmail.com'],   // these emails must use "Continue with Google" (a 4-digit code is too weak for the owner)
+  FIREBASE_API_KEY: 'AIzaSyDvXzdxig3eEGKAnQReP4HmjDKFISoJQH4',   // the public web key from firebase-config.js (used to check logins)
+  SENDS_PER_DAY: 80,         // emails for the whole shop per day (a free Gmail can send about 100 a day)
+  OWNER_EMAILS: ['housikiki@gmail.com'],   // owner must be signed in with Google as one of these
   NOTIFY_MAX: 40,            // customers per back-in-stock send
   PROJECT_ID: 'beehive-shop-uk',  // Firebase project (orders are read and marked paid here)
   OWNER_EMAIL: 'housikiki@gmail.com',   // gets an email for every paid order
+  EASYSHIP: 'https://public-api.easyship.com/2024-09',
+  RATES_PER_HOUR: 40,        // shipping quotes per customer per hour
 };
 
 /* ── web app entry points ─────────────────────────────── */
 
-function doGet() { return out_({ ok: true, service: 'store-login', pay: !!stripeKey_() }); }
+function doGet() { return out_({ ok: true, service: 'store', pay: !!stripeKey_(), ship: !!easyKey_() }); }
 
 function doPost(e) {
   let body;
   try { body = JSON.parse(e.postData.contents); } catch (x) { return out_({ ok: false, error: 'bad_request' }); }
   if (!body || typeof body !== 'object') return out_({ ok: false, error: 'bad_request' });
+  try {
+    if (body.a === 'rates') return out_(rates_(body));          // read-only: no lock, so a slow quote never blocks a payment
+  } catch (err) { console.error(err); return out_({ ok: false, error: 'server' }); }
 
   const lock = LockService.getScriptLock();
   try { lock.waitLock(10000); } catch (x) { return out_({ ok: false, error: 'server' }); }
@@ -47,10 +44,6 @@ function doPost(e) {
     if (body.a === 'pay') return out_(pay_(body));
     if (body.a === 'paid') return out_(paid_(body));
     if (body.a === 'stage') return out_(stage_(body));
-    const email = String(body.email || '').trim().toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 120) return out_({ ok: false, error: 'bad_email' });
-    if (body.a === 'send') return out_(send_(email));
-    if (body.a === 'verify') return out_(verify_(email, String(body.code || '')));
     return out_({ ok: false, error: 'bad_request' });
   } catch (err) {
     console.error(err);
@@ -58,80 +51,6 @@ function doPost(e) {
   } finally {
     lock.releaseLock();
   }
-}
-
-/** Gmail ignores dots and "+tags", so name+x@gmail.com and n.ame@gmail.com are the same person. */
-function canonical_(email) {
-  const p = String(email).toLowerCase().split('@');
-  if (p[1] === 'gmail.com' || p[1] === 'googlemail.com') return p[0].split('+')[0].replace(/\./g, '') + '@gmail.com';
-  return p.join('@');
-}
-function googleOnly_(email) {
-  const c = canonical_(email);
-  return SETTINGS.GOOGLE_ONLY.some(function (g) { return canonical_(g) === c; });
-}
-
-/* ── send / verify ────────────────────────────────────── */
-
-function send_(email) {
-  if (googleOnly_(email)) return { ok: false, error: 'use_google' };
-  const c = CacheService.getScriptCache(), now = Date.now(), id = canonical_(email);   // limits follow the person, not the alias
-
-  const sends = getJson_(c, key_('s', id)) || { n: 0, t0: now, last: 0 };
-  if (now - sends.t0 > 3600e3) { sends.n = 0; sends.t0 = now; }
-  const gap = SETTINGS.RESEND_SECONDS * 1000 - (now - sends.last);
-  if (gap > 0) return { ok: false, error: 'wait', wait: Math.ceil(gap / 1000) };
-  if (sends.n >= SETTINGS.SENDS_PER_HOUR) return { ok: false, error: 'limit' };
-  if (dayCount_() >= SETTINGS.SENDS_PER_DAY) return { ok: false, error: 'busy' };
-
-  const code = newCode_();
-  const entry = { h: hash_(id, code), tries: 0, exp: now + SETTINGS.CODE_MINUTES * 60e3 };
-  c.put(key_('c', id), JSON.stringify(entry), SETTINGS.CODE_MINUTES * 60);
-  try {
-    MailApp.sendEmail({
-      to: email,
-      name: SETTINGS.STORE_NAME,
-      subject: code + ' is your ' + SETTINGS.STORE_NAME + ' sign-in code',
-      body: 'Your sign-in code is ' + code + '.\n\nIt works for ' + SETTINGS.CODE_MINUTES + ' minutes. ' +
-            "If you didn't ask for it, ignore this email. Nobody can sign in without the code.",
-      htmlBody: '<div style="font-family:Arial,sans-serif;max-width:420px">' +
-                '<p style="margin:0 0 12px">Your sign-in code for <b>' + SETTINGS.STORE_NAME + '</b>:</p>' +
-                '<p style="margin:0 0 16px;font-size:34px;letter-spacing:8px;font-weight:700">' + code + '</p>' +
-                '<p style="margin:0;color:#666;font-size:13px">It works for ' + SETTINGS.CODE_MINUTES + " minutes. If you didn't ask for it, " +
-                'ignore this email. Nobody can sign in without the code.</p></div>',
-    });
-  } catch (err) {
-    console.error(err);
-    c.remove(key_('c', id));
-    return { ok: false, error: 'send_failed' };
-  }
-  sends.n++; sends.last = now;
-  c.put(key_('s', id), JSON.stringify(sends), 3600);
-  bumpDay_();
-  return { ok: true };
-}
-
-function verify_(email, code) {
-  if (!/^\d{4}$/.test(code)) return { ok: false, error: 'bad_code' };
-  if (googleOnly_(email)) return { ok: false, error: 'use_google' };
-  const c = CacheService.getScriptCache(), now = Date.now(), id = canonical_(email);
-
-  const fails = getJson_(c, key_('f', id)) || { n: 0, t0: now };
-  if (now - fails.t0 > 3600e3) { fails.n = 0; fails.t0 = now; }
-  if (fails.n >= SETTINGS.FAILS_PER_HOUR) return { ok: false, error: 'locked' };
-
-  const entry = getJson_(c, key_('c', id));
-  if (!entry || now > entry.exp) return { ok: false, error: 'expired' };
-
-  if (entry.h !== hash_(id, code)) {
-    entry.tries++; fails.n++;
-    c.put(key_('f', id), JSON.stringify(fails), 3600);
-    if (entry.tries >= SETTINGS.TRIES_PER_CODE) { c.remove(key_('c', id)); return { ok: false, error: 'expired' }; }
-    c.put(key_('c', id), JSON.stringify(entry), Math.max(1, Math.ceil((entry.exp - now) / 1000)));
-    return { ok: false, error: 'bad_code', left: SETTINGS.TRIES_PER_CODE - entry.tries };
-  }
-  c.remove(key_('c', id));                    // a code works once
-  return { ok: true, token: token_(email) };
 }
 
 /* ── back-in-stock emails (owner only) ───────────────── */
@@ -144,7 +63,7 @@ function ownerOf_(idToken) {
   const u = (JSON.parse(res.getContentText()).users || [])[0];
   if (!u || u.emailVerified !== true) return false;
   const viaGoogle = (u.providerUserInfo || []).some(function (p) { return p.providerId === 'google.com'; });
-  return viaGoogle && SETTINGS.GOOGLE_ONLY.indexOf(String(u.email || '').toLowerCase()) >= 0;
+  return viaGoogle && SETTINGS.OWNER_EMAILS.indexOf(String(u.email || '').toLowerCase()) >= 0;
 }
 
 function notify_(b) {
@@ -202,11 +121,11 @@ function stripe_(method, path, form) {
 
 function orderId_(v) { const id = String(v || ''); return /^o_[A-Za-z0-9_-]{6,60}$/.test(id) ? id : ''; }
 
-/** Works out an order's price from the live shop data (never from the browser). */
-function quote_(o) {
-  const site = firestore_('get', 'settings/site'), st = site ? fsFields_(site.fields || {}) : {};
-  if (o.fulfilment === 'delivery' && st.delivery === false) return { ok: false, error: 'no_delivery' };
-  if (o.fulfilment !== 'delivery' && st.collection === false) return { ok: false, error: 'no_collection' };
+/** The shop's public settings (settings/site) as a plain object. */
+function site_() { const d = firestore_('get', 'settings/site'); return d ? fsFields_(d.fields || {}) : {}; }
+
+/** The shop's price for each basket line, from live data (never from the browser). → { ok, lines, pence } or { ok:false, error } */
+function lines_(o) {
   const items = Array.isArray(o.items) ? o.items : [], lines = [], events = liveEvents_();
   let pence = 0;
   for (let i = 0; i < items.length; i++) {
@@ -222,11 +141,137 @@ function quote_(o) {
     });
     const line = Math.round(unit * 100) * qty;
     pence += line;
-    lines.push({ productId: String(items[i].productId), name: p.name, unit: p.unit || null, unitPrice: unit, qty: qty, lineTotal: line / 100 });
+    lines.push({ productId: pid, name: p.name, unit: p.unit || null, unitPrice: unit, qty: qty, lineTotal: line / 100, weightG: Number(p.weightG) || 0, hsCode: p.hsCode || '' });
   }
-  const fee = o.fulfilment === 'delivery' ? Math.round((Number(st.deliveryFee) || 0) * 100) : 0;
-  if (!lines.length || pence + fee < 30) return { ok: false, error: 'too_small' };   // Stripe's minimum is 30p
-  return { ok: true, lines: lines, subtotal: pence / 100, deliveryFee: fee / 100, total: (pence + fee) / 100 };
+  return { ok: true, lines: lines, pence: pence };
+}
+
+/** Works out an order's price from the live shop data: items + (for shipping) the Easyship service the customer picked, re-quoted now. */
+function quote_(o) {
+  const st = site_();
+  if (o.fulfilment === 'shipping' && st.shipping !== true) return { ok: false, error: 'no_shipping' };
+  if (o.fulfilment !== 'shipping' && st.collection === false) return { ok: false, error: 'no_collection' };
+  const l = lines_(o);
+  if (!l.ok) return l;
+  let fee = 0, ship = null;
+  if (o.fulfilment === 'shipping') {
+    const r = ratesFor_(o.address, o.customer, l, st);
+    if (!r.ok) return { ok: false, error: r.error === 'bad_address' ? 'bad_address' : 'ship_rate' };
+    const pick = r.rates.filter(function (x) { return x.id === String((o.shipping || {}).serviceId || ''); })[0];
+    if (!pick) return { ok: false, error: 'ship_rate' };
+    fee = Math.round(pick.price * 100); ship = { serviceId: pick.id, courier: pick.courier, service: pick.service, price: pick.price, etaMin: pick.etaMin, etaMax: pick.etaMax };
+  }
+  if (!l.lines.length || l.pence + fee < 30) return { ok: false, error: 'too_small' };   // Stripe's minimum is 30p
+  return { ok: true, lines: l.lines.map(function (x) { return { productId: x.productId, name: x.name, unit: x.unit, unitPrice: x.unitPrice, qty: x.qty, lineTotal: x.lineTotal }; }),
+    subtotal: l.pence / 100, shippingFee: fee / 100, shipping: ship, total: (l.pence + fee) / 100 };
+}
+
+/* ── shipping (Easyship) ──────────────────────────────────
+   The Easyship token lives only in Script properties (EASYSHIP_TOKEN). The shop's own address comes from settings/owner (owner-only
+   in Firestore), the parcel from the products' weights, and the customer's exact address from the order. */
+
+function easyKey_() { return PropertiesService.getScriptProperties().getProperty('EASYSHIP_TOKEN') || ''; }
+
+function easy_(method, path, payload) {
+  const res = UrlFetchApp.fetch(SETTINGS.EASYSHIP + path, { method: method, contentType: 'application/json', muteHttpExceptions: true,
+    headers: { Authorization: 'Bearer ' + easyKey_() }, payload: payload ? JSON.stringify(payload) : undefined });
+  let j = {}; try { j = JSON.parse(res.getContentText()); } catch (x) {}
+  if (res.getResponseCode() >= 300) {
+    const msg = (j.error && (j.error.message || j.error.details)) || j.message || res.getContentText().slice(0, 200);
+    throw new Error('Easyship ' + res.getResponseCode() + ': ' + (typeof msg === 'string' ? msg : JSON.stringify(msg)));
+  }
+  return j;
+}
+
+function str_(v, n) { return String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, n); }
+
+/** The destination, cleaned (and refused if it isn't a whole address in a country the shop ships to). */
+function destination_(a, c, st) {
+  a = a || {}; c = c || {};
+  const d = { country_alpha2: str_(a.country, 2).toUpperCase(), line_1: str_(a.line1, 100), line_2: str_(a.line2, 80), city: str_(a.city, 60),
+    state: str_(a.state, 40), postal_code: str_(a.postcode, 12), contact_name: str_(c.name, 80), contact_phone: str_(c.phone, 20), contact_email: str_(c.email, 120) };
+  const allowed = String(st.shipTo || 'GB').toUpperCase().split(/[^A-Z]+/).filter(Boolean);
+  if (!/^[A-Z]{2}$/.test(d.country_alpha2) || allowed.indexOf(d.country_alpha2) < 0 || !d.line_1 || !d.city || !d.postal_code || !d.contact_name || !/^\+\d{7,15}$/.test(d.contact_phone)) return null;
+  return d;
+}
+
+/** → { ok, rates:[{id, courier, service, price, etaMin, etaMax}] sorted cheapest first } */
+function ratesFor_(address, customer, l, st) {
+  if (!easyKey_()) return { ok: false, error: 'not_set_up' };
+  const dest = destination_(address, customer, st);
+  if (!dest) return { ok: false, error: 'bad_address' };
+  const od = firestore_('get', 'settings/owner'), from = od ? (fsFields_(od.fields || {}).shipFrom || {}) : {};
+  if (!from.line1 || !from.city || !from.postcode || !from.country) return { ok: false, error: 'no_origin' };
+  const parcel = parcel_(l, st, from);
+  const body = { origin_address: origin_(from), destination_address: dest, output_currency: 'GBP', incoterms: 'DDU', parcels: [parcel] };
+  const j = easy_('post', '/rates?per_page=50', body);
+  const subtotal = l.pence / 100, freeOver = Number(st.freeShippingOver) || 0;
+  const cs = function (r) { return r.courier_service || { id: r.courier_id, name: r.courier_name, umbrella_name: r.courier_name }; };   // 2024-09 nests the service; older replies are flat
+  let rates = (j.rates || []).filter(function (r) { return cs(r).id && Number(r.total_charge) >= 0; }).map(function (r) {
+    return { id: String(cs(r).id), courier: str_(cs(r).umbrella_name || cs(r).name, 40), service: str_(cs(r).name, 60),
+      price: Math.round(Number(r.total_charge) * 100) / 100, etaMin: Number(r.min_delivery_time) || 0, etaMax: Number(r.max_delivery_time) || 0 };
+  }).sort(function (x, y) { return x.price - y.price || x.etaMax - y.etaMax; }).slice(0, 8);
+  if (freeOver > 0 && subtotal >= freeOver && rates.length && dest.country_alpha2 === String(from.country).toUpperCase()) rates[0].price = 0;   // free delivery: the shop pays for its cheapest option
+  return rates.length ? { ok: true, rates: rates } : { ok: false, error: 'no_rates' };
+}
+
+function origin_(from) {
+  return { country_alpha2: str_(from.country, 2).toUpperCase(), line_1: str_(from.line1, 100), line_2: str_(from.line2, 80), city: str_(from.city, 60), state: str_(from.state, 40),
+    postal_code: str_(from.postcode, 12), company_name: str_(from.company, 80), contact_name: str_(from.name, 80), contact_phone: str_(from.phone, 20), contact_email: str_(from.email, 120) };
+}
+
+/** One parcel: the products' weights added up (+ packaging) in a box of the owner's usual size. */
+function parcel_(l, st, from) {
+  const def = Number(st.defaultWeightG) || 300, pack = Number(st.packagingG) || 100;
+  let g = pack;
+  const items = l.lines.map(function (x) {
+    const w = x.weightG > 0 ? x.weightG : def;
+    g += w * x.qty;
+    const it = { description: str_(x.name, 100), category: str_(st.shipCategory || 'home_appliances', 40), sku: str_(x.productId, 40), quantity: x.qty, actual_weight: Math.round(w) / 1000,
+      declared_currency: 'GBP', declared_customs_value: x.unitPrice, origin_country_alpha2: str_(from.country, 2).toUpperCase() };
+    if (x.hsCode) it.hs_code = str_(x.hsCode, 12);
+    return it;
+  });
+  return { total_actual_weight: Math.round(g) / 1000, box: { length: Number(st.boxL) || 25, width: Number(st.boxW) || 20, height: Number(st.boxH) || 12 }, items: items };
+}
+
+function rates_(b) {
+  const u = user_(b.idToken);
+  if (!u) return { ok: false, error: 'auth' };
+  const c = CacheService.getScriptCache(), k = 'r_' + u.uid, n = Number(c.get(k) || 0);
+  if (n >= SETTINGS.RATES_PER_HOUR) return { ok: false, error: 'limit' };
+  c.put(k, String(n + 1), 3600);
+  const st = site_();
+  if (st.shipping !== true) return { ok: false, error: 'no_shipping' };
+  const l = lines_({ items: b.items });
+  if (!l.ok) return l;
+  const r = ratesFor_(b.address, b.customer, l, st);
+  return r.ok ? { ok: true, rates: r.rates, subtotal: l.pence / 100 } : r;
+}
+
+/** After payment: create the shipment in Easyship so the owner only has to buy the label there. Never fails the order. */
+function createShipment_(id, o) {
+  try {
+    const st = site_(), sel = (o.shipping || {}).serviceId;
+    const od = firestore_('get', 'settings/owner'), from = od ? (fsFields_(od.fields || {}).shipFrom || {}) : {};
+    const dest = destination_(o.address, o.customer, st);
+    if (!dest || !from.line1) throw new Error('missing address');
+    const lines = (Array.isArray(o.lines) ? o.lines : []).map(function (x) {        // the order's own priced lines + each product's weight
+      const d = firestore_('get', 'products/' + x.productId), p = d ? fsFields_(d.fields || {}) : {};
+      return { productId: x.productId, name: x.name, unitPrice: x.unitPrice, qty: x.qty, weightG: Number(p.weightG) || 0, hsCode: p.hsCode || '' };
+    });
+    const j = easy_('post', '/shipments', {
+      origin_address: origin_(from), destination_address: dest, incoterms: 'DDU', parcels: [parcel_({ lines: lines, pence: 0 }, st, from)],
+      courier_settings: { courier_service_id: sel }, shipping_settings: { buy_label: false }, order_data: { platform_order_number: String(o.ref || id) },
+    });
+    const s = j.shipment || j;
+    firestore_('patch', 'orders/' + id, { shipment: fsEnc_({ easyshipId: str_(s.easyship_shipment_id || s.id, 60), trackingUrl: str_(s.tracking_page_url, 300), labelState: str_(s.label_state, 30) }) });
+    return true;
+  } catch (err) {
+    console.error(err);
+    mail_(SETTINGS.OWNER_EMAIL, 'Create the Easyship shipment for order ' + o.ref, 'The shipment could not be created automatically (' + String(err.message).slice(0, 300) + ').\n\nPlease create it by hand at app.easyship.com using the order details in the shop (Manage > the order).');
+    return false;
+  }
 }
 
 /** Events the owner has switched on and whose dates include today (UK time). */
@@ -256,9 +301,10 @@ function pay_(b) {
     const q = quote_(o);
     if (!q.ok) return q;
     firestore_('patch', 'orders/' + id, {
-      lines: fsEnc_(q.lines), subtotal: fsEnc_(q.subtotal), deliveryFee: fsEnc_(q.deliveryFee), total: fsEnc_(q.total),
+      lines: fsEnc_(q.lines), subtotal: fsEnc_(q.subtotal), shippingFee: fsEnc_(q.shippingFee), total: fsEnc_(q.total),
       updatedAt: { timestampValue: new Date().toISOString() },
     });
+    if (q.shipping) firestore_('patch', 'orders/' + id, { shipping: fsEnc_(q.shipping) });
     o.total = q.total;
   } else if (['confirmed', 'preparing', 'ready'].indexOf(o.status) < 0 || !(Number(o.total) > 0)) return { ok: false, error: 'not_ready' };
   const form = {
@@ -301,6 +347,7 @@ function paid_(b) {
         if (d) firestore_('patch', 'products/' + l.productId, { stock: fsEnc_(Math.max(0, Number(fsFields_(d.fields || {}).stock) - l.qty)), updatedAt: { timestampValue: now } });
       } catch (err) { console.error(err); }
     });
+    if (o.fulfilment === 'shipping') createShipment_(id, o);
     mailPaid_(o);
   }
   return { ok: true };
@@ -317,20 +364,19 @@ function mail_(to, subject, text) {
 }
 
 function mailPaid_(o) {
-  const how = o.fulfilment === 'delivery' ? 'DELIVERY' : 'PICK-UP', c = o.customer || {}, a = o.address;
+  const ship = o.fulfilment === 'shipping', how = ship ? 'SHIPPING' : 'PICK-UP', c = o.customer || {}, a = o.address, sh = o.shipping || {};
   const items = (o.lines || []).map(function (l) { return '  ' + l.qty + ' x ' + l.name; }).join('\n');
   mail_(SETTINGS.OWNER_EMAIL, 'New paid order ' + o.ref + ' (' + how + ', £' + Number(o.total).toFixed(2) + ')',
-    'Someone just paid for an order.\n\n' + items + '\n\nTotal paid: £' + Number(o.total).toFixed(2) + '\n' + how + '\nName: ' + (c.name || '') + '\nPhone: ' + (c.phone || '-') +
-    (a ? '\nAddress: ' + [a.line1, a.line2, a.city, a.postcode].filter(Boolean).join(', ') : '') + (o.note ? '\nNote: ' + o.note : '') +
-    '\n\nOpen the shop, tap Manage, and press the big button on the order.');
+    'Someone just paid for an order.\n\n' + items + '\n\nTotal paid: £' + Number(o.total).toFixed(2) + '\n' + how + (ship ? ' with ' + (sh.courier || '') + ' ' + (sh.service || '') : '') + '\nName: ' + (c.name || '') + '\nPhone: ' + (c.phone || '-') +
+    (a ? '\nShip to: ' + [a.line1, a.line2, a.city, a.state, a.postcode, a.country].filter(Boolean).join(', ') : '') + (o.note ? '\nNote: ' + o.note : '') +
+    (ship ? '\n\nThe shipment is created in Easyship. Open app.easyship.com, pay for the label and print it, then press Shipped on the order in the shop.' : '\n\nOpen the shop, tap Manage, and press the big button on the order.'));
   mail_(c.email, 'We got your order ' + o.ref,
     'Thank you! Your payment of £' + Number(o.total).toFixed(2) + ' went through and your order ' + o.ref + ' is confirmed.\n\n' + items +
-    '\n\nWe will email you when it is ' + (o.fulfilment === 'delivery' ? 'on its way.' : 'ready to collect.'));
+    '\n\nWe will email you when it is ' + (ship ? 'shipped, with a tracking link.' : 'ready to collect.'));
 }
 
 const STAGE_MAIL = {
-  ontheway: ['is on its way', 'The owner has set off with your order and is on the way to you. Please keep your phone close.'],
-  arrived: ['has arrived', 'The owner is outside with your order now.'],
+  shipped: ['has shipped', 'Your order is on its way with the courier.'],
   ready: ['is ready to collect', 'Your order is ready. Come and pick it up from the shop whenever you like.'],
 };
 
@@ -339,9 +385,9 @@ function stage_(b) {
   if (!ownerOf_(String(b.idToken || ''))) return { ok: false, error: 'not_owner' };
   const id = orderId_(b.orderId), o = id ? order_(id) : null;
   if (!o || !STAGE_MAIL[o.status]) return { ok: false, error: 'bad_request' };
-  const m = STAGE_MAIL[o.status], to = o.customer && o.customer.email;
+  const m = STAGE_MAIL[o.status], to = o.customer && o.customer.email, t = o.shipment && o.shipment.trackingUrl;
   if (!to) return { ok: true, sent: 0 };
-  return { ok: true, sent: mail_(to, 'Your order ' + o.ref + ' ' + m[0], m[1] + '\n\nOrder ' + o.ref) ? 1 : 0 };
+  return { ok: true, sent: mail_(to, 'Your order ' + o.ref + ' ' + m[0], m[1] + (o.status === 'shipped' && t ? '\n\nTrack your parcel: ' + t : '') + '\n\nOrder ' + o.ref) ? 1 : 0 };
 }
 
 /* Firestore over REST, signed in as the service account (so the security rules don't apply to this script) */
@@ -398,41 +444,8 @@ function fsEnc_(v) {
 function fsFields_(f) { const o = {}; Object.keys(f).forEach(function (k) { o[k] = fsValue_(f[k]); }); return o; }
 function order_(id) { const d = firestore_('get', 'orders/' + id); return d ? fsFields_(d.fields || {}) : null; }
 
-/* ── Firebase custom token (RS256 JWT signed with the service-account key) ── */
-
-function token_(email) {
-  const p = PropertiesService.getScriptProperties();
-  const clientEmail = p.getProperty('FB_CLIENT_EMAIL');
-  const privateKey = (p.getProperty('FB_PRIVATE_KEY') || '').replace(/\\n/g, '\n');
-  if (!clientEmail || privateKey.indexOf('BEGIN PRIVATE KEY') < 0) throw new Error('FB_CLIENT_EMAIL / FB_PRIVATE_KEY are not set in Script properties');
-  const now = Math.floor(Date.now() / 1000);
-  const payload = {
-    iss: clientEmail, sub: clientEmail,
-    aud: 'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit',
-    iat: now, exp: now + 3300,
-    uid: 'e_' + hex_(sha256_(canonical_(email))),     // the same person always gets the same account
-    claims: { mail: email, cv: true },                // cv = "code verified": the security rules treat this as a verified email
-  };
-  const input = b64u_(JSON.stringify({ alg: 'RS256', typ: 'JWT' })) + '.' + b64u_(JSON.stringify(payload));
-  return input + '.' + Utilities.base64EncodeWebSafe(Utilities.computeRsaSha256Signature(input, privateKey)).replace(/=+$/, '');
-}
-
 /* ── helpers ──────────────────────────────────────────── */
 
-function newCode_() {
-  const hex = Utilities.getUuid().replace(/-/g, '').slice(0, 8);      // 32 random bits from a secure source
-  return ('000' + (parseInt(hex, 16) % 10000)).slice(-4);
-}
-function pepper_() {
-  const p = PropertiesService.getScriptProperties();
-  let v = p.getProperty('PEPPER');
-  if (!v) { v = Utilities.getUuid() + Utilities.getUuid(); p.setProperty('PEPPER', v); }
-  return v;
-}
-function sha256_(s) { return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, s, Utilities.Charset.UTF_8); }
-function hex_(bytes) { return bytes.map(function (b) { return ('0' + (b & 255).toString(16)).slice(-2); }).join(''); }
-function hash_(email, code) { return hex_(sha256_(pepper_() + '|' + email + '|' + code)); }
-function key_(kind, email) { return kind + hex_(sha256_(pepper_() + '|' + email)).slice(0, 40); }
 function b64u_(s) { return Utilities.base64EncodeWebSafe(s, Utilities.Charset.UTF_8).replace(/=+$/, ''); }
 function getJson_(cache, k) { const v = cache.get(k); return v ? JSON.parse(v) : null; }
 function out_(obj) { return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON); }
@@ -446,11 +459,13 @@ function bumpDay_() {
 }
 
 /**
- * Run this once from the editor (Run > checkSetup). It asks Google for permission to send email, then
- * checks that the Firebase key in Script properties can sign a token. Look for "Setup OK" in the log.
+ * Run this once from the editor (Run > checkSetup). It asks Google for permission to send email and checks the
+ * Firebase key, then the Easyship token. Look for "Setup OK" in the log.
  */
 function checkSetup() {
   Logger.log('Emails you can still send today: ' + MailApp.getRemainingDailyQuota());
-  const t = token_('check@example.com');
-  Logger.log('Setup OK. Test token starts: ' + t.slice(0, 20) + '...');
+  Logger.log('Firestore access: ' + (firestore_('get', 'settings/site') ? 'OK' : 'site settings not found yet'));
+  Logger.log('Stripe key: ' + (stripeKey_() ? 'set' : 'MISSING (card payments off)'));
+  Logger.log('Easyship token: ' + (easyKey_() ? 'set' : 'MISSING (shipping off)'));
+  Logger.log('Setup OK');
 }

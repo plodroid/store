@@ -109,23 +109,26 @@ await test("order: not enough stock blocks confirm; stock untouched", async ({ p
   assert.equal(d.orders.o_abc12345.status, "new"); assert.equal(d.products.p2.stock, 3);
 }, { orders: { o_abc12345: ORDER({ items: [{ productId: "p2", qty: 5, name: "Sparkling Water" }], estTotal: 12 }) } });
 
-await test("order: delivery order shows address + advance statuses to completed", async (t) => {
+await test("order: shipping order shows the exact address + courier, and advances confirmed > shipped > done (one email: shipped)", async (t) => {
   const p = t.page;
   await openAdmin(p); await tab(p, "orders");
   await p.click('[data-act="open-order"]');
-  assert.match(await p.locator("#admDlg").innerText(), /Example Road/);
+  const txt = await p.locator("#admDlg").innerText();
+  assert.match(txt, /10 Example Road/); assert.match(txt, /SW1A 1AA/); assert.match(txt, /United Kingdom/); assert.match(txt, /Evri Standard/);
+  assert.ok(await p.locator('#admDlg a[href*="easyship.com"]').count() >= 1, "link to Easyship");
   await p.click("#ordMain");
   await p.waitForFunction(() => window.__FAKE.dump().orders.o_abc12345.status === "confirmed");
-  // delivery has three steps: on my way > arrived > done. The first two email the customer.
-  for (const s of ["ontheway", "arrived", "completed"]) {
+  const o = (await db(p)).orders.o_abc12345; assert.equal(o.shippingFee, 2.49);               // the courier price the customer chose
+  for (const s of ["shipped", "completed"]) {
     await p.waitForTimeout(500);   // the dialog redraws itself ~250ms after each action
     await p.click("#ordMain");
     await p.waitForFunction(st => window.__FAKE.dump().orders.o_abc12345.status === st, s);
   }
   const stages = t.mail.calls.filter(c => c.a === "stage");
-  assert.equal(stages.length, 2); assert.ok(stages.every(c => c.orderId === "o_abc12345" && c.idToken));
-}, { orders: { o_abc12345: ORDER({ fulfilment: "delivery", customer: { name: "Gina", phone: "+447123456789", email: "g@e.com" },
-  address: { line1: "10 Example Road", line2: "", city: "London", postcode: "SW1A 1AA", lat: 52.63, lng: -1.09, verified: true } }) } });
+  assert.equal(stages.length, 1); assert.ok(stages.every(c => c.orderId === "o_abc12345" && c.idToken));
+}, { orders: { o_abc12345: ORDER({ fulfilment: "shipping", customer: { name: "Gina", phone: "+447911123456", email: "buyer@example.com" },
+  address: { country: "GB", line1: "10 Example Road", line2: "", city: "London", state: "", postcode: "SW1A 1AA", verified: true },
+  shipping: { serviceId: "svc-evri", courier: "Evri", service: "Standard", price: 2.49, etaMin: 3, etaMax: 5 } }) } });
 
 await test("today: a paid order shows with one big button; pick-up goes ready > done", async (t) => {
   const p = t.page;
@@ -152,7 +155,7 @@ await test("today: a checkout that was never paid is hidden from the owner; payi
 
 await test("today: plain-English guide is there", async ({ page: p }) => {
   await openAdmin(p);
-  assert.match(await p.locator("#admGuide").innerText(), /I'm on my way/);
+  assert.match(await p.locator("#admGuide").innerText(), /Easyship/);
 });
 
 await test("feedback: shows, mark read, archive", async ({ page: p }) => {
@@ -163,11 +166,24 @@ await test("feedback: shows, mark read, archive", async ({ page: p }) => {
   await p.waitForFunction(() => window.__FAKE.dump().feedback.f1.archived === true);
 }, { feedback: { f1: FB() } });
 
-await test("settings: save delivery fee", async ({ page: p }) => {
+await test("settings: shipping needs a real ship-from address and phone; once valid it saves (phone made international)", async ({ page: p }) => {
   await openAdmin(p); await tab(p, "settings");
-  await p.locator('#setForm [name="deliveryFee"]').fill("3");
+  await p.check('#setForm [name="shipping"]');
   await p.click("#setSave");
-  await p.waitForFunction(() => window.__FAKE.dump().settings.site.deliveryFee === 3);
+  await p.waitForFunction(() => /post from|name and email|postcode|Tick at least/i.test(document.querySelector("#setErr").textContent));
+  await p.locator('#setForm [name="sfName"]').fill("Test Seller"); await p.locator('#setForm [name="sfEmail"]').fill("seller@example.com");
+  await p.locator('#setForm [name="sfPhone"]').fill("0795 123 456");                          // one digit short, not a real number
+  await p.locator('#setForm [name="postcode"]').fill("LS1 1AA"); await p.locator('#setForm [name="number"]').fill("1");
+  await p.locator('#setForm [name="street"]').fill("Hive Lane"); await p.locator('#setForm [name="city"]').fill("Leeds");
+  await p.locator('#setForm [name="freeShippingOver"]').fill("30");
+  await p.click("#setSave");
+  await p.waitForFunction(() => /phone number isn.t real/i.test(document.querySelector("#setErr").textContent));
+  await p.locator('#setForm [name="sfPhone"]').fill("07911 123456");
+  await p.click("#setSave");
+  await p.waitForFunction(() => { const d = window.__FAKE.dump(); return d.settings.owner && d.settings.owner.shipFrom && d.settings.owner.shipFrom.phone === "+447911123456" && d.settings.site.freeShippingOver === 30; });
+  const d = await db(p);
+  assert.equal(d.settings.owner.shipFrom.postcode, "LS1 1AA"); assert.equal(d.settings.owner.shipFrom.line1, "1 Hive Lane");
+  assert.equal(d.settings.site.shipTo, "GB");
 });
 
 await test("alert: a new order while you're on the page beeps, toasts and puts a count in the tab title", async ({ page: p }) => {

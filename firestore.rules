@@ -62,7 +62,9 @@ service cloud.firestore {
     function validAddress(a) {
       return a == null
         || (a is map
-            && a.keys().hasOnly(['line1', 'line2', 'city', 'postcode', 'lat', 'lng', 'verified'])
+            && a.keys().hasOnly(['country', 'line1', 'line2', 'city', 'state', 'postcode', 'lat', 'lng', 'verified'])
+            && a.get('country', '') is string && a.get('country', '').size() <= 2
+            && a.get('state', '') is string && a.get('state', '').size() <= 40
             && a.get('line1', '') is string && a.get('line1', '').size() <= 120
             && a.get('line2', '') is string && a.get('line2', '').size() <= 120
             && a.get('city', '') is string && a.get('city', '').size() <= 60
@@ -90,7 +92,7 @@ service cloud.firestore {
     function validProduct(d) {
       return d.keys().hasOnly(['name', 'price', 'stock', 'categoryId', 'image', 'imagePath', 'description',
                                'unit', 'visible', 'archived', 'featured', 'sortOrder', 'lowStockThreshold', 'salePrice',
-                               'imageCount', 'createdAt', 'updatedAt'])
+                               'imageCount', 'weightG', 'hsCode', 'createdAt', 'updatedAt'])
         && d.keys().hasAll(['name', 'price', 'stock', 'visible', 'archived', 'updatedAt'])
         && d.name is string && d.name.size() >= 1 && d.name.size() <= 120
         && d.price is number && d.price >= 0 && d.price <= 100000
@@ -100,7 +102,8 @@ service cloud.firestore {
         && optStr(d, 'categoryId', 64) && optStr(d, 'image', 60000) && optStr(d, 'imagePath', 300)
         && optStr(d, 'description', 2000) && optStr(d, 'unit', 30)
         && optBool(d, 'featured') && optInt(d, 'sortOrder', -1000000, 1000000)
-        && optInt(d, 'lowStockThreshold', 0, 100000) && optInt(d, 'imageCount', 0, 5);
+        && optInt(d, 'lowStockThreshold', 0, 100000) && optInt(d, 'imageCount', 0, 5)
+        && optInt(d, 'weightG', 1, 30000) && optStr(d, 'hsCode', 12);
     }
     match /products/{id} {
       allow read: if isOwner() || (resource.data.visible == true && resource.data.archived == false);
@@ -170,52 +173,41 @@ service cloud.firestore {
       allow delete: if isOwner();
     }
 
-    // ── live delivery position ───────────────────────────────
-    // The owner's phone writes tracking/{orderId} while he drives to that order (and deletes it after). The customer
-    // whose order it is can read it, nobody else can. It holds nothing but a position and a time.
-    match /tracking/{id} {
-      allow read: if isOwner() || (signedIn() && get(/databases/$(database)/documents/orders/$(id)).data.uid == request.auth.uid);
-      allow create, update: if isOwner()
-        && request.resource.data.keys().hasOnly(['lat', 'lng', 'heading', 'updatedAt'])
-        && request.resource.data.keys().hasAll(['lat', 'lng', 'updatedAt'])
-        && request.resource.data.lat is number && request.resource.data.lat >= -90 && request.resource.data.lat <= 90
-        && request.resource.data.lng is number && request.resource.data.lng >= -180 && request.resource.data.lng <= 180
-        && optInt(request.resource.data, 'heading', 0, 360)
-        && request.resource.data.updatedAt == request.time;
-      allow delete: if isOwner();
-    }
-
     // ── settings ─────────────────────────────────────────────
     match /settings/site {
       allow read: if true;
       allow write: if isOwner()
         && request.resource.data.keys().hasOnly(['storeName', 'heroTitle', 'heroSubtitle', 'announcement', 'whatsapp',
-                                                 'collection', 'delivery', 'deliveryFee', 'collectionNote',
-                                                 'deliveryNote', 'currency', 'updatedAt'])
+                                                 'collection', 'shipping', 'shipTo', 'freeShippingOver', 'packagingG',
+                                                 'defaultWeightG', 'boxL', 'boxW', 'boxH', 'shipCategory',
+                                                 'collectionNote', 'currency', 'updatedAt'])
         && optStr(request.resource.data, 'storeName', 60) && optStr(request.resource.data, 'heroTitle', 120)
         && optStr(request.resource.data, 'heroSubtitle', 200) && optStr(request.resource.data, 'announcement', 400)
         && optStr(request.resource.data, 'whatsapp', 200) && optStr(request.resource.data, 'collectionNote', 200)
-        && optStr(request.resource.data, 'deliveryNote', 200)
-        && optBool(request.resource.data, 'collection') && optBool(request.resource.data, 'delivery')
-        && (!('deliveryFee' in request.resource.data)
-            || (request.resource.data.deliveryFee is number && request.resource.data.deliveryFee >= 0
-                && request.resource.data.deliveryFee <= 1000))
+        && optBool(request.resource.data, 'collection') && optBool(request.resource.data, 'shipping')
+        && optStr(request.resource.data, 'shipTo', 200) && optStr(request.resource.data, 'shipCategory', 40)
+        && (!('freeShippingOver' in request.resource.data) || (request.resource.data.freeShippingOver is number
+            && request.resource.data.freeShippingOver >= 0 && request.resource.data.freeShippingOver <= 100000))
+        && optInt(request.resource.data, 'packagingG', 0, 5000) && optInt(request.resource.data, 'defaultWeightG', 1, 30000)
+        && optInt(request.resource.data, 'boxL', 1, 200) && optInt(request.resource.data, 'boxW', 1, 200) && optInt(request.resource.data, 'boxH', 1, 200)
         && (!('currency' in request.resource.data) || request.resource.data.currency == 'GBP')
         && request.resource.data.updatedAt == request.time;
     }
     match /settings/owner {
       allow read: if isOwner();
       allow write: if isOwner()
-        && request.resource.data.keys().hasOnly(['defaultLowStock', 'notify', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['defaultLowStock', 'notify', 'shipFrom', 'updatedAt'])
         && optInt(request.resource.data, 'defaultLowStock', 0, 100000)
         && (!('notify' in request.resource.data) || request.resource.data.notify is map)
+        && (!('shipFrom' in request.resource.data) || (request.resource.data.shipFrom is map
+            && request.resource.data.shipFrom.keys().hasOnly(['name', 'company', 'phone', 'email', 'country', 'line1', 'line2', 'city', 'state', 'postcode'])))
         && request.resource.data.updatedAt == request.time;
     }
 
     // ── orders ───────────────────────────────────────────────
     function validNewOrder(id, d) {
       return d.keys().hasOnly(['uid', 'ref', 'requestId', 'status', 'paymentStatus', 'isTest', 'fulfilment',
-                               'items', 'customer', 'address', 'note', 'estTotal', 'createdAt', 'updatedAt'])
+                               'items', 'customer', 'address', 'shipping', 'note', 'estTotal', 'createdAt', 'updatedAt'])
         && d.keys().hasAll(['uid', 'ref', 'requestId', 'status', 'paymentStatus', 'isTest', 'fulfilment',
                             'items', 'customer', 'note', 'createdAt', 'updatedAt'])
         && d.uid == request.auth.uid
@@ -223,17 +215,22 @@ service cloud.firestore {
         && id == 'o_' + d.requestId                                          // same request = same order (no duplicates)
         && d.ref is string && d.ref.matches('^BH-[A-Z0-9]{6}$')
         && d.status == 'new' && d.paymentStatus in ['mock', 'awaiting'] && d.isTest == true
-        && d.fulfilment in ['collection', 'delivery']
+        && d.fulfilment in ['collection', 'shipping']
         && d.items is list && d.items.size() >= 1 && d.items.size() <= 50
         && d.customer is map && d.customer.keys().hasOnly(['name', 'phone', 'email'])
         && d.customer.name is string && d.customer.name.size() >= 2 && d.customer.name.size() <= 80
         && d.customer.phone is string && d.customer.phone.size() <= 20
         && d.customer.email is string && d.customer.email.size() <= 120
-        && (d.fulfilment == 'delivery'
+        && (d.fulfilment == 'shipping'
               ? (d.address is map && validAddress(d.address)
-                 && d.address.get('line1', '').size() >= 1 && d.address.get('city', '').size() >= 1
-                 && d.address.get('postcode', '').size() >= 5 && d.customer.phone.size() >= 7)
-              : (!('address' in d) || d.address == null))
+                 && d.address.get('country', '').size() == 2 && d.address.get('line1', '').size() >= 3 && d.address.get('city', '').size() >= 2
+                 && d.address.get('postcode', '').size() >= 1 && d.customer.phone.matches('^\\+[0-9]{8,15}$')
+                 && d.shipping is map && d.shipping.keys().hasOnly(['serviceId', 'courier', 'service', 'price', 'etaMin', 'etaMax'])
+                 && d.shipping.serviceId is string && d.shipping.serviceId.size() >= 1 && d.shipping.serviceId.size() <= 80
+                 && d.shipping.get('courier', '') is string && d.shipping.get('courier', '').size() <= 40
+                 && d.shipping.get('service', '') is string && d.shipping.get('service', '').size() <= 60
+                 && d.shipping.get('price', 0) is number && d.shipping.get('price', 0) >= 0 && d.shipping.get('price', 0) <= 1000)
+              : ((!('address' in d) || d.address == null) && !('shipping' in d)))
         && d.note is string && d.note.size() <= 500
         && (!('estTotal' in d) || (d.estTotal is number && d.estTotal >= 0 && d.estTotal <= 1000000))
         && d.createdAt == request.time && d.updatedAt == request.time;
@@ -243,9 +240,9 @@ service cloud.firestore {
       allow create: if verified() && validNewOrder(id, request.resource.data)
         && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('lastOrderAt', null) == request.time;
       allow update: if isOwner()
-        && onlyChanges(['status', 'paymentStatus', 'lines', 'subtotal', 'deliveryFee', 'total', 'updatedAt'])
+        && onlyChanges(['status', 'paymentStatus', 'lines', 'subtotal', 'shippingFee', 'total', 'updatedAt'])
         && resource.data.status != 'cancelled'                              // cancelled is final
-        && request.resource.data.status in ['new', 'confirmed', 'preparing', 'ontheway', 'arrived', 'ready', 'completed', 'cancelled']
+        && request.resource.data.status in ['new', 'confirmed', 'preparing', 'shipped', 'ready', 'completed', 'cancelled']
         && (request.resource.data.paymentStatus == resource.data.paymentStatus
             || (resource.data.isTest == false                               // test orders stay "mock"
                 && request.resource.data.paymentStatus in ['pending', 'paid', 'failed', 'refunded']))

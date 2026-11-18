@@ -1,9 +1,9 @@
 /* The steps of an order, shared by the customer's "My orders" and the owner's panel: one bar, one idea.
-   Delivery: Confirmed & paid > Preparing > On its way > Outside > Delivered.  Pick-up: Confirmed & paid > Preparing > Ready > Collected. */
+   Shipping: Confirmed & paid > Preparing > Shipped > Delivered.  Pick-up: Confirmed & paid > Preparing > Ready > Collected. */
 import { esc } from "./ui.js?v=16";
 
-export const stepsOf = o => o.fulfilment === "delivery"
-  ? [o.paymentStatus === "paid" ? "Confirmed & paid" : "Confirmed", "Preparing", "On its way", "Outside", "Delivered"]
+export const stepsOf = o => o.fulfilment === "shipping" || o.fulfilment === "delivery"
+  ? [o.paymentStatus === "paid" ? "Confirmed & paid" : "Confirmed", "Preparing", "Shipped", "Delivered"]
   : [o.paymentStatus === "paid" ? "Confirmed & paid" : "Confirmed", "Preparing", "Ready to collect", "Collected"];
 
 /** Index of the step the order is on (-1 = not confirmed yet). */
@@ -12,9 +12,7 @@ export function stepIndex(o) {
   switch (o.status) {
     case "confirmed": return 0;
     case "preparing": return 1;
-    case "ontheway": return 2;
-    case "ready": return 2;                       // old orders: "ready" = out for delivery / ready to collect
-    case "arrived": return 3;
+    case "shipped": case "ontheway": case "arrived": case "ready": return 2;      // (ontheway/arrived: old orders)
     case "completed": return last;
     default: return -1;
   }

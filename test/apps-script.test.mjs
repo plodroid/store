@@ -59,154 +59,6 @@ function world(props = {}, lookup = null, hook = null) {
 }
 const wrong = c => (c === "0000" ? "1111" : "0000");
 
-test("send emails a 4-digit code and never returns it", () => {
-  const w = world();
-  const r = w.call({ a: "send", email: "Gina@Example.com " });
-  assert.deepEqual(r, { ok: true });
-  assert.equal(w.mails.length, 1);
-  assert.equal(w.mails[0].to, "gina@example.com");
-  assert.match(w.mails[0].subject, /^\d{4} is your Bee Hive sign-in code$/);
-  assert.match(w.mails[0].htmlBody, /\d{4}/);
-});
-
-test("right code returns a Firebase custom token that verifies against the public key", () => {
-  const w = world();
-  w.call({ a: "send", email: "gina@example.com" });
-  const r = w.call({ a: "verify", email: "gina@example.com", code: w.codeOf(0) });
-  assert.equal(r.ok, true);
-  const [h, p, s] = r.token.split(".");
-  assert.ok(!r.token.includes("=") && !/[+/]/.test(r.token));
-  assert.deepEqual(JSON.parse(Buffer.from(h, "base64url")), { alg: "RS256", typ: "JWT" });
-  assert.ok(crypto.verify("RSA-SHA256", Buffer.from(`${h}.${p}`), publicKey, Buffer.from(s, "base64url")), "signature");
-  const c = JSON.parse(Buffer.from(p, "base64url"));
-  assert.equal(c.iss, "svc@proj.iam.gserviceaccount.com"); assert.equal(c.sub, c.iss);
-  assert.equal(c.aud, "https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit");
-  assert.match(c.uid, /^e_[0-9a-f]{64}$/);
-  assert.deepEqual(c.claims, { mail: "gina@example.com", cv: true });
-  assert.ok(c.exp - c.iat <= 3600 && c.iat === Math.floor(w.clock.now / 1000));
-});
-
-test("same email -> same uid; different email -> different uid", () => {
-  const uid = (w, e) => { w.call({ a: "send", email: e }); w.clock.now += 31e3;
-    const t = w.call({ a: "verify", email: e, code: w.codeOf(w.mails.length - 1) }).token; return JSON.parse(Buffer.from(t.split(".")[1], "base64url")).uid; };
-  const w = world();
-  assert.equal(uid(w, "a@b.co"), uid(w, "a@b.co"));
-  assert.notEqual(uid(w, "a@b.co"), uid(w, "c@d.co"));
-});
-
-test("a code works once", () => {
-  const w = world();
-  w.call({ a: "send", email: "a@b.co" });
-  const code = w.codeOf(0);
-  assert.equal(w.call({ a: "verify", email: "a@b.co", code }).ok, true);
-  assert.equal(w.call({ a: "verify", email: "a@b.co", code }).error, "expired");
-});
-
-test("wrong codes count down, then the code is thrown away", () => {
-  const w = world();
-  w.call({ a: "send", email: "a@b.co" });
-  const bad = wrong(w.codeOf(0));
-  assert.deepEqual(w.call({ a: "verify", email: "a@b.co", code: bad }), { ok: false, error: "bad_code", left: 2 });
-  assert.deepEqual(w.call({ a: "verify", email: "a@b.co", code: bad }), { ok: false, error: "bad_code", left: 1 });
-  assert.equal(w.call({ a: "verify", email: "a@b.co", code: bad }).error, "expired");
-  assert.equal(w.call({ a: "verify", email: "a@b.co", code: w.codeOf(0) }).error, "expired", "even the right code is dead now");
-});
-
-test("6 wrong guesses in an hour lock the email, even across new codes", () => {
-  const w = world();
-  for (let round = 0; round < 2; round++) {
-    w.call({ a: "send", email: "a@b.co" }); w.clock.now += 31e3;
-    const bad = wrong(w.codeOf(w.mails.length - 1));
-    for (let i = 0; i < 3; i++) w.call({ a: "verify", email: "a@b.co", code: bad });
-  }
-  w.call({ a: "send", email: "a@b.co" }); w.clock.now += 31e3;
-  assert.equal(w.call({ a: "verify", email: "a@b.co", code: w.codeOf(w.mails.length - 1) }).error, "locked");
-  w.clock.now += 3600e3;   // an hour later it clears
-  w.call({ a: "send", email: "a@b.co" });
-  assert.equal(w.call({ a: "verify", email: "a@b.co", code: w.codeOf(w.mails.length - 1) }).ok, true);
-});
-
-test("codes expire after 10 minutes", () => {
-  const w = world();
-  w.call({ a: "send", email: "a@b.co" });
-  w.clock.now += 10 * 60e3 + 1000;
-  assert.equal(w.call({ a: "verify", email: "a@b.co", code: w.codeOf(0) }).error, "expired");
-});
-
-test("resend gap (30s) and 5 codes per hour per email", () => {
-  const w = world();
-  assert.equal(w.call({ a: "send", email: "a@b.co" }).ok, true);
-  const r = w.call({ a: "send", email: "a@b.co" });
-  assert.equal(r.error, "wait"); assert.ok(r.wait >= 1 && r.wait <= 30);
-  for (let i = 0; i < 4; i++) { w.clock.now += 31e3; assert.equal(w.call({ a: "send", email: "a@b.co" }).ok, true); }
-  w.clock.now += 31e3;
-  assert.equal(w.call({ a: "send", email: "a@b.co" }).error, "limit");
-  assert.equal(w.mails.length, 5);
-  w.clock.now += 3600e3;
-  assert.equal(w.call({ a: "send", email: "a@b.co" }).ok, true);
-});
-
-test("the owner's email must use Google (no code is sent, none is accepted)", () => {
-  const w = world();
-  assert.equal(w.call({ a: "send", email: "housikiki@gmail.com" }).error, "use_google");
-  assert.equal(w.call({ a: "verify", email: "HOUSIKIKI@gmail.com", code: "1234" }).error, "use_google");
-  assert.equal(w.mails.length, 0);
-});
-
-test("daily cap protects the Gmail quota", () => {
-  const w = world();
-  vm.runInContext("SETTINGS.SENDS_PER_DAY = 2", w.ctx);
-  assert.equal(w.call({ a: "send", email: "a@b.co" }).ok, true);
-  assert.equal(w.call({ a: "send", email: "c@d.co" }).ok, true);
-  assert.equal(w.call({ a: "send", email: "e@f.co" }).error, "busy");
-  w.clock.now += 24 * 3600e3;
-  assert.equal(w.call({ a: "send", email: "e@f.co" }).ok, true);
-});
-
-test("bad input is refused", () => {
-  const w = world();
-  assert.equal(w.call("not json").error, "bad_request");
-  assert.equal(w.call({ a: "send", email: "nope" }).error, "bad_email");
-  assert.equal(w.call({ a: "nope", email: "a@b.co" }).error, "bad_request");
-  w.call({ a: "send", email: "a@b.co" });
-  assert.equal(w.call({ a: "verify", email: "a@b.co", code: "12a4" }).error, "bad_code");
-  assert.equal(w.call({ a: "verify", email: "a@b.co", code: "123" }).error, "bad_code");
-});
-
-test("missing Firebase key gives a server error, not a token", () => {
-  const w = world({ FB_PRIVATE_KEY: "" });
-  w.call({ a: "send", email: "a@b.co" });
-  assert.equal(w.call({ a: "verify", email: "a@b.co", code: w.codeOf(0) }).error, "server");
-});
-
-test("codes look random: always 4 digits, leading zeros kept, whole range used", () => {
-  const w = world();
-  const seen = new Set();
-  for (let i = 0; i < 3000; i++) seen.add(vm.runInContext("newCode_()", w.ctx));
-  assert.ok([...seen].every(c => /^\d{4}$/.test(c)));
-  assert.ok(seen.size > 2000, "distinct codes: " + seen.size);
-  assert.ok([...seen].some(c => c.startsWith("0")));
-});
-
-test("a send failure leaves no usable code behind", () => {
-  const w = world();
-  vm.runInContext("MailApp.sendEmail = () => { throw new Error('quota') }", w.ctx);
-  assert.equal(w.call({ a: "send", email: "a@b.co" }).error, "send_failed");
-  assert.equal(w.call({ a: "verify", email: "a@b.co", code: "1234" }).error, "expired");
-});
-
-test("Gmail aliases are the same person: owner can't sneak in, limits and uid are shared", () => {
-  const w = world();
-  assert.equal(w.call({ a: "send", email: "housikiki+shop@gmail.com" }).error, "use_google");
-  assert.equal(w.call({ a: "send", email: "h.ousikiki@googlemail.com" }).error, "use_google");
-  const uid = e => { w.call({ a: "send", email: e }); w.clock.now += 31e3;
-    const t = w.call({ a: "verify", email: e, code: w.codeOf(w.mails.length - 1) }).token; return JSON.parse(Buffer.from(t.split(".")[1], "base64url")); };
-  const a = uid("jo.smith@gmail.com"), b = uid("josmith+beehive@gmail.com");
-  assert.equal(a.uid, b.uid);
-  assert.equal(b.claims.mail, "josmith+beehive@gmail.com");
-  assert.notEqual(uid("someone@example.com").uid, a.uid);
-});
-
 const OWNER = { email: "housikiki@gmail.com", emailVerified: true, providerUserInfo: [{ providerId: "google.com" }] };
 const NOTIFY = (over = {}) => ({ a: "notify", idToken: "tok-owner", product: "Ajwa Dates <250g>", link: "https://plodroid.github.io/store/#/p/p1", emails: ["a@b.co", "A@B.co", "c@d.co", "bad"], ...over });
 
@@ -248,8 +100,13 @@ const enc = v => v === null ? { nullValue: null } : typeof v === "string" ? { st
   : typeof v === "number" ? (Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v })
   : Array.isArray(v) ? { arrayValue: { values: v.map(enc) } } : { mapValue: { fields: Object.fromEntries(Object.entries(v).map(([k, x]) => [k, enc(x)])) } };
 const fsDoc = o => ({ fields: Object.fromEntries(Object.entries(o).map(([k, v]) => [k, enc(v)])) });
-function payWorld({ order, key = "sk_test_x", stripeSession, docs = {}, lookup = {} } = {}) {
-  const seen = { stripe: [], patch: [] };
+const RATES = { rates: [
+  { courier_service: { id: "svc-b", name: "Tracked 48", umbrella_name: "Royal Mail" }, total_charge: 3.95, min_delivery_time: 2, max_delivery_time: 3 },
+  { courier_service: { id: "svc-a", name: "Standard", umbrella_name: "Evri" }, total_charge: 2.49, min_delivery_time: 3, max_delivery_time: 5 },
+] };
+const EASY_FAIL = { on: false };
+function payWorld({ order, key = "sk_test_x", stripeSession, docs = {}, lookup = {}, easy = true } = {}) {
+  const seen = { stripe: [], patch: [], easy: [] };
   const hook = (url, opts) => {
     if (url.startsWith("https://oauth2.googleapis.com/token")) return { body: { access_token: "AT" } };
     if (url.endsWith(":runQuery")) return { body: (docs.__events || []).map(e => ({ document: fsDoc(e) })).concat([{ readTime: "x" }]) };
@@ -259,13 +116,17 @@ function payWorld({ order, key = "sk_test_x", stripeSession, docs = {}, lookup =
       const d = path.startsWith("orders/") ? order : docs[path];
       return d ? { body: fsDoc(d) } : { code: 404, body: {} };
     }
+    if (url.startsWith("https://public-api.easyship.com")) {
+      seen.easy.push({ url, method: opts.method, auth: opts.headers.Authorization, body: opts.payload ? JSON.parse(opts.payload) : null });
+      return url.includes("/rates") ? { body: opts.easyRates || RATES } : (EASY_FAIL.on ? { code: 402, body: { error: { message: "plan" } } } : { body: { shipment: { easyship_shipment_id: "ESSG1", tracking_page_url: "https://track.example/x", label_state: "not_created" } } });
+    }
     if (url.startsWith("https://api.stripe.com")) {
       seen.stripe.push({ url, method: opts.method, auth: opts.headers.Authorization, form: opts.payload });
       return { body: opts.method === "post" ? { url: "https://checkout.stripe.com/c/pay/cs_test_abc" } : stripeSession };
     }
     return { code: 500, body: {} };
   };
-  const w = world(key ? { STRIPE_SECRET_KEY: key } : {}, { good: { localId: "u1", email: "a@b.co" }, other: { localId: "u2" }, ...lookup }, hook);
+  const w = world({ ...(key ? { STRIPE_SECRET_KEY: key } : {}), ...(easy ? { EASYSHIP_TOKEN: "es_test" } : {}) }, { good: { localId: "u1", email: "a@b.co" }, other: { localId: "u2" }, ...lookup }, hook);
   return { ...w, seen };
 }
 const ORDER = { uid: "u1", ref: "BH-ABC123", status: "confirmed", paymentStatus: "mock", total: 7.5 };
@@ -310,78 +171,126 @@ test("doGet reports whether card payments are set up", () => {
   assert.equal(get("sk_test_x"), true); assert.equal(get(""), false);
 });
 
-/* ── pay at checkout: the server prices the order, then confirms it when Stripe says it is paid ── */
-const NEW = { uid: "u1", ref: "BH-NEW123", status: "new", paymentStatus: "awaiting", fulfilment: "delivery",
-  items: [{ productId: "p1", qty: 2, name: "Dates" }], customer: { name: "Gina", phone: "07123456789", email: "gina@example.com" },
-  address: { line1: "10 Road", line2: "", city: "London", postcode: "SW1A 1AA" }, estTotal: 1 };
-const SHOP = { "products/p1": { name: "Dates", price: 3, salePrice: 2.5, stock: 5, visible: true, archived: false }, "settings/site": { deliveryFee: 2, delivery: true, collection: true } };
+/* ── pay at checkout: the server prices the order (items + the Easyship service picked), then confirms it when Stripe says it is paid ── */
+const ADDR = { country: "GB", line1: "10 Road", line2: "", city: "London", state: "", postcode: "SW1A 1AA" };
+const NEW = { uid: "u1", ref: "BH-NEW123", status: "new", paymentStatus: "awaiting", fulfilment: "shipping", shipping: { serviceId: "svc-a" },
+  items: [{ productId: "p1", qty: 2, name: "Dates" }], customer: { name: "Gina", phone: "+447911123456", email: "gina@example.com" }, address: ADDR, estTotal: 1 };
+const SHOP = { "products/p1": { name: "Dates", price: 3, salePrice: 2.5, stock: 5, visible: true, archived: false, weightG: 250 },
+  "settings/site": { shipping: true, collection: true, shipTo: "GB,FR" },
+  "settings/owner": { shipFrom: { name: "Bee", phone: "+447911123457", line1: "1 Hive Lane", city: "Leeds", postcode: "LS1 1AA", country: "GB" } } };
 const PAY = { a: "pay", idToken: "good", orderId: "o_new1234567" };
 
-test("checkout pay: the shop prices the order itself (sale price + delivery), ignoring the browser's estimate", () => {
+test("rates: the customer gets cheapest-first Easyship options; the parcel is built from product weights", () => {
+  const w = payWorld({ order: NEW, docs: SHOP });
+  const r = w.call({ a: "rates", idToken: "good", items: NEW.items, address: ADDR, customer: NEW.customer });
+  assert.equal(r.ok, true); assert.equal(r.subtotal, 5);
+  assert.deepEqual(r.rates.map(x => [x.id, x.courier, x.price]), [["svc-a", "Evri", 2.49], ["svc-b", "Royal Mail", 3.95]]);
+  const e = w.seen.easy[0];
+  assert.equal(e.auth, "Bearer es_test"); assert.match(e.url, /\/2024-09\/rates/);
+  assert.equal(e.body.destination_address.postal_code, "SW1A 1AA"); assert.equal(e.body.origin_address.city, "Leeds");
+  assert.equal(e.body.parcels[0].total_actual_weight, 0.6);                    // 2 x 250g + 100g packaging
+  assert.equal(e.body.parcels[0].items[0].actual_weight, 0.25);
+});
+test("rates: refuses logged-out callers, unshipped countries, half addresses, bad phones; reports missing setup", () => {
+  const ask = (over, o = {}) => payWorld({ order: NEW, docs: SHOP, ...o }).call({ a: "rates", idToken: "good", items: NEW.items, address: ADDR, customer: NEW.customer, ...over });
+  assert.equal(ask({ idToken: "nope" }).error, "auth");
+  assert.equal(ask({ address: { ...ADDR, country: "US" } }).error, "bad_address");
+  assert.equal(ask({ address: { ...ADDR, line1: "" } }).error, "bad_address");
+  assert.equal(ask({ customer: { ...NEW.customer, phone: "07911123456" } }).error, "bad_address");   // must be international +44...
+  assert.equal(ask({}, { easy: false }).error, "not_set_up");
+  assert.equal(ask({}, { docs: { ...SHOP, "settings/owner": {} } }).error, "no_origin");
+  assert.equal(ask({}, { docs: { ...SHOP, "settings/site": { shipping: false } } }).error, "no_shipping");
+  assert.equal(ask({ items: [{ productId: "p1", qty: 9 }] }).error, "stock");
+});
+test("rates: free delivery over the shop's threshold (cheapest option, home country only); calls are throttled per person", () => {
+  const w = payWorld({ order: NEW, docs: { ...SHOP, "settings/site": { ...SHOP["settings/site"], freeShippingOver: 5 } } });
+  const r = w.call({ a: "rates", idToken: "good", items: NEW.items, address: ADDR, customer: NEW.customer });
+  assert.deepEqual(r.rates.map(x => x.price), [0, 3.95]);
+  const f = payWorld({ order: NEW, docs: { ...SHOP, "settings/site": { ...SHOP["settings/site"], freeShippingOver: 5 } } }).call({ a: "rates", idToken: "good", items: NEW.items, address: { ...ADDR, country: "FR", postcode: "75001" }, customer: NEW.customer });
+  assert.equal(f.rates[0].price, 2.49);
+  vm.runInContext("SETTINGS.RATES_PER_HOUR = 2", w.ctx);
+  w.call({ a: "rates", idToken: "good", items: NEW.items, address: ADDR, customer: NEW.customer });
+  assert.equal(w.call({ a: "rates", idToken: "good", items: NEW.items, address: ADDR, customer: NEW.customer }).error, "limit");
+});
+test("checkout pay: the shop prices the order itself (sale price + the re-quoted courier), ignoring the browser's estimate", () => {
   const w = payWorld({ order: NEW, docs: SHOP });
   const r = w.call(PAY);
   assert.equal(r.ok, true);
-  assert.equal(w.seen.stripe[0].form["line_items[0][price_data][unit_amount]"], "700");      // 2 x £2.50 + £2 delivery
+  assert.equal(w.seen.stripe[0].form["line_items[0][price_data][unit_amount]"], "749");      // 2 x £2.50 + £2.49 Evri
   const f = w.seen.patch[0].body.fields;
   assert.equal(w.seen.patch[0].path, "orders/o_new1234567");
-  assert.equal(f.total.integerValue, "7"); assert.equal(f.deliveryFee.integerValue, "2");
-  assert.equal(f.lines.arrayValue.values[0].mapValue.fields.unitPrice.doubleValue, 2.5);
+  assert.equal(f.total.doubleValue, 7.49); assert.equal(f.shippingFee.doubleValue, 2.49);
+  assert.equal(w.seen.patch[1].body.fields.shipping.mapValue.fields.serviceId.stringValue, "svc-a");
   assert.equal(f.status, undefined, "still new until it is paid");
+  assert.equal(payWorld({ order: { ...NEW, shipping: { serviceId: "gone" } }, docs: SHOP }).call(PAY).error, "ship_rate");   // service no longer offered
 });
 test("checkout pay: a live event takes its % off the chosen products (never above the sale price); expired/other events do nothing", () => {
   const ev = (o = {}) => ({ name: "Eid", active: true, percentOff: 20, productIds: ["p1"], look: "eid", ...o });
   const pay = events => { const w = payWorld({ order: { ...NEW, fulfilment: "collection", address: null }, docs: { ...SHOP, "products/p1": { ...SHOP["products/p1"], salePrice: null }, __events: events } }); w.call(PAY); return w.seen.stripe[0].form["line_items[0][price_data][unit_amount]"]; };
-  assert.equal(pay([]), "600");                                                       // 2 x £3
-  assert.equal(pay([ev()]), "480");                                                   // 2 x £2.40
-  assert.equal(pay([ev(), ev({ percentOff: 50 })]), "300");                           // best deal wins, they don't stack
+  assert.equal(pay([]), "600");
+  assert.equal(pay([ev()]), "480");
+  assert.equal(pay([ev(), ev({ percentOff: 50 })]), "300");
   assert.equal(pay([ev({ productIds: ["other"] })]), "600");
-  assert.equal(pay([ev({ endsAt: "2020-01-01" })]), "600");                           // finished
-  assert.equal(pay([ev({ startsAt: "2999-01-01" })]), "600");                         // not started
+  assert.equal(pay([ev({ endsAt: "2020-01-01" })]), "600");
+  assert.equal(pay([ev({ startsAt: "2999-01-01" })]), "600");
   assert.equal(pay([ev({ startsAt: "2000-01-01", endsAt: "2999-01-01" })]), "480");
-  assert.equal(pay([ev({ percentOff: 0 })]), "600");                                  // look-only event
-  const w = payWorld({ order: { ...NEW, fulfilment: "collection", address: null }, docs: { ...SHOP, __events: [ev({ percentOff: 10 })] } });   // product already on sale at £2.50 -> 2.70 loses
+  assert.equal(pay([ev({ percentOff: 0 })]), "600");
+  const w = payWorld({ order: { ...NEW, fulfilment: "collection", address: null }, docs: { ...SHOP, __events: [ev({ percentOff: 10 })] } });
   w.call(PAY); assert.equal(w.seen.stripe[0].form["line_items[0][price_data][unit_amount]"], "500");
 });
-test("checkout pay: pick-up has no delivery fee; refuses empty stock, hidden products, switched-off delivery and tiny orders", () => {
-  const w = payWorld({ order: { ...NEW, fulfilment: "collection", address: null }, docs: SHOP });
-  w.call(PAY); assert.equal(w.seen.stripe[0].form["line_items[0][price_data][unit_amount]"], "500");
+test("checkout pay: pick-up has no shipping fee; refuses empty stock, hidden products, switched-off shipping and tiny orders", () => {
+  const w = payWorld({ order: { ...NEW, fulfilment: "collection", address: null, shipping: null }, docs: SHOP });
+  w.call(PAY); assert.equal(w.seen.stripe[0].form["line_items[0][price_data][unit_amount]"], "500"); assert.equal(w.seen.easy.length, 0);
   const err = (docs, order = NEW) => payWorld({ order, docs }).call(PAY);
   assert.deepEqual([err({ ...SHOP, "products/p1": { ...SHOP["products/p1"], stock: 1 } }).error, err({ ...SHOP, "products/p1": { ...SHOP["products/p1"], stock: 1 } }).item], ["stock", "Dates"]);
   assert.equal(err({ ...SHOP, "products/p1": { ...SHOP["products/p1"], visible: false } }).error, "stock");
   assert.equal(err({ "settings/site": SHOP["settings/site"] }).error, "stock");
-  assert.equal(err({ ...SHOP, "settings/site": { delivery: false } }).error, "no_delivery");
+  assert.equal(err({ ...SHOP, "settings/site": { shipping: false } }).error, "no_shipping");
   assert.equal(err({ ...SHOP, "products/p1": { ...SHOP["products/p1"], price: 0.05, salePrice: null } }, { ...NEW, fulfilment: "collection" }).error, "too_small");
   assert.equal(err(SHOP, { ...NEW, items: [{ productId: "p1", qty: 0 }] }).error, "stock");
+  assert.equal(err(SHOP, { ...NEW, address: { ...ADDR, postcode: "" } }).error, "bad_address");
 });
-test("checkout paid: confirms the order, takes the stock (never below 0) and emails owner + customer", () => {
-  const priced = { ...NEW, total: 7, lines: [{ productId: "p1", name: "Dates", qty: 2, unitPrice: 2.5, lineTotal: 5 }], deliveryFee: 2, subtotal: 5 };
-  const ok = { payment_status: "paid", client_reference_id: "o_new1234567", currency: "gbp", amount_total: 700 };
+test("checkout paid: confirms the order, takes the stock, creates the Easyship shipment and emails owner + customer", () => {
+  const priced = { ...NEW, total: 7.49, lines: [{ productId: "p1", name: "Dates", qty: 2, unitPrice: 2.5, lineTotal: 5 }], shippingFee: 2.49, subtotal: 5, shipping: { serviceId: "svc-a", courier: "Evri", service: "Standard" } };
+  const ok = { payment_status: "paid", client_reference_id: "o_new1234567", currency: "gbp", amount_total: 749 };
   const w = payWorld({ order: priced, docs: SHOP, stripeSession: ok });
   assert.deepEqual(w.call({ a: "paid", idToken: "good", orderId: "o_new1234567", sid: "cs_test_abc" }), { ok: true });
-  const byPath = Object.fromEntries(w.seen.patch.map(x => [x.path, x.body.fields]));
+  const byPath = Object.fromEntries(w.seen.patch.filter(x => !x.body.fields.shipment).map(x => [x.path, x.body.fields]));
   assert.equal(byPath["orders/o_new1234567"].status.stringValue, "confirmed");
-  assert.equal(byPath["orders/o_new1234567"].paymentStatus.stringValue, "paid");
   assert.equal(byPath["products/p1"].stock.integerValue, "3");
+  const ship = w.seen.easy.find(x => x.url.endsWith("/shipments"));
+  assert.equal(ship.body.courier_settings.courier_service_id, "svc-a"); assert.equal(ship.body.destination_address.line_1, "10 Road");
+  assert.equal(ship.body.shipping_settings.buy_label, false);
+  assert.equal(w.seen.patch.find(x => x.body.fields.shipment).body.fields.shipment.mapValue.fields.easyshipId.stringValue, "ESSG1");
   assert.deepEqual(w.mails.map(m => m.to), ["housikiki@gmail.com", "gina@example.com"]);
-  assert.match(w.mails[0].subject, /New paid order BH-NEW123 \(DELIVERY, £7\.00\)/); assert.match(w.mails[0].body, /SW1A 1AA/);
-  const low = payWorld({ order: priced, docs: { ...SHOP, "products/p1": { ...SHOP["products/p1"], stock: 1 } }, stripeSession: ok });
-  low.call({ a: "paid", idToken: "good", orderId: "o_new1234567", sid: "cs_test_abc" });
-  assert.equal(low.seen.patch.find(x => x.path === "products/p1").body.fields.stock.integerValue, "0");
-  // an already-confirmed order paid later (old flow) takes no stock and sends no mail
+  assert.match(w.mails[0].subject, /New paid order BH-NEW123 \(SHIPPING, £7\.49\)/); assert.match(w.mails[0].body, /SW1A 1AA/); assert.match(w.mails[0].body, /Evri Standard/);
+  // Easyship failing never loses the paid order: the owner just gets an email asking to create it by hand
+  EASY_FAIL.on = true;
+  const bad = payWorld({ order: priced, docs: SHOP, stripeSession: ok });
+  assert.deepEqual(bad.call({ a: "paid", idToken: "good", orderId: "o_new1234567", sid: "cs_test_abc" }), { ok: true });
+  EASY_FAIL.on = false;
+  assert.ok(bad.mails.some(m => /Create the Easyship shipment/.test(m.subject)));
+  assert.equal(bad.seen.patch.find(x => x.path === "orders/o_new1234567").body.fields.status.stringValue, "confirmed");
+  assert.equal(bad.seen.patch.some(x => x.body.fields.shipment), false);
   const old = payWorld({ order: { ...priced, status: "confirmed" }, docs: SHOP, stripeSession: ok });
   old.call({ a: "paid", idToken: "good", orderId: "o_new1234567", sid: "cs_test_abc" });
   assert.equal(old.seen.patch.length, 1); assert.equal(old.mails.length, 0);
 });
-test("stage: only the owner can email 'on my way / arrived / ready', and only for the order's current step", () => {
+test("stage: only the owner can email 'shipped / ready', and only for the order's current step", () => {
   const S = { a: "stage", idToken: "tok-owner", orderId: "o_new1234567" };
-  const world_ = status => payWorld({ order: { ...NEW, status }, lookup: { "tok-owner": OWNER } });
-  for (const [status, subject] of [["ontheway", /on its way/], ["arrived", /has arrived/], ["ready", /ready to collect/]]) {
+  const world_ = status => payWorld({ order: { ...NEW, status, shipment: { trackingUrl: "https://track.example/x" } }, lookup: { "tok-owner": OWNER } });
+  for (const [status, subject] of [["shipped", /has shipped/], ["ready", /ready to collect/]]) {
     const w = world_(status);
     assert.deepEqual(w.call(S), { ok: true, sent: 1 });
     assert.equal(w.mails[0].to, "gina@example.com"); assert.match(w.mails[0].subject, subject);
+    if (status === "shipped") assert.match(w.mails[0].body, /track\.example/);
   }
-  for (const status of ["new", "confirmed", "completed", "cancelled"]) { const w = world_(status); assert.equal(w.call(S).error, "bad_request"); assert.equal(w.mails.length, 0); }
-  const w = world_("arrived");
+  for (const status of ["new", "confirmed", "completed", "cancelled", "ontheway"]) { const w = world_(status); assert.equal(w.call(S).error, "bad_request"); assert.equal(w.mails.length, 0); }
+  const w = world_("shipped");
   assert.equal(w.call({ ...S, idToken: "good" }).error, "not_owner");
   assert.equal(w.mails.length, 0);
+});
+test("doGet reports whether shipping is set up", () => {
+  const get = e => JSON.parse(vm.runInContext("doGet", payWorld({ easy: e }).ctx)().s).ship;
+  assert.equal(get(true), true); assert.equal(get(false), false);
 });

@@ -1,4 +1,4 @@
-/* Scrolling bar, order progress bar, postcode → street, live map + directions, language dropdown. */
+/* Scrolling bar, order progress bar, language dropdown, footer, owner analytics, photos, app update. */
 import assert from "node:assert/strict";
 import { serve, launch, closeAll, SEED } from "./harness.mjs";
 const { srv, url } = await serve();
@@ -8,31 +8,10 @@ const SHOTS = "/tmp/claude-0/-home-claude/fa786b1c-808f-5474-a40b-c6b83a368183/s
 const ignore = e => /ERR_TUNNEL|ERR_NAME|Failed to load resource|ERR_FAILED/.test(e);
 const seedWith = (extra = {}, site = {}) => ({ ...SEED, settings: { site: { ...SEED.settings.site, ...site } }, ...extra });
 
-/* the free map services, answered locally so the test never touches the internet */
-const ROUTE = { code: "Ok", routes: [{ distance: 3200, duration: 540, geometry: { coordinates: [[-0.15, 51.51], [-0.145, 51.505], [-0.14, 51.5]] },
-  legs: [{ steps: [
-    { distance: 1200, name: "Pall Mall", maneuver: { type: "depart", modifier: "straight", location: [-0.15, 51.51] } },
-    { distance: 2000, name: "The Mall", maneuver: { type: "turn", modifier: "right", location: [-0.145, 51.505] } },
-    { distance: 0, name: "", maneuver: { type: "arrive", location: [-0.14, 51.5] } }] }] }] };
-const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
-async function mockNet(ctx, { street = { road: "Thoresby Street", suburb: "North Evington", city: "Leicester" } } = {}) {
-  const calls = { nominatim: [], osrm: 0 };
-  const h = { "access-control-allow-origin": "*" };
-  await ctx.route("https://nominatim.openstreetmap.org/**", r => {
-    const u = new URL(r.request().url()); calls.nominatim.push(u.pathname);
-    if (u.pathname === "/reverse") return r.fulfill({ status: 200, headers: h, json: { address: street } });
-    return r.fulfill({ status: 200, headers: h, json: [{ lat: "51.5005", lon: "-0.1405" }] });
-  });
-  await ctx.route("https://router.project-osrm.org/**", r => { calls.osrm++; r.fulfill({ status: 200, headers: h, json: ROUTE }); });
-  await ctx.route(/tile\.openstreetmap\.org|basemaps\.cartocdn\.com|arcgisonline\.com/, r => r.fulfill({ status: 200, contentType: "image/png", headers: h, body: PNG }));
-  return calls;
-}
-
 async function test(name, fn, { seed = seedWith(), viewport, path = "/index.html", ready = "[data-add]", geo, init } = {}) {
   const t = await launch(url, { seed, viewport });
   try {
     t.page.setDefaultTimeout(8000);
-    t.net = await mockNet(t.ctx);
     if (init) await t.ctx.addInitScript(init);
     if (geo) { await t.ctx.grantPermissions(["geolocation"]); await t.ctx.setGeolocation(geo); }
     await t.page.goto(url + path);
@@ -46,14 +25,16 @@ async function test(name, fn, { seed = seedWith(), viewport, path = "/index.html
     results.push([false, name, e.message.split("\n").slice(0, 6).join(" | "), shot]); console.error("FAIL", name, "::", e.message.split("\n")[0]);
   } finally { await t.close(); }
 }
+const ORDER = (o = {}) => ({ uid: "cust1", ref: "BH-ABC123", requestId: "abc12345", status: "confirmed", paymentStatus: "paid", isTest: true, fulfilment: "shipping",
+  items: [{ productId: "p1", qty: 2, name: "Medjool Dates 500g" }], customer: { name: "Gina Test", phone: "+447123456789", email: "gina@example.com" }, note: "", estTotal: 13, total: 13,
+  address: { country: "GB", line1: "10 Example Road", line2: "", city: "London", state: "", postcode: "SW1A 1AA", verified: true },
+  shipping: { serviceId: "svc-evri", courier: "Evri", service: "Standard", price: 2.49, etaMin: 3, etaMax: 5 }, createdAt: T, updatedAt: T, ...o });
 const db = p => p.evaluate(() => window.__FAKE.dump());
 const signedIn = async (p, t, email = "gina@example.com") => {
   await p.click("#signInBtn");
   await p.locator('form[data-form="in"] [name="email"]').fill(email);
+  await p.locator('form[data-form="in"] [name="password"]').fill("secret1");
   await p.locator('form[data-form="in"] button[type="submit"]').click();
-  await p.locator('[data-form="code"]').waitFor({ state: "visible" });
-  await p.locator("#otp input").first().click();
-  await p.keyboard.type(t.mail.codes[email]);
   await p.waitForSelector("#acctBtn:not([hidden])");
 };
 const EV = (o = {}) => ({ name: "Iftar Week", tagline: "Blessed nights", look: "ramadan", active: true, percentOff: 20, productIds: ["p1"], createdAt: T, updatedAt: T, ...o });
@@ -90,16 +71,6 @@ const orderFlow = async (t, how) => {
   await p.click("[data-add]"); await p.click("#cartBtn"); await p.click("#checkout"); await p.waitForSelector("#co[open]");
   await p.check(`input[name="how"][value="${how}"]`);
   await p.locator('#coForm [name="name"]').fill("Gina Test");
-  if (how === "delivery") {
-    await p.locator('#coForm [name="phone"]').fill("07123 456789");
-    await p.click("#coAddrBtn"); await p.waitForSelector("#loc[open]");
-    await p.locator('#locForm [name="postcode"]').fill("SW1A 1AA");
-    await p.waitForFunction(() => document.querySelector("#locStatus").classList.contains("ok"));
-    await p.waitForFunction(() => document.querySelector('#locForm [name="line1"]').value.length > 0);
-    await p.locator('#locForm [name="number"]').fill("10"); await p.locator('#locForm [name="line1"]').fill("Example Road");
-    await p.locator("#pinConfirm").waitFor({ state: "visible" }); await p.click("#pinConfirm");
-    await p.click("#locSave"); await p.waitForFunction(() => !document.querySelector("#loc").open);
-  }
   await p.click("#coSubmit"); await p.waitForSelector("#coDone:not([hidden])");
   await p.keyboard.press("Escape");
   const d = await db(p); const id = Object.keys(d.orders)[0];
@@ -108,22 +79,26 @@ const orderFlow = async (t, how) => {
 const setStatus = (p, id, over) => p.evaluate(([id, over]) => { const o = window.__FAKE.dump().orders[id]; window.__FAKE.inject("orders", id, { ...o, ...over }); }, [id, over]);
 const steps = p => p.locator("#moList .trk li span").allInnerTexts();
 const states = p => p.locator("#moList .trk li").evaluateAll(l => l.map(x => x.dataset.s));
-await test("order bar: delivery has Confirmed & paid › Preparing › On its way › Outside › Delivered and follows the status", async (t) => {
-  const p = t.page; const { id } = await orderFlow(t, "delivery");
+await test("order bar: shipping has Confirmed & paid › Preparing › Shipped › Delivered, follows the status and shows the tracking link", async (t) => {
+  const p = t.page; await signedIn(p, t);
+  const SHIP = { uid: "", ref: "BH-SHIP01", requestId: "ship0001", status: "confirmed", paymentStatus: "paid", isTest: true, fulfilment: "shipping",
+    items: [{ productId: "p1", qty: 1, name: "Medjool Dates 500g" }], customer: { name: "Gina", phone: "+447911123456", email: "gina@example.com" }, note: "", estTotal: 9, total: 9, shippingFee: 2.49,
+    address: { country: "GB", line1: "10 Example Road", line2: "", city: "London", state: "", postcode: "SW1A 1AA", verified: true },
+    shipping: { serviceId: "svc-evri", courier: "Evri", service: "Standard", price: 2.49, etaMin: 3, etaMax: 5 }, createdAt: T, updatedAt: T };
+  const id = "o_ship0001";
+  await p.evaluate(([id, o]) => window.__FAKE.inject("orders", id, { ...o, uid: window.__FAKE.signedInUid() }), [id, SHIP]);
   await p.click("#acctBtn"); await p.click("#menuOrders"); await p.waitForSelector("#moList .trk");
-  assert.deepEqual(await steps(p), ["Confirmed", "Preparing", "On its way", "Outside", "Delivered"]);
-  assert.deepEqual(await states(p), ["todo", "todo", "todo", "todo", "todo"]);                       // not confirmed yet
-  await setStatus(p, id, { status: "confirmed", paymentStatus: "paid" });
-  await p.waitForFunction(() => document.querySelector("#moList .trk li span").textContent === "Confirmed & paid");
-  assert.deepEqual(await states(p), ["now", "todo", "todo", "todo", "todo"]);
-  await setStatus(p, id, { status: "ontheway" });
+  assert.deepEqual(await steps(p), ["Confirmed & paid", "Preparing", "Shipped", "Delivered"]);
+  assert.deepEqual(await states(p), ["now", "todo", "todo", "todo"]);
+  assert.equal(await p.locator("#moList a", { hasText: "Track parcel" }).count(), 0, "no link before it is shipped");
+  await setStatus(p, id, { status: "shipped", shipment: { easyshipId: "ES1", trackingUrl: "https://track.example/abc", labelState: "generated" } });
   await p.waitForFunction(() => document.querySelectorAll("#moList .trk li[data-s=done]").length === 2);
-  assert.deepEqual(await states(p), ["done", "done", "now", "todo", "todo"]);
-  await setStatus(p, id, { status: "arrived" });
-  await p.waitForFunction(() => document.querySelector("#moList .trk li:nth-child(5)") && document.querySelectorAll("#moList .trk li[data-s=done]").length === 3);
+  assert.deepEqual(await states(p), ["done", "done", "now", "todo"]);
+  assert.equal(await p.locator('#moList a[href="https://track.example/abc"]').count(), 1);
+  assert.match(await p.locator("#moList").innerText(), /Evri Standard/);
   await setStatus(p, id, { status: "completed" });
-  await p.waitForFunction(() => document.querySelectorAll("#moList .trk li[data-s=done]").length === 5);
-  assert.match(await p.locator("#moList .trk").getAttribute("aria-label"), /Step 5 of 5: Delivered/);
+  await p.waitForFunction(() => document.querySelectorAll("#moList .trk li[data-s=done]").length === 4);
+  assert.match(await p.locator("#moList .trk").getAttribute("aria-label"), /Step 4 of 4: Delivered/);
 });
 await test("order bar: pick-up has its own steps; a cancelled order has no bar", async (t) => {
   const p = t.page; const { id } = await orderFlow(t, "collection");
@@ -132,208 +107,6 @@ await test("order bar: pick-up has its own steps; a cancelled order has no bar",
   await setStatus(p, id, { status: "cancelled" });
   await p.waitForFunction(() => !document.querySelector("#moList .trk"));
 });
-
-/* ── postcode → street + town ────────────────────────── */
-await test("postcode: typing a postcode fills the street and town, asks for the house number, and never overwrites typing", async (t) => {
-  const p = t.page; await signedIn(p, t);
-  await p.click("[data-add]"); await p.click("#cartBtn"); await p.click("#checkout"); await p.waitForSelector("#co[open]");
-  await p.check('input[name="how"][value="delivery"]'); await p.click("#coAddrBtn"); await p.waitForSelector("#loc[open]");
-  await p.locator('#locForm [name="postcode"]').fill("SW1A 1AA");
-  await p.waitForFunction(() => document.querySelector('#locForm [name="line1"]').value === "Thoresby Street");
-  assert.equal(await p.locator('#locForm [name="city"]').inputValue(), "Leicester");
-  assert.match(await p.locator("#locStatus").innerText(), /add your door number so the shop knows where to knock/i);
-  assert.equal(await p.evaluate(() => document.activeElement.name), "number");                    // cursor waits in the door-number box
-  await p.keyboard.type("1");
-  assert.equal(await p.locator('#locForm [name="number"]').inputValue(), "1");
-  assert.equal(await p.locator('#locForm [name="line1"]').inputValue(), "Thoresby Street");
-  await p.locator('#locForm [name="postcode"]').fill("EH1 1YZ"); await p.waitForTimeout(900);
-  assert.equal(await p.locator('#locForm [name="number"]').inputValue(), "1", "what he typed stays");
-  assert.equal(await p.locator('#locForm [name="line1"]').inputValue(), "Thoresby Street", "street stays");
-});
-
-
-/* ── Mapbox (stubbed GL library; the real one needs WebGL + a token) ── */
-const MB_STUB = `window.mapboxgl = { accessToken: "", calls: { fit: 0, lines: 0, markers: 0 },
-  Map: class { constructor(o) { this.o = o; this.c = typeof o.container === "string" ? document.querySelector(o.container) : o.container; this.c.classList.add("mapboxgl-map"); this.L = {}; this.touchZoomRotate = { disableRotation() {} }; setTimeout(() => (this.L.load || []).forEach(f => f()), 20); }
-    on(e, f) { (this.L[e] ||= []).push(f); } addControl() {} jumpTo() {} easeTo() {} resize() {} remove() {} fitBounds() { mapboxgl.calls.fit++; }
-    addSource(i) { (this.s ||= {})[i] = 1; } addLayer(l) { if (l.id.endsWith("c") === false) mapboxgl.calls.lines++; (this.l ||= {})[l.id] = 1; }
-    getLayer(i) { return (this.l || {})[i]; } getSource(i) { return (this.s || {})[i]; } removeLayer() {} removeSource() {} },
-  Marker: class { constructor(o) { this.el = o.element; this.ll = null; } setLngLat(p) { this.ll = p; return this; } setOffset() { return this; } addTo(m) { mapboxgl.calls.markers++; m.c.append(this.el); return this; } remove() { this.el.remove(); } },
-  NavigationControl: class {}, LngLatBounds: class { extend() { return this; } } };`;
-
-/* ── customer live map ───────────────────────────────── */
-const ADDR = { line1: "10 Example Road", line2: "", city: "London", postcode: "SW1A 1AA", lat: 51.5, lng: -0.14, verified: true };
-await test("live map: shows only while on its way; the van appears from the shop's shared position and ETA is worked out", async (t) => {
-  const p = t.page; const { id } = await orderFlow(t, "delivery");
-  await p.click("#acctBtn"); await p.click("#menuOrders"); await p.waitForSelector("#moList .trk");
-  assert.equal(await p.locator("#moList .mo-map").count(), 0);                                   // not out yet: no map
-  await setStatus(p, id, { status: "ontheway", paymentStatus: "paid", address: ADDR });
-  await p.waitForSelector("#moList .mo-map .leaflet-container");
-  assert.match(await p.locator(".mo-map-cap").innerText(), /will share its live position/);
-  await p.evaluate(id => window.__FAKE.inject("tracking", id, { lat: 51.51, lng: -0.15, updatedAt: { __ts: Date.now() } }), id);
-  await p.waitForFunction(() => /is about 9 min away/.test(document.querySelector(".mo-map-cap").textContent));
-  assert.ok(await p.locator(".mo-map .pin-van, .mo-map .leaflet-marker-icon").count() >= 2);   // destination + van
-  assert.ok(t.net.osrm >= 1);
-  await setStatus(p, id, { status: "arrived" });
-  await p.waitForFunction(() => /has arrived/.test(document.querySelector(".mo-map-cap").textContent));
-  await setStatus(p, id, { status: "completed" });
-  await p.waitForFunction(() => !document.querySelector("#moList .mo-map"));
-});
-await test("mapbox: with a token the customer's live map and the route come from Mapbox (and the markers/line are drawn)", async (t) => {
-  const p = t.page; let dirs = "";
-  await t.ctx.route("https://api.mapbox.com/mapbox-gl-js/**", r => /\.css/.test(r.request().url()) ? r.fulfill({ status: 200, contentType: "text/css", body: "" }) : r.fulfill({ status: 200, contentType: "text/javascript", headers: { "access-control-allow-origin": "*" }, body: MB_STUB }));
-  await t.ctx.route("https://api.mapbox.com/directions/**", r => { dirs = r.request().url(); r.fulfill({ status: 200, headers: { "access-control-allow-origin": "*" }, json: ROUTE }); });
-  const { id } = await orderFlow(t, "delivery");
-  await p.click("#acctBtn"); await p.click("#menuOrders"); await p.waitForSelector("#moList .trk");
-  await setStatus(p, id, { status: "ontheway", paymentStatus: "paid", address: ADDR });
-  await p.waitForSelector("#moList .mo-map .mapboxgl-map");
-  await p.evaluate(id => window.__FAKE.inject("tracking", id, { lat: 51.51, lng: -0.15, updatedAt: { __ts: Date.now() } }), id);
-  await p.waitForFunction(() => /is about 9 min away/.test(document.querySelector(".mo-map-cap").textContent));
-  assert.match(dirs, /directions\/v5\/mapbox\/driving-traffic\/.*access_token=pk\.test/);
-  assert.equal(t.net.osrm, 0);                                                                       // Mapbox answered, OSRM wasn't needed
-  assert.equal(await p.locator(".mo-map .leaflet-container").count(), 0);
-  assert.ok(await p.evaluate(() => window.mapboxgl.calls.markers) >= 2);                             // destination + van
-}, { init: () => { window.MAPBOX_TOKEN = "pk.test"; } });
-await test("live map: an old shared position (over 3 minutes) is treated as not live", async (t) => {
-  const p = t.page; const { id } = await orderFlow(t, "delivery");
-  await p.click("#acctBtn"); await p.click("#menuOrders"); await p.waitForSelector("#moList .trk");
-  await setStatus(p, id, { status: "ontheway", address: ADDR });
-  await p.waitForSelector("#moList .mo-map .leaflet-container");
-  await p.evaluate(id => window.__FAKE.inject("tracking", id, { lat: 51.51, lng: -0.15, updatedAt: { __ts: Date.now() - 10 * 60 * 1000 } }), id);
-  await p.waitForTimeout(600);
-  assert.match(await p.locator(".mo-map-cap").innerText(), /will share its live position/);
-});
-await test("tracking rules replica: only the owner and that order's customer can read; only the owner writes", async (t) => {
-  const p = t.page; const { id } = await orderFlow(t, "delivery");
-  const ask = (col, doc) => p.evaluate(([col, doc]) => new Promise(res => { const f = window.__FAKE.fs; f.onSnapshot(f.doc({}, col, doc), () => res("allowed"), e => res(e.code)); }), [col, doc]);
-  await p.evaluate(id => window.__FAKE.inject("tracking", id, { lat: 51.5, lng: -0.1, updatedAt: { __ts: Date.now() } }), id);
-  assert.equal(await ask("tracking", id), "allowed");               // his own order
-  assert.equal(await ask("tracking", "someone_elses_order"), "permission-denied");
-  const w = await p.evaluate(id => { const f = window.__FAKE.fs; return f.setDoc(f.doc({}, "tracking", id), { lat: 1, lng: 1, updatedAt: f.serverTimestamp() }).then(() => "wrote", e => e.code); }, id);
-  assert.equal(w, "permission-denied");
-});
-
-/* ── owner: directions ───────────────────────────────── */
-const DELIVERY = (o = {}) => ({ uid: "cust1", ref: "BH-ABC123", requestId: "abc12345", status: "confirmed", paymentStatus: "paid", isTest: true, fulfilment: "delivery",
-  items: [{ productId: "p1", qty: 2, name: "Medjool Dates 500g" }], customer: { name: "Gina Test", phone: "+447123456789", email: "gina@example.com" }, note: "", estTotal: 13, total: 13,
-  address: ADDR, createdAt: T, updatedAt: T, ...o });
-const ownerOpen = async p => {
-  await p.evaluate(() => { window.__FAKE.nextGoogle = { email: "housikiki@gmail.com", name: "Owner", uid: "g_owner" }; });
-  await p.click("#gateGoogle"); await p.waitForSelector("#admin:not([hidden]) .adm-tab");
-  await p.click('[data-act="tab"][data-tab="orders"]');
-};
-await test("owner: order card shows the progress bar and a Directions button for delivery only", async ({ page: p }) => {
-  await ownerOpen(p);
-  const cards = p.locator('[data-act="open-order"]');
-  await p.waitForSelector(".trk");
-  assert.equal(await p.locator('[data-act="nav-order"]').count(), 1);                              // the pick-up order has none
-  assert.match(await p.locator('[data-act="nav-order"]').innerText(), /Directions to SW1A 1AA/);
-}, { path: "/admin/index.html", ready: "#gateGoogle:not([hidden])", seed: seedWith({ orders: { o1: DELIVERY(), o2: DELIVERY({ fulfilment: "collection", address: undefined, ref: "BH-PICKUP" }) } }) });
-await test("owner: directions screen finds the route, shows the next turn + ETA, shares his position, advances the order and stops sharing", async (t) => {
-  const p = t.page; await ownerOpen(p);
-  await p.click('[data-act="nav-order"]');
-  await p.waitForSelector(".nav-panel .leaflet-container");
-  await p.waitForFunction(() => /Pall Mall|Head out|Turn right|Continue/.test(document.querySelector("#navNext").textContent));
-  assert.match(await p.locator("#navEta").innerText(), /\d+ min/);
-  assert.match(await p.locator(".nav-where").innerText(), /SW1A 1AA/);
-  assert.match(await p.locator("#navG").getAttribute("href"), /google\.com\/maps/);
-  assert.equal(await p.locator("#navShare").isChecked(), false);                                      // desktop: sharing starts off
-  assert.ok(!((await db(p)).tracking || {}).o1, "nothing shared until he switches it on");
-  await p.check("#navShare");
-  await p.waitForFunction(() => window.__FAKE.dump().tracking && window.__FAKE.dump().tracking.o1);   // position shared (order is on its way)
-  const tr = (await db(p)).tracking.o1; assert.ok(Math.abs(tr.lat - 51.51) < 0.001 && Math.abs(tr.lng + 0.15) < 0.001);
-  // the primary button moves the order along
-  await p.waitForSelector("#navAct:not([hidden])");
-  await p.click("#navAct");
-  await p.waitForFunction(() => window.__FAKE.dump().orders.o1.status !== "ontheway");
-  // turning sharing off removes the position straight away
-  await p.uncheck("#navShare");
-  await p.waitForFunction(() => !(window.__FAKE.dump().tracking || {}).o1);
-  await p.check("#navShare");
-  await p.waitForFunction(() => (window.__FAKE.dump().tracking || {}).o1);
-  // when the order is finished nobody is tracked any more
-  await p.evaluate(() => window.__FAKE.inject("orders", "o1", { ...window.__FAKE.dump().orders.o1, status: "delivered" }));
-  await p.waitForFunction(() => !(window.__FAKE.dump().tracking || {}).o1);
-  await p.click("#navClose");
-  await p.waitForFunction(() => !document.querySelector(".nav-panel"));
-}, { path: "/admin/index.html", ready: "#gateGoogle:not([hidden])", geo: { latitude: 51.51, longitude: -0.15 }, seed: seedWith({ orders: { o1: DELIVERY({ status: "ontheway" }) } }) });
-await test("owner: if the phone can't share its position, he is told and Google Maps still works", async (t) => {
-  const p = t.page; await ownerOpen(p);
-  await p.click('[data-act="nav-order"]');
-  await p.waitForSelector(".nav-panel");
-  await p.waitForFunction(() => document.querySelector("#navNote").textContent.length > 0);
-  assert.match(await p.locator("#navG").getAttribute("href"), /google\.com\/maps/);
-  await p.click("#navClose");
-}, { path: "/admin/index.html", ready: "#gateGoogle:not([hidden])", seed: seedWith({ orders: { o1: DELIVERY() } }) });
-
-/* ── door number ─────────────────────────────────────── */
-await test("door number: its own required box; saved address reads '10 Example Road'", async (t) => {
-  const p = t.page; await signedIn(p, t);
-  await p.click("[data-add]"); await p.click("#cartBtn"); await p.click("#checkout"); await p.waitForSelector("#co[open]");
-  await p.check('input[name="how"][value="delivery"]'); await p.click("#coAddrBtn"); await p.waitForSelector("#loc[open]");
-  await p.locator('#locForm [name="postcode"]').fill("SW1A 1AA");
-  await p.waitForFunction(() => document.querySelector('#locForm [name="line1"]').value.length > 0);
-  assert.equal(await p.locator("#locSave").isDisabled(), true, "no door number, no save");
-  await p.locator('#locForm [name="number"]').fill("10");
-  await p.locator("#pinConfirm").waitFor({ state: "visible" });
-  assert.equal(await p.locator("#locSave").isDisabled(), true, "the pin must be placed first");
-  await p.click("#pinConfirm");
-  await p.waitForFunction(() => !document.querySelector("#locSave").disabled);
-  await p.locator('#locForm [name="line1"]').fill("Example Road");
-  await p.click("#locSave"); await p.waitForSelector("#loc", { state: "hidden" });
-  assert.equal(typeof Object.values((await db(p)).users)[0].address.lat, "number");
-  const a = (await db(p)).users; const addr = Object.values(a)[0].address; assert.equal(addr.line1, "10 Example Road");
-  await p.click("#coAddrBtn"); await p.waitForSelector("#loc[open]");                       // reopening splits it back into the two boxes
-  assert.equal(await p.locator('#locForm [name="number"]').inputValue(), "10");
-  assert.equal(await p.locator('#locForm [name="line1"]').inputValue(), "Example Road");
-});
-
-/* ── owner: deliveries map + automatic location sharing ── */
-const signOwner = async p => { await p.evaluate(() => { window.__FAKE.nextGoogle = { email: "housikiki@gmail.com", name: "Owner", uid: "g_owner" }; }); await p.click("#gateGoogle"); await p.waitForSelector("#admin:not([hidden]) .adm-tab"); };
-const TWO = () => ({ o1: DELIVERY({ status: "preparing" }), o2: DELIVERY({ ref: "BH-SECOND", status: "confirmed", customer: { name: "Sam Second", phone: "07000", email: "s@example.com" }, address: { ...ADDR, line1: "12 Other Road", lat: 51.52, lng: -0.12 } }), o3: DELIVERY({ ref: "BH-PICKUP", fulfilment: "collection", address: undefined }) });
-await test("owner: Today has a big deliveries map with numbered pins, chips and one big button that opens the directions", async ({ page: p }) => {
-  await signOwner(p);
-  await p.waitForSelector(".dm .leaflet-container");
-  assert.equal(await p.locator(".dm .dm-pin").count(), 2, "only the delivery orders are pinned");
-  assert.equal(await p.locator(".dm .dm-chip").count(), 2);
-  const box = await p.locator(".dm-map").boundingBox(); assert.ok(box.height >= 220, "map is big: " + box.height);
-  const btn = await p.locator(".dm-go").boundingBox(); assert.ok(btn.height >= 48, "button is big: " + btn.height);
-  await p.locator(".dm-chip").nth(1).click();
-  assert.equal(await p.locator(".dm-chip").nth(1).getAttribute("aria-selected"), "true");
-  assert.match(await p.locator(".dm-go").innerText(), /Start directions · 12 Other Road, SW1A 1AA/);
-  await p.click(".dm-go"); await p.waitForSelector(".nav-panel .leaflet-container");
-  assert.match(await p.locator(".nav-where").innerText(), /12 Other Road/);
-}, { path: "/admin/index.html", ready: "#gateGoogle:not([hidden])", seed: seedWith({ orders: TWO() }) });
-await test("owner: no delivery out → no map and nothing tracked; stale position docs are cleaned up", async ({ page: p }) => {
-  await signOwner(p);
-  await p.waitForFunction(() => !(window.__FAKE.dump().tracking || {}).stale);
-  assert.equal(await p.locator(".dm").count(), 0);
-}, { path: "/admin/index.html", ready: "#gateGoogle:not([hidden])", seed: seedWith({ orders: { o3: DELIVERY({ ref: "BH-PICKUP", fulfilment: "collection", address: undefined }) }, tracking: { stale: { lat: 1, lng: 1, updatedAt: { __ts: Date.now() } } } }) });
-await test("owner: location is only shared while a delivery is on its way, and stops by itself", async (t) => {
-  const p = t.page;
-  await p.evaluate(() => localStorage.setItem("shareLoc", "1")); await p.reload(); await p.waitForSelector("#gateGoogle:not([hidden])");
-  await signOwner(p);
-  await p.waitForSelector(".locbar");
-  await p.waitForTimeout(500);
-  assert.ok(!((await db(p)).tracking || {}).o1, "confirmed: nobody is tracked");
-  await p.evaluate(() => window.__FAKE.inject("orders", "o1", { ...window.__FAKE.dump().orders.o1, status: "ontheway" }));
-  await p.waitForFunction(() => (window.__FAKE.dump().tracking || {}).o1);
-  const tr = (await db(p)).tracking.o1; assert.ok(Math.abs(tr.lat - 51.51) < 0.001);
-  assert.match(await p.locator(".locbar").innerText(), /Sharing your location/);
-  await p.click('[data-act="loc-off"]');                                                    // pause
-  await p.waitForFunction(() => !(window.__FAKE.dump().tracking || {}).o1);
-  await p.click('[data-act="loc-on"]');
-  await p.waitForFunction(() => (window.__FAKE.dump().tracking || {}).o1);
-  await p.evaluate(() => window.__FAKE.inject("orders", "o1", { ...window.__FAKE.dump().orders.o1, status: "delivered" }));
-  await p.waitForFunction(() => !(window.__FAKE.dump().tracking || {}).o1);
-  assert.match(await p.locator(".locbar").innerText(), /only shared while a delivery is on its way/);
-}, { path: "/admin/index.html", ready: "#gateGoogle:not([hidden])", geo: { latitude: 51.51, longitude: -0.15 }, seed: seedWith({ orders: { o1: DELIVERY({ status: "confirmed" }) } }) });
-await test("owner: when location is blocked he is told how to fix it", async ({ page: p }) => {
-  await p.evaluate(() => localStorage.setItem("shareLoc", "1")); await p.reload(); await p.waitForSelector("#gateGoogle:not([hidden])");
-  await signOwner(p);
-  await p.waitForSelector(".locbar");
-  assert.match(await p.locator(".locbar").innerText(), /Location is blocked|Let customers see you|Allow location/);
-}, { path: "/admin/index.html", ready: "#gateGoogle:not([hidden])", seed: seedWith({ orders: { o1: DELIVERY({ status: "ontheway" }) } }) });
 
 /* ── footer ──────────────────────────────────────────── */
 await test("footer: dark 'Let us help you' column with working links and 'All rights reserved' at the very bottom", async (t) => {
@@ -388,7 +161,7 @@ await test("iPhone app (owner): tabs become Today / Products / Orders / Messages
   await p.evaluate(() => window.__dock.tap({ id: "orders" })); await p.waitForFunction(() => window.__dock.calls[window.__dock.calls.length - 1].selected === "orders");
   assert.ok((await c()).items.find(i => i.id === "orders").badge >= 0);
   await p.evaluate(() => window.__dock.tap({ id: "events" })); await p.waitForFunction(() => window.__dock.calls[window.__dock.calls.length - 1].selected === "more");
-}, { path: "/admin/index.html", ready: "#gateGoogle:not([hidden])", viewport: { width: 390, height: 844 }, init: IOS, seed: seedWith({ orders: { o1: DELIVERY({ status: "ontheway" }) } }) });
+}, { path: "/admin/index.html", ready: "#gateGoogle:not([hidden])", viewport: { width: 390, height: 844 }, init: IOS, seed: seedWith({ orders: { o1: ORDER({ status: "shipped" }) } }) });
 
 /* ── language ────────────────────────────────────────── */
 const TAG = { en: "en-GB", us: "en-US", fr: "fr", ar: "ar", es: "es", de: "de", tr: "tr", it: "it", hi: "hi", ur: "ur", bn: "bn", pa: "pa", pl: "pl", ro: "ro", pt: "pt", nl: "nl", ru: "ru", zh: "zh-CN", ja: "ja", ko: "ko", id: "id" };
@@ -475,7 +248,7 @@ await test("language: the menu works on a phone and nothing overflows in any lan
   }
 }, { viewport: { width: 390, height: 800 } });
 /* ── owner: analytics ───────────────────────────────── */
-const SPREAD = () => Object.fromEntries(Array.from({ length: 14 }, (_, i) => ["a" + i, DELIVERY({ ref: "BH-A" + i, fulfilment: i % 3 ? "collection" : "delivery", total: 10 + i, estTotal: 10 + i,
+const SPREAD = () => Object.fromEntries(Array.from({ length: 14 }, (_, i) => ["a" + i, ORDER({ ref: "BH-A" + i, fulfilment: i % 3 ? "collection" : "shipping", total: 10 + i, estTotal: 10 + i,
   customer: { name: "C" + (i % 5), email: `c${i % 5}@example.com`, phone: "" }, items: [{ productId: i % 2 ? "p1" : "p2", qty: 1 + (i % 3), name: i % 2 ? "Medjool Dates 500g" : "Other thing" }],
   createdAt: { __ts: Date.now() - i * 20 * 36e5 } })]));
 await test("owner analytics: KPIs, trend chart with axes, best sellers, busy times, range switch and hover tooltip", async ({ page: p }) => {

@@ -33,9 +33,12 @@ export const SEED = {
     p2: { name: "Sparkling Water", price: 2.4, stock: 3, categoryId: "c2", visible: true, archived: false, updatedAt: T0, createdAt: T0 },
     p3: { name: "Sold Out Juice", price: 1.85, stock: 0, categoryId: "c2", visible: true, archived: false, updatedAt: T0, createdAt: T0 },
   },
-  settings: { site: { storeName: "Bee Hive", collection: true, delivery: true, deliveryFee: 2.5, updatedAt: T0 } },
+  settings: { site: { storeName: "Bee Hive", collection: true, shipping: true, shipTo: "GB", updatedAt: T0 } },
 };
-export const ACCOUNTS = {};
+export const ACCOUNTS = {
+  "gina@example.com": { uid: "u_gina", password: "secret1", verified: true },
+  "bob@example.com": { uid: "u_bob", password: "secret1", verified: true },
+};
 
 export async function launch(base, { seed = SEED, accounts = {}, viewport, mailer = true } = {}) {
   const browser = globalThis.__browser || (globalThis.__browser = await chromium.launch());
@@ -56,6 +59,9 @@ export async function launch(base, { seed = SEED, accounts = {}, viewport, maile
     const reply = j => r.fulfill({ status: 200, headers: h, json: j });
     if (r.request().method() === "GET") return reply({ ok: true, service: "store-login", pay: mail.pay === true });
     if (b.a === "pay") { try { mail.atPay = await r.request().frame().page().evaluate(() => window.__FAKE.dump()); } catch {} }
+    if (b.a === "rates") return reply(mail.ratesError ? { ok: false, error: mail.ratesError } : { ok: true, subtotal: 0, rates: [
+      { id: "svc-evri", courier: "Evri", service: "Standard", price: 2.49, etaMin: 3, etaMax: 5 },
+      { id: "svc-rm", courier: "Royal Mail", service: "Tracked 48", price: 3.95, etaMin: 2, etaMax: 3 }] });
     if (b.a === "pay") return reply({ ok: true, url: "https://checkout.stripe.test/pay?o=" + b.orderId });
     if (b.a === "paid") return reply({ ok: b.sid === "cs_test_good" });
     if (["housikiki@gmail.com"].includes(b.email)) return reply({ ok: false, error: "use_google" });
@@ -88,7 +94,7 @@ export async function launch(base, { seed = SEED, accounts = {}, viewport, maile
   await ctx.addInitScript(({ code, seed, accounts }) => {
     eval(code);
     if (!localStorage.getItem("fake.seeded")) { window.__FAKE.seed(seed, accounts); localStorage.setItem("fake.seeded", "1"); }
-  }, { code: FAKE, seed, accounts });
+  }, { code: FAKE, seed, accounts: { ...ACCOUNTS, ...accounts } });
   const page = await ctx.newPage();
   const errors = [];
   page.on("pageerror", e => errors.push("pageerror: " + e.message));

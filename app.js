@@ -7,13 +7,12 @@ import { startNativeDock } from "./nativedock.js?v=17";
 import { initAppUpdate } from "./appupdate.js?v=17";
 import { $, $$, esc, store, money, pence, reduced, uid, openDialog, closeDialog, wireDialogs,
          toast, showError, setBusy, priceOf, onSale, percentOff, millis } from "./ui.js?v=16";
-import { createAuth } from "./auth.js?v=28";
-import { normaliseUkPhone, showUkPhone } from "./uk.js?v=16";
+import { createAuth } from "./auth.js?v=29";
+import { validatePhone, PHONE_HELP, formatAddress, countryName } from "./address.js?v=1";
 import { liveEvents, withEvents, applyTheme, paintMeta, heroHtml, heroVars, tickerText } from "./events.js?v=16";
 import { paintTicker, splitMessages, resetTicker } from "./ticker.js?v=16";
 import { initI18n } from "./i18n.js?v=19";
-import { trackerHtml } from "./flow.js?v=16";
-import { mountTracker } from "./trackview.js?v=20";
+import { trackerHtml } from "./flow.js?v=17";
 
 const DEF = window.STORE_DEFAULTS;
 const PATHS = window.STORE_PATHS;
@@ -196,6 +195,7 @@ async function connect() {
 
     fs.onSnapshot(fs.doc(db, PATHS.settings, PATHS.siteDoc), snap => {
       S.site = { ...DEF, ...(snap.exists() ? snap.data() : {}) };
+      if (acct) acct.shipTo = fulfil().codes;
       renderSite(); if (haveProducts && haveCats) remember();
     }, err => console.error("[shop] settings", err));
   } catch (e) {
@@ -227,20 +227,20 @@ function syncNavHeight() {
   document.documentElement.style.setProperty("--nav-h", `${$("#nav").offsetHeight}px`);
 }
 
-/** "Delivery & pick-up": what this shop actually offers right now, from its own settings. */
+/** "Shipping & pick-up": what this shop actually offers right now, from its own settings. */
 function openInfo() {
   const f = fulfil();
-  $("#infoBody").innerHTML = `<h2 id="infoTitle">Delivery &amp; pick-up</h2>
+  $("#infoBody").innerHTML = `<h2 id="infoTitle">Shipping &amp; pick-up</h2>
     ${f.collection ? `<h3 class="info-h">Pick up from the shop</h3><p class="muted">Pick up from the shop once it's confirmed. Free.</p>` : ""}
-    ${f.delivery ? `<h3 class="info-h">Delivery (UK)</h3><p class="muted">${f.fee ? `UK delivery from ${money(f.fee)}.` : "Free UK delivery."} The shop checks your postcode, confirms your order, then brings it to your door. Follow it live in My orders.</p>` : ""}
-    ${!f.collection && !f.delivery ? `<p class="muted">Online ordering is paused right now.</p>` : ""}
+    ${f.shipping ? `<h3 class="info-h">Shipping</h3><p class="muted">We post to ${esc(f.countries)} with tracked couriers such as Royal Mail, Evri and DPD. Enter your full address at checkout and you'll see each courier's price and delivery time, then pick the one you like.${f.freeOver ? ` Free shipping on orders over ${money(f.freeOver)}.` : ""}</p>` : ""}
+    ${!f.collection && !f.shipping ? `<p class="muted">Online ordering is paused right now.</p>` : ""}
     <button class="btn-primary wide" type="button" data-close>Done</button>`;
   openDialog($("#info"));
 }
 
 function renderFoot() {
   const f = fulfil();
-  $("#footerBlurb").textContent = [f.collection && "Pick-up", f.delivery && "UK delivery"].filter(Boolean).join(" · ");
+  $("#footerBlurb").textContent = [f.collection && "Pick-up", f.shipping && "Shipping"].filter(Boolean).join(" · ");
 }
 
 /* ── routing: #/ (shop) · #/p/<id> (product page) · #/saved ───────── */
@@ -532,7 +532,7 @@ function renderProduct() {
   const f = fulfil();
   const facts = [
     f.collection && "Pick up from the shop once it's confirmed",
-    f.delivery && `UK delivery${f.fee ? ` from ${money(f.fee)}` : ", free"}`,
+    f.shipping && `Tracked shipping to ${f.countries}${f.freeOver ? `, free over ${money(f.freeOver)}` : ""}`,
   ].filter(Boolean);
   const more = related(p);
   const seen = recentProducts(p.id).slice(0, 4);
@@ -727,24 +727,24 @@ async function dismissRestock() {
 /* ── my orders ───────────────────────────────────────── */
 const mo = $("#mo");
 let moUnsub = null;
+const isShip = o => o.fulfilment === "shipping" || o.fulfilment === "delivery";
 const unpaid = o => o.status === "new" && o.paymentStatus === "awaiting";      // started checkout, never paid
 const ORDER_STATUS = {
   new: o => unpaid(o) ? "Waiting for payment" : "Sent to the shop", confirmed: "Confirmed", preparing: "Being prepared",
-  ontheway: "On its way", arrived: "Arrived",
-  ready: o => o.fulfilment === "delivery" ? "Out for delivery" : "Ready to collect",
+  shipped: "Shipped", ontheway: "Shipped", arrived: "Shipped",
+  ready: "Ready to collect",
   completed: "Completed", cancelled: "Cancelled",
 };
 const statusText = o => { const t = ORDER_STATUS[o.status]; return typeof t === "function" ? t(o) : t || o.status; };
 const STATUS_HELP = {
   new: o => unpaid(o) ? "Your order isn't placed until it's paid." : "The shop will check stock and confirm your order soon.",
-  confirmed: o => o.paymentStatus === "paid" ? `Paid, thank you! We'll email you when it's ${o.fulfilment === "delivery" ? "on its way" : "ready to collect"}.` : "The shop has confirmed your order and reserved your items.",
+  confirmed: o => o.paymentStatus === "paid" ? `Paid, thank you! We'll email you when it's ${isShip(o) ? "shipped, with a tracking link" : "ready to collect"}.` : "The shop has confirmed your order and reserved your items.",
   preparing: "The shop is getting your order ready.",
-  ontheway: "The shop is on the way to you now.",
-  arrived: "The shop has arrived with your order. Please come to the door.",
+  shipped: o => o.shipment && o.shipment.trackingUrl ? "Your parcel is with the courier. Tap Track parcel to see where it is." : "Your parcel is with the courier.",
   completed: "All done. Thank you for ordering!",
   cancelled: "This order was cancelled.",
 };
-const helpText = o => { const t = o.status === "ready" ? (o.fulfilment === "delivery" ? "Your order is on its way." : "Your order is ready. Come and collect it.") : STATUS_HELP[o.status]; return typeof t === "function" ? t(o) : t || ""; };
+const helpText = o => { const t = o.status === "ready" ? "Your order is ready. Come and collect it." : STATUS_HELP[o.status === "ontheway" || o.status === "arrived" ? "shipped" : o.status]; return typeof t === "function" ? t(o) : t || ""; };
 
 /* ── card payments (Stripe Checkout via the Apps Script) ── */
 const AUTH_URL = () => String(window.STORE_AUTH_URL || "");
@@ -764,7 +764,8 @@ const callPay = async body => {
   } finally { clearTimeout(timer); }
 };
 const PAY_ERR = { not_ready: "The shop needs to confirm your order before you can pay.", already_paid: "This order is already paid.", not_set_up: "Card payments aren't switched on yet.",
-  no_delivery: "Delivery isn't available right now. Please choose pick-up.", no_collection: "Pick-up isn't available right now. Please choose delivery.", too_small: "That order is too small to pay for by card." };
+  no_shipping: "Shipping isn't available right now. Please choose pick-up.", no_collection: "Pick-up isn't available right now. Please choose shipping.", too_small: "That order is too small to pay for by card.",
+  ship_rate: "That courier option changed or is no longer available. Please pick a shipping option again.", bad_address: "We couldn't use that address or phone number. Please check them.", no_origin: "Shipping isn't ready yet. Please choose pick-up.", no_rates: "No courier can deliver to that address right now.", limit: "Too many price checks. Please wait a few minutes." };
 const payError = r => r.error === "stock" ? `Sorry, “${r.item}” just ran out. Please change your basket.` : PAY_ERR[r.error] || "Couldn't start the payment. Please try again.";
 const canPay = o => o.paymentStatus !== "paid" && (unpaid(o) || (["confirmed", "preparing", "ready"].includes(o.status) && Number(o.total) > 0));
 let lastOrders = [], cardsReady = false;
@@ -775,7 +776,7 @@ function warmCards() {
     if (on === cardsReady) return;
     cardsReady = on;
     if ($("#moList") && lastOrders.length) paintOrders(lastOrders);
-    if ($("#co").open && !coForm.hidden) drawCheckout();
+    if ($("#co").open && !coForm.hidden) { drawChoices(); drawCheckout(); refreshRates(); }
   });
 }
 
@@ -807,21 +808,6 @@ async function finishPay({ id, sid }) {
   } catch { toast("We couldn't confirm that payment yet. Please check My orders."); }
 }
 
-/* live maps inside "My orders": built once per order and moved into the freshly drawn list each time, so a new snapshot never resets the map */
-const trackers = new Map();
-const onTheRoad = o => o.fulfilment === "delivery" && ["ontheway", "arrived", "ready"].includes(o.status) && o.address && typeof o.address.lat === "number" && typeof o.address.lng === "number";
-function syncMaps(list) {
-  const want = new Set();
-  for (const ph of $$("[data-live]", $("#moList") || document)) {
-    const o = list.find(x => x.id === ph.dataset.live); if (!o || !FS) continue;
-    want.add(o.id);
-    let t = trackers.get(o.id);
-    if (!t) { t = mountTracker(o, FS); trackers.set(o.id, t); }
-    ph.append(t.box); t.update(o); t.refit();
-  }
-  for (const [id, t] of trackers) if (!want.has(id)) { t.destroy(); trackers.delete(id); }
-}
-
 function paintOrders(list) {
   lastOrders = list;
   const box = $("#moList"); if (!box) return;
@@ -834,16 +820,16 @@ function paintOrders(list) {
     const help = helpText(o);
     return `<article class="mo-card">
       <div class="mo-top"><b>${esc(o.ref)}</b><span class="mo-chip" data-st="${esc(o.status)}">${esc(statusText(o))}</span></div>
-      <p class="muted mo-meta">${new Date(millis(o.createdAt) || Date.now()).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })} · ${o.fulfilment === "delivery" ? "Delivery" : "Pick-up"}</p>
+      <p class="muted mo-meta">${new Date(millis(o.createdAt) || Date.now()).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })} · ${isShip(o) ? "Shipping" : "Pick-up"}</p>
       ${trackerHtml(o)}
-      ${onTheRoad(o) ? `<div data-live="${esc(o.id)}"></div>` : ""}
+      ${isShip(o) && o.shipment && o.shipment.trackingUrl && ["shipped", "ontheway", "arrived", "completed"].includes(o.status) ? `<a class="btn-ghost tight" target="_blank" rel="noopener noreferrer" href="${esc(o.shipment.trackingUrl)}">Track parcel</a>` : ""}
+      ${isShip(o) && o.shipping && o.shipping.courier ? `<p class="muted mo-meta">${esc(o.shipping.courier)} ${esc(o.shipping.service || "")}</p>` : ""}
       <ul class="mo-items">${lines.map(l => `<li><span data-own>${esc(l.name)}</span><span>× ${l.qty}</span></li>`).join("")}</ul>
       <div class="sum-row total"><span>${o.total != null ? "Total" : "Estimated total"}${o.paymentStatus === "paid" ? ` <span class="mo-chip" data-st="completed">Paid</span>` : ""}</span><span>${total != null ? money(total) : ""}</span></div>
-      ${cardsReady && canPay(o) ? `<button class="btn-primary wide" type="button" data-pay="${esc(o.id)}">Pay ${money(total)} by card</button>${unpaid(o) ? "" : `<p class="muted mo-help">Or pay when you ${o.fulfilment === "delivery" ? "receive" : "collect"} it.</p>`}` : ""}
+      ${cardsReady && canPay(o) ? `<button class="btn-primary wide" type="button" data-pay="${esc(o.id)}">Pay ${money(total)} by card</button>${unpaid(o) || isShip(o) ? "" : `<p class="muted mo-help">Or pay when you collect it.</p>`}` : ""}
       ${help ? `<p class="muted mo-help">${esc(help)}</p>` : ""}
     </article>`;
   }).join("");
-  syncMaps(list);
 }
 
 async function openMyOrders() {
@@ -859,7 +845,7 @@ async function openMyOrders() {
     err => { console.warn("[orders]", err && err.code); const b = $("#moList"); if (b) b.innerHTML = `<p class="form-error">We couldn't load your orders right now.</p>`; });
 }
 mo.addEventListener("click", e => { const b = e.target.closest("[data-pay]"); if (b) startPay(b); });
-mo.addEventListener("close", () => { if (moUnsub) { moUnsub(); moUnsub = null; } for (const t of trackers.values()) t.destroy(); trackers.clear(); });
+mo.addEventListener("close", () => { if (moUnsub) { moUnsub(); moUnsub = null; } });
 
 /* ── search (one box in the header) ──────────────────── */
 let qTimer;
@@ -982,12 +968,54 @@ function paintDock() {
 const co = $("#co");
 const coForm = $("#coForm");
 const fulfil = () => {
-  const s = S.site;
-  const fee = Number(s.deliveryFee);
-  return { collection: s.collection !== false, delivery: s.delivery !== false, fee: Number.isFinite(fee) && fee > 0 ? fee : 0 };
+  const s = S.site, free = Number(s.freeShippingOver);
+  const codes = String(s.shipTo || "GB").toUpperCase().split(/[^A-Z]+/).filter(Boolean);
+  return { collection: s.collection !== false, shipping: s.shipping === true, countries: codes.map(countryName).join(", ") || "the UK", codes,
+    freeOver: Number.isFinite(free) && free > 0 ? free : 0 };
 };
 const chosen = () => coForm.querySelector('input[name="how"]:checked')?.value || null;
-const addrHtml = a => [a.line1, a.line2, a.city, a.postcode].filter(Boolean).map(esc).join("<br>");
+
+/* Courier prices come live from the shop's server (Easyship) for the exact address + basket. */
+const rateState = { key: "", seq: 0, status: "idle", list: [], msg: "", pick: "" };
+const rateKey = (lines, a, phone) => JSON.stringify([lines.map(l => [l.p.id, l.qty]), a && [a.country, a.line1, a.line2, a.city, a.state, a.postcode], phone]);
+const pickedRate = () => rateState.status === "ok" ? rateState.list.find(r => r.id === rateState.pick) || null : null;
+const etaText = r => r.etaMin && r.etaMax ? (r.etaMin === r.etaMax ? `${r.etaMax} days` : `${r.etaMin}-${r.etaMax} days`) : r.etaMax ? `up to ${r.etaMax} days` : "";
+
+/** Phone must really exist in the address's country (or be written with +code). → e164 string or "" */
+async function checkPhone() {
+  const raw = (coForm.elements.phone.value || "").trim(), a = acct?.profile.address;
+  if (!raw) return { raw, e164: "" };
+  const r = await validatePhone(raw, a?.country || "GB");
+  return { raw, e164: r.ok ? r.e164 : "" };
+}
+
+async function refreshRates() {
+  if (chosen() !== "shipping") return;
+  const lines = cartLines(), a = acct?.profile.address, mine = ++rateState.seq;
+  const ph = await checkPhone();
+  if (mine !== rateState.seq) return;
+  const need = !a ? "Add your delivery address to see courier prices." : !ph.e164 ? (ph.raw ? PHONE_HELP(a.country) : "Add your mobile number above to see courier prices.") : "";
+  if (need) { Object.assign(rateState, { key: "", status: "need", list: [], msg: need, pick: "" }); return drawRates(); }
+  const key = rateKey(lines, a, ph.e164);
+  if (key === rateState.key && rateState.status === "ok") return drawRates();
+  Object.assign(rateState, { key, status: "loading", list: [], msg: "", pick: "" }); drawRates();
+  try {
+    const r = await callPay({ a: "rates", items: lines.map(l => ({ productId: l.p.id, qty: l.qty })), customer: { name: (coForm.elements.name.value || "").trim() || "Customer", phone: ph.e164, email: acct.email || "" },
+      address: { country: a.country, line1: a.line1, line2: a.line2 || "", city: a.city, state: a.state || "", postcode: a.postcode } });
+    if (mine !== rateState.seq) return;
+    if (r.ok) Object.assign(rateState, { status: "ok", list: r.rates, pick: r.rates[0]?.id || "", msg: "" });
+    else Object.assign(rateState, { key: "", status: "error", list: [], msg: payError(r) });
+  } catch { if (mine === rateState.seq) Object.assign(rateState, { key: "", status: "error", list: [], msg: "We couldn't get courier prices. Check your connection and try again." }); }
+  drawRates(); drawCheckout();
+}
+
+function drawRates() {
+  const box = $("#coRates"); if (!box) return;
+  const st = rateState;
+  box.innerHTML = st.status === "loading" ? `<p class="muted">Getting courier prices…</p>`
+    : st.status === "ok" ? `<div class="choice">${st.list.map(r => `<label><input type="radio" name="svc" value="${esc(r.id)}" ${r.id === st.pick ? "checked" : ""}><span><b>${esc(r.courier)}</b> ${esc(r.service)}${etaText(r) ? `<small class="eta">${esc(etaText(r))}</small>` : ""}</span><span class="fee">${r.price ? money(r.price) : "Free"}</span></label>`).join("")}</div>`
+    : st.msg ? `<p class="${st.status === "error" ? "form-error" : "muted"}">${esc(st.msg)}</p>` : "";
+}
 
 /** Basket → "Checkout" button. Signed-in + email-verified customers only. */
 async function startCheckout() {
@@ -1000,84 +1028,92 @@ async function startCheckout() {
   openCheckout();
 }
 
-function openCheckout() {
-  if (!cartLines().length) return;
-  coForm.hidden = false;
-  $("#coDone").hidden = true;
-  $("#coError").hidden = true;
-  const f = fulfil();
+function drawChoices() {
+  const f = fulfil(), canShip = f.shipping && cardsReady;      // courier prices + payment both need the shop's server
   const opts = [
     f.collection && ["collection", "Pick up from the shop", "Free"],
-    f.delivery && ["delivery", "Delivery (UK)", f.fee ? money(f.fee) : "Free"],
+    canShip && ["shipping", "Ship to my address", "Price after address"],
   ].filter(Boolean);
   const keep = chosen();
   $("#coChoices").innerHTML = opts.length
     ? opts.map(([v, label, fee], i) => `
         <label><input type="radio" name="how" value="${v}" ${keep === v || (!keep && i === 0) ? "checked" : ""}>
         <span>${label}</span><span class="fee">${fee}</span></label>`).join("") +
-      (f.delivery ? "" : `<label class="is-off"><input type="radio" disabled><span>Delivery (UK)</span><span class="fee">Not available yet</span></label>`)
+      (canShip ? "" : `<label class="is-off"><input type="radio" disabled><span>Ship to my address</span><span class="fee">${f.shipping ? "Connecting…" : "Not available yet"}</span></label>`)
     : `<p class="muted">Online ordering is paused right now. Please check back soon.</p>`;
+}
+
+function openCheckout() {
+  if (!cartLines().length) return;
+  if (MODE === "live") warmCards();
+  coForm.hidden = false;
+  $("#coDone").hidden = true;
+  $("#coError").hidden = true;
+  drawChoices();
+  rateState.key = "";
 
   // fill in what we already know about the customer
   const p = acct ? acct.profile : {};
   if (!coForm.elements.name.value) coForm.elements.name.value = p.name || acct?.user?.displayName || "";
-  if (!coForm.elements.phone.value) coForm.elements.phone.value = showUkPhone(p.phone || "");
+  if (!coForm.elements.phone.value) coForm.elements.phone.value = p.phone || "";
   $("#coEmail").textContent = acct?.email || "Sign in to order";
   drawCheckout();
   openDialog(co);
+  refreshRates();
 }
 
 function drawCheckout() {
   const lines = cartLines();
   const how = chosen();
-  const f = fulfil();
-  const fee = how === "delivery" ? f.fee : 0;
+  const pick = how === "shipping" ? pickedRate() : null;
+  const fee = pick ? pick.price : 0;
   const sub = subtotalOf(lines);
   $("#coItems").innerHTML = lines.map(l =>
     `<div class="sum-row"><span><span data-own>${esc(l.p.name)}</span> × ${l.qty}</span><span>${money(pence(priceOf(l.p)) * l.qty / 100)}</span></div>`).join("");
   $("#coSum").innerHTML = `
     <div class="sum-row"><span>Subtotal</span><span>${money(sub)}</span></div>
-    ${how === "delivery" ? `<div class="sum-row"><span>Delivery</span><span>${fee ? money(fee) : "Free"}</span></div>` : ""}
-    <div class="sum-row total"><span>Total</span><span>${money(sub + fee)}</span></div>
+    ${how === "shipping" ? `<div class="sum-row"><span>Shipping${pick ? ` (${esc(pick.courier)})` : ""}</span><span>${pick ? (fee ? money(fee) : "Free") : "Choose a courier"}</span></div>` : ""}
+    <div class="sum-row total"><span>Total</span><span>${how === "shipping" && !pick ? "" : money(sub + fee)}</span></div>
     <p class="sum-note">${cardsReady ? "You'll see the final price on the payment page." : "The shop confirms prices and stock when it accepts your order."}</p>`;
 
   const addr = acct?.profile.address;
-  $("#coAddress").hidden = how !== "delivery";
+  $("#coAddress").hidden = how !== "shipping";
   $("#coAddrCard").innerHTML = addr
-    ? `<div class="addr-text">${addrHtml(addr)}</div>${addr.verified ? `<span class="badge ok">Postcode checked</span>` : ""}`
-    : `<div class="addr-empty">No delivery location yet.</div>`;
-  $("#coAddrBtn").textContent = addr ? "Change location" : "Set location";
-  $("#coPhoneHint").textContent = how === "delivery" ? "(UK, needed for delivery)" : "(UK, optional)";
+    ? `<div class="addr-text">${formatAddress(addr).map(esc).join("<br>")}</div>${addr.verified ? `<span class="badge ok">Address checked</span>` : ""}`
+    : `<div class="addr-empty">No delivery address yet.</div>`;
+  $("#coAddrBtn").textContent = addr ? "Change address" : "Add address";
+  $("#coPhoneHint").textContent = how === "shipping" ? "(real number, needed for the courier)" : "(optional)";
+  drawRates();
 
   const blocked = MODE !== "live" ? "Ordering is switched off in preview mode."
     : !navigator.onLine ? "You're offline. Connect to the internet to place your order."
     : !how ? "Online ordering is paused right now."
-    : !lines.length ? "Your basket is empty." : "";
+    : !lines.length ? "Your basket is empty."
+    : how === "shipping" && !pick ? "Choose a courier first." : "";
   $("#coSubmit").disabled = !!blocked;
   $("#coSubmit").title = blocked;
   $("#coSubmit").textContent = cardsReady ? `Pay ${money(sub + fee)} by card` : "Place test order";
   $("#coNote").innerHTML = cardsReady
     ? `<strong>Test mode.</strong> You pay by card on the next page, and the shop gets your order straight away. Nothing real is charged.`
-    : `<strong>Test checkout.</strong> Nothing is charged. The shop confirms your order, then you can pay at pick-up or delivery. Your order is marked as a test.`;
+    : `<strong>Test checkout.</strong> Nothing is charged. The shop confirms your order, then you can pay at pick-up. Your order is marked as a test.`;
   if (blocked && MODE !== "live") showError("#coError", blocked);
 }
 
-function checkoutPayload() {
+async function checkoutPayload() {
   const v = n => (coForm.elements[n]?.value || "").trim();
   const how = chosen();
   const lines = cartLines();
-  const fee = how === "delivery" ? fulfil().fee : 0;
+  const pick = how === "shipping" ? pickedRate() : null;
   const a = acct?.profile.address;
+  const ph = await checkPhone();
   return {
     items: lines.map(l => ({ productId: l.p.id, qty: l.qty, name: String(l.p.name || "").slice(0, 120) })),
-    customer: { name: v("name"), phone: normaliseUkPhone(v("phone")), rawPhone: v("phone"), email: acct?.email || "" },
+    customer: { name: v("name"), phone: ph.e164, rawPhone: ph.raw, email: acct?.email || "" },
     fulfilment: how,
-    address: how === "delivery" && a
-      ? { line1: a.line1 || "", line2: a.line2 || "", city: a.city || "", postcode: a.postcode || "",
-          lat: typeof a.lat === "number" ? a.lat : null, lng: typeof a.lng === "number" ? a.lng : null, verified: a.verified === true }
-      : null,
+    address: how === "shipping" && a ? { country: a.country || "", line1: a.line1 || "", line2: a.line2 || "", city: a.city || "", state: a.state || "", postcode: a.postcode || "" } : null,
+    shipping: pick ? { serviceId: pick.id, courier: pick.courier, service: pick.service, price: pick.price, etaMin: pick.etaMin, etaMax: pick.etaMax } : null,
     note: v("note"),
-    estTotal: (subtotalOf(lines) * 100 + fee * 100) / 100,
+    estTotal: (subtotalOf(lines) * 100 + (pick ? pick.price * 100 : 0)) / 100,
     hp: v("website"),
   };
 }
@@ -1086,17 +1122,17 @@ function checkoutPayload() {
 function checkCheckout(p) {
   const mark = (name, isBad) => { const el = coForm.elements[name]; if (el) el.setAttribute("aria-invalid", String(isBad)); return isBad; };
   if (mark("name", p.customer.name.length < 2)) return "Please enter your name.";
-  const phoneBad = p.customer.rawPhone ? !p.customer.phone : p.fulfilment === "delivery";
-  if (mark("phone", phoneBad)) return p.customer.rawPhone
-    ? "Please enter a UK number, like 07123 456789."
-    : "Please add a mobile number so the shop can reach you about your delivery.";
-  if (p.fulfilment === "delivery" && !p.address) return "Please set your delivery location first.";
+  const country = acct?.profile.address?.country || "GB";
+  const phoneBad = p.customer.rawPhone ? !p.customer.phone : p.fulfilment === "shipping";
+  if (mark("phone", phoneBad)) return p.customer.rawPhone ? PHONE_HELP(country) : "Please add a real mobile number so the courier can reach you.";
+  if (p.fulfilment === "shipping" && !p.address) return "Please add your delivery address first.";
+  if (p.fulfilment === "shipping" && !p.shipping) return "Please choose a courier.";
   return "";
 }
 
 /** One id per basket+choice: a retry after a timeout can never create a second order. */
 function requestIdFor(payload) {
-  const sig = JSON.stringify([payload.items.map(i => [i.productId, i.qty]), payload.fulfilment]);
+  const sig = JSON.stringify([payload.items.map(i => [i.productId, i.qty]), payload.fulfilment, payload.address, payload.shipping && payload.shipping.serviceId]);
   const pending = store.sget("pendingOrder");
   if (pending && pending.sig === sig) return pending.id;
   const id = uid();
@@ -1125,6 +1161,7 @@ async function writeOrder(p, paymentStatus = "mock") {
     createdAt: fs.serverTimestamp(), updatedAt: fs.serverTimestamp(),
   };
   if (p.address) doc.address = p.address;
+  if (p.shipping) doc.shipping = p.shipping;
   const batch = fs.writeBatch(db);
   batch.set(orderRef, doc);
   batch.set(fs.doc(db, "users", user.uid), { lastOrderAt: fs.serverTimestamp(), updatedAt: fs.serverTimestamp() }, { merge: true });
@@ -1144,7 +1181,7 @@ function setCheckoutNote(msg) { showError("#coError", msg); }
 async function submitCheckout(e) {
   e.preventDefault();
   if (!FS || !acct?.user) return;
-  const payload = checkoutPayload();
+  const payload = await checkoutPayload();
   for (const el of coForm.elements) el.removeAttribute?.("aria-invalid");
   const problem = checkCheckout(payload);
   if (problem) { setCheckoutNote(problem); coForm.querySelector('[aria-invalid="true"]')?.focus(); return; }
@@ -1177,9 +1214,8 @@ async function submitCheckout(e) {
     store.sset("pendingOrder", null);
     // remember their phone for next time
     if (payload.customer.phone && payload.customer.phone !== acct.profile.phone) acct.saveProfile({ phone: payload.customer.phone }).catch(() => {});
-    const fee = payload.fulfilment === "delivery" ? fulfil().fee : 0;
     const done = {
-      ref, fulfilment: payload.fulfilment, deliveryFee: fee, total: payload.estTotal,
+      ref, fulfilment: payload.fulfilment, shippingFee: payload.shipping ? payload.shipping.price : 0, total: payload.estTotal,
       items: lines.map(l => ({ name: l.p.name, qty: l.qty, lineTotal: pence(priceOf(l.p)) * l.qty / 100 })),
     };
     S.cart = {}; saveCart(); drawCart(true);
@@ -1214,7 +1250,7 @@ function showOrderDone(o) {
   $("#coRef").textContent = `Order reference ${o.ref}`;
   $("#coDoneSum").innerHTML = `
     ${(o.items || []).map(l => `<div class="sum-row"><span><span data-own>${esc(l.name)}</span> × ${l.qty}</span><span>${l.lineTotal != null ? money(l.lineTotal) : ""}</span></div>`).join("")}
-    ${o.fulfilment === "delivery" ? `<div class="sum-row"><span>Delivery</span><span>${o.deliveryFee ? money(o.deliveryFee) : "Free"}</span></div>` : ""}
+    ${o.fulfilment === "shipping" ? `<div class="sum-row"><span>Shipping</span><span>${o.shippingFee ? money(o.shippingFee) : "Free"}</span></div>` : ""}
     <div class="sum-row total"><span>${o.paid ? "Total" : "Total (not charged)"}</span><span>${money(o.total)}</span></div>`;
   $("#coFeedback").dataset.ref = o.ref;
   done.querySelector(".btn-primary").focus({ preventScroll: true });
@@ -1465,13 +1501,18 @@ function init() {
   $("#footDelivery").addEventListener("click", openInfo);
 
   // checkout
-  coForm.addEventListener("change", e => { if (e.target.name === "how") drawCheckout(); });
+  coForm.addEventListener("change", e => {
+    if (e.target.name === "how") { drawCheckout(); refreshRates(); }
+    if (e.target.name === "svc") { rateState.pick = e.target.value; drawCheckout(); }
+  });
+  let phoneTimer;
   coForm.addEventListener("input", e => {
     e.target.removeAttribute?.("aria-invalid");
     if (!$("#coError").hidden && MODE === "live") showError("#coError", "");
+    if (e.target.name === "phone") { clearTimeout(phoneTimer); phoneTimer = setTimeout(refreshRates, 700); }
   });
   $("#coAddrBtn").addEventListener("click", () => {
-    if (acct) acct.openLocation(() => drawCheckout());
+    if (acct) acct.openLocation(() => { drawCheckout(); refreshRates(); });
   });
   coForm.addEventListener("submit", submitCheckout);
   $("#coFeedback").addEventListener("click", e => {

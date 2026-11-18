@@ -112,7 +112,7 @@ An order is only marked paid after the script asks Stripe itself whether it was 
 
 ### What the owner does
 
-Open the shop, tap **Manage** (the **Today** tab). Every paid order is a card with one big button: delivery orders go **I'm on my way → I've arrived → Delivered. All done**; pick-up orders go **Order is ready to collect → Handed over. All done**. The first buttons email the customer. The *How does this work?* box on that screen explains it in plain words.
+Open the shop, tap **Manage** (the **Today** tab). Every paid order is a card with one big button: shipping orders go **Shipped → Delivered. All done** (buy the label in Easyship first); pick-up orders go **Order is ready to collect → Handed over. All done**. The first buttons email the customer. The *How does this work?* box on that screen explains it in plain words.
 
 ## Troubleshooting
 
@@ -159,16 +159,21 @@ Owner page → **Events** → *New event*. He types his own event name (Hallowee
 - Data: `events/{id}` (owner write, customers can read only `active == true`), rules in `firestore.rules` (`validEvent`). Publish the rules in the Firebase console and make a **new version** of the Apps Script web app after changing them.
 - Several live events: the newest decides the page look; every event's prices apply.
 
-## Orders bar, maps and directions
-- **Progress bar**: every order shows *Confirmed & paid › Preparing › On its way › Outside › Delivered* (pick-up: *… › Ready to collect › Collected*) on the customer's **My orders** and on the owner's Today / Orders tabs. One definition in `flow.js`.
-- **Directions (owner)**: on a delivery order tap **Directions to {postcode}**. Full-screen map (`nav.js`) with the next turn, ETA, all steps, an *Open in Google Maps* fallback, and the button for the order's next step (*On my way › I've arrived › Delivered*). The phone's GPS follows him; if **Let the customer watch me arrive** is ticked, his position is written to `tracking/{orderId}` every ~5 s and deleted when he finishes or closes the screen.
-- **Live map (customer)**: while the order is *On its way / Outside*, My orders shows the map with the shop's van and "about 9 min away" (`trackview.js`). A position older than 3 minutes is treated as "not sharing".
-- **No API keys, no cost**: Leaflet (vendored in `vendor/leaflet/`) + OpenStreetMap tiles, OSRM public server for routes, Nominatim for street lookups, postcodes.io for postcodes. Fine for a small shop; if it ever grows, swap `geo.js` for a paid router (Mapbox/Google), nothing else changes.
-- **Postcode → street + town**: typing a postcode in *Set location* fills the street and town ("Thoresby Street, Leicester"). The **Door no.** box is separate and required (free maps have no house numbers for most UK streets, so it can't be guessed); it is saved as "1 Thoresby Street" so the owner sees where to knock. Typed text is never overwritten.
-- **Deliveries map (owner, Today)**: one big map with numbered pins for every delivery that is confirmed / preparing / on its way, chips to pick one, and a big **Start directions · 1 Thoresby Street, LE5 4GU** button (`dmap.js`).
-- **Location sharing (owner)**: the owner app asks for location once (banner on Today). While at least one delivery is *On its way / Outside / Ready* his position is written to `tracking/{orderId}` every ~5 s (`track.js`); the moment nothing is out it stops and the documents are deleted, and stale ones are removed on start. Nobody is tracked otherwise. Only works while the owner app is open (the screen is kept awake while delivering). *Pause* / *Turn on* on the banner.
-- The owner app needs **location permission** (already in its manifest; reinstall the owner APK once).
-- Rules: `tracking/{id}` is readable by the owner and by the customer who owns that order, writable only by the owner (`firestore.rules`).
+## Courier shipping (Easyship), exact address, phone check
+The shop's own delivery (map, directions, live tracking) is gone. Orders are **shipped by courier**, priced live by [Easyship](https://www.easyship.com) (Royal Mail, Evri, DPD, UPS and more), or collected.
+
+- **Progress bar**: shipping orders show *Confirmed & paid › Preparing › Shipped › Delivered* (pick-up: *… › Ready to collect › Collected*) on **My orders** and the owner's Today / Orders tabs. Once shipped, the customer gets a **Track parcel** link. One definition in `flow.js`.
+- **Checkout**: the customer picks *Collection* or *Shipping*, fills the address, and sees the live courier prices from Easyship (cheapest first, with delivery days). The price they pick is re-checked on the server at pay time, and the total is worked out by the Apps Script, never the browser.
+- **Exact address form** (`address.js`): Country, Address line 1 (+ house/flat number), Line 2, Town / city, County / state (where the country has them), Postcode / ZIP. Each country has its own postcode pattern and whether the number goes first (10 Example Road) or last (Hauptstraße 10). UK postcodes are also checked to really exist (postcodes.io). Nothing can be saved half-filled.
+- **Phone check**: numbers are validated with libphonenumber-js (vendored in `vendor/phone.js`, loaded only when needed), per country and type, so `199929292931` or `07000000000` is refused and a valid UK mobile is stored as `+447…`.
+- **Setup** (once):
+  1. Make an Easyship account at <https://app.easyship.com>, connect a courier/payment method, then **Connect → API → Create token** (a *Sandbox* token first is wise).
+  2. Apps Script → **Project Settings → Script properties** → add `EASYSHIP_TOKEN` = the token (keep `STRIPE_SECRET_KEY`, `FB_CLIENT_EMAIL`, `FB_PRIVATE_KEY` as before). Redeploy (Step 10).
+  3. In the shop: **Manage → Settings → Courier shipping**: tick it, fill the address you post **from**, pick the countries you ship to, free-shipping threshold, default weight, packaging weight and box size, and the Easyship item category (`fashion`, `health_beauty`, `toys`, `home_appliances`…).
+  4. In each product's editor set **Weight (grams)** so the courier prices are right.
+  5. Publish the updated `firestore.rules` (Firebase console → Firestore → Rules).
+- **After a paid shipping order**: the script creates the shipment in Easyship and stores the tracking link on the order. The owner opens Easyship, pays for and prints the label, hands it to the courier, then presses **Shipped** (the customer gets an email). If Easyship can't create it automatically the owner is emailed and the card says so, create it by hand with the address shown.
+- Rates are limited per signed-in user (40 an hour) so nobody can burn the Easyship quota.
 
 ## Scrolling bar + languages
 - **Scrolling bar** at the very top (`ticker.js`): the live event's line ("20% off for Ramadan", or the event's own *Scrolling bar text*) then the owner's own messages (Settings → *Scrolling bar*, one per line). Hidden when empty; still for people who prefer reduced motion.
@@ -179,6 +184,3 @@ Owner page → **Events** → *New event*. He types his own event name (Hallowee
 ## Analytics + product photos
 - **Today tab → Sales & insights**: pick 7 / 30 / 90 days. Four headline numbers (sales, orders, average order, items sold) each compared with the previous period, a sales line chart with £ axis and hover tooltip, orders bars, best sellers, busiest hours/weekdays, pick-up vs delivery and new vs returning customers. All computed in the browser from the orders already loaded; nothing extra is stored.
 - **Several photos per product** (up to 5): in the product editor add many at once, make any the cover, reorder or remove. The cover (360px) stays on the product doc so the shop list is small; the full photos (900px) live in `productImages/{productId}` and a customer only fetches them when they open that product, then swipes (native scroll-snap, dots, arrows on desktop, arrow keys). **`firestore.rules` changed** (new `imageCount` field and `productImages` collection): publish the rules again.
-
-## Mapbox maps (optional)
-Set `window.MAPBOX_TOKEN` in `firebase-config.js` to a **public** `pk.` token (account.mapbox.com → restrict it to `https://plodroid.github.io`). The owner's delivery map, directions screen and the customer's live tracking then use Mapbox (traffic-aware routes). With no token, it keeps using OpenStreetMap + OSRM. Web-only change, the Android apps don't need rebuilding.

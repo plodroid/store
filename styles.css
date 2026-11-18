@@ -629,13 +629,16 @@ em { font-style: normal; color: var(--faint); font-weight: 400; }
 
 .inp { display: block; margin-bottom: 12px; position: relative; }
 .inp > span { display: block; margin-bottom: 6px; font-size: 13px; color: var(--muted); }
-.inp input, .inp textarea {
+.inp input, .inp textarea, .inp select {
   width: 100%; min-height: 48px; padding: 12px 14px; border-radius: 12px; outline: 0;
   background: var(--surface-2); border: 1px solid var(--line); color: var(--text); font-size: 16px;
   transition: border-color .2s ease, background-color .2s ease, box-shadow .2s ease;
 }
 .inp textarea { resize: vertical; line-height: 1.5; }
-.inp input:focus, .inp textarea:focus { border-color: var(--accent); background: var(--surface); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+.inp select { -webkit-appearance: none; cursor: pointer; padding-right: 40px;
+  appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);   /* the chevron, drawn with two tiny gradients */
+  background-position: calc(100% - 20px) 55%, calc(100% - 15px) 55%; background-size: 5px 5px; background-repeat: no-repeat; }
+.inp input:focus, .inp textarea:focus, .inp select:focus { border-color: var(--accent); background: var(--surface); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
 .inp [aria-invalid="true"] { border-color: var(--bad); }
 .inp ::placeholder { color: var(--faint); }
 .counter { position: absolute; right: 12px; bottom: 10px; font-size: 12px; color: var(--faint); pointer-events: none; }
@@ -811,7 +814,6 @@ em { font-style: normal; color: var(--faint); font-weight: 400; }
 
 /* inside the Android customer app: no owner button; Google sign-in only when this build has the native plugin (Google blocks it in web views) */
 html[data-native] .manage { display: none !important; }
-html[data-native]:not([data-gnative]) .auth .or, html[data-native]:not([data-gnative]) .auth .social { display: none !important; }
 
 /* transparent PNG packshots (bottles, cans) sit whole inside the frame instead of being cropped like photos */
 .tile-media img[src*=".png"], .pp-media img[src*=".png"], .line-thumb img[src*=".png"] { object-fit: contain; padding: 6%; }
@@ -843,17 +845,10 @@ html[data-native]:not([data-gnative]) .auth .or, html[data-native]:not([data-gna
 .pin { display: grid; place-items: center; width: 100%; height: 100%; }
 .pin svg { width: 100%; height: 100%; }
 .pin-dest { color: var(--coral); filter: drop-shadow(0 3px 3px rgba(0,0,0,.3)); }
-.pin-van { color: var(--on-accent); background: var(--accent); border-radius: 50%; border: 3px solid #fff; box-shadow: 0 4px 12px rgba(0,0,0,.35); } .pin-van svg { width: 18px; height: 18px; }
 .pin-me i { width: 16px; height: 16px; border-radius: 50%; background: #1A73E8; border: 3px solid #fff; box-shadow: 0 0 0 0 rgba(26,115,232,.5), 0 2px 6px rgba(0,0,0,.35); animation: me-pulse 2s ease-out infinite; }
 @keyframes me-pulse { to { box-shadow: 0 0 0 16px rgba(26,115,232,0), 0 2px 6px rgba(0,0,0,.35); } }
-.leaflet-container { font: inherit; background: var(--surface-2); }
-.leaflet-container a { color: var(--blue); }
-.leaflet-control-attribution { font-size: 10px; }
 
 /* map on "My orders" */
-.mo-map { margin: 10px 0 4px; border-radius: 16px; overflow: hidden; border: 1px solid var(--line); background: var(--surface-2); }
-.mo-map-el { height: 220px; } .mo-map-el[hidden] { display: none; }
-.mo-map-cap { margin: 0; padding: 10px 12px; font-size: 13.5px; }
 
 /* ── language button + dropdown ──────────────────────── */
 .lang { position: relative; flex: none; margin-left: 4px; }
@@ -927,12 +922,6 @@ dialog.pd .modal-body { padding-bottom: max(22px, calc(var(--sab) / 2 + 18px)); 
 :root[data-theme="dark"] .upd-btn { color: #07210F !important; }
 
 /* exact-door pin picker */
-.pinwrap { margin: 4px 0 14px; } .pinwrap h3 { font-size: 15px; margin: 0 0 4px; } .pinwrap .hint { margin: 0 0 10px; }
-.pinbox { position: relative; height: 240px; border-radius: 16px; overflow: hidden; border: 1px solid var(--line); margin-bottom: 8px; background: var(--surface-2); }
-.pinmap { position: absolute; inset: 0; }
-.pinbox .pinmap.mapboxgl-map, .pinbox .pinmap.leaflet-container { position: absolute; inset: 0; width: 100%; height: 100%; }
-.pin-cross { position: absolute; left: 50%; top: 50%; width: 30px; height: 38px; transform: translate(-50%, -100%); pointer-events: none; z-index: 800; filter: drop-shadow(0 2px 3px rgba(0,0,0,.4)); }
-.pinwrap .btn-ghost.on { background: color-mix(in srgb, #1E8E4A 14%, var(--surface)); border-color: #1E8E4A; color: #166f3a; }
 
 .notice-ok { margin: 0 0 12px; padding: 10px 14px; border-radius: 12px; font-size: 14px; background: color-mix(in srgb, #1E8E4A 12%, var(--surface)); color: #166f3a; text-align: center; }
 
@@ -944,3 +933,7 @@ dialog.pd .modal-body { padding-bottom: max(22px, calc(var(--sab) / 2 + 18px)); 
 .line-thumb::after { background-size: 170% auto; }
 .pp-media .flag { z-index: 2; }
 .tile-media img, .pp-media img, .line-thumb img { -webkit-user-drag: none; user-select: none; -webkit-touch-callout: none; }
+
+/* courier choices at checkout */
+.rates-h { margin: 16px 0 8px; font-size: 15px; }
+.choice .eta { display: block; font-size: 12px; color: var(--muted); }

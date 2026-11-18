@@ -27,10 +27,6 @@ window.FUNCTIONS_REGION = "europe-west2";
    customers can still use "Continue with Google". */
 window.STORE_AUTH_URL = "https://script.google.com/macros/s/AKfycbz5X6rKkjzrKq5wBIhFFWkgBVKXi3fb26h7McPT90VnUQd6bSEiP3Bodh6-TEPfe1cL/exec";
 
-/* Mapbox (maps, live tracking, directions with traffic). Paste a PUBLIC token (starts with "pk.") from account.mapbox.com and,
-   in the Mapbox dashboard, restrict it to https://plodroid.github.io. Leave "" to keep using the free OpenStreetMap maps. */
-window.MAPBOX_TOKEN = window.MAPBOX_TOKEN || "";
-
 /* Firestore paths shared with the owner app. */
 window.STORE_PATHS = {
   products:   "products",
@@ -47,6 +43,6 @@ window.STORE_DEFAULTS = {
   announcement: "",
   whatsapp:     "",
   collection:   true,    // customers can collect
-  delivery:     true,    // customers can choose delivery; the owner can switch it off
-  deliveryFee:  0,
+  shipping:     false,   // courier shipping (Easyship): the owner switches it on in Manage > Settings once the shipping address is filled in
+  shipTo:       "GB",    // countries the shop ships to (comma-separated codes)
 };

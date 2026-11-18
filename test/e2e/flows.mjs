@@ -25,17 +25,11 @@ async function test(name, fn, opts = {}) {
 const db = p => p.evaluate(() => window.__FAKE.dump());
 const F = (p, fn, a) => p.evaluate(fn, a);
 
-/* email -> "Send code" -> type the 4 digits that the stand-in mailer "emailed" */
-const askCode = async (p, email) => {
+const signedIn = async (p, t, email = "gina@example.com") => {
   await p.click("#signInBtn");
   await p.locator('form[data-form="in"] [name="email"]').fill(email);
+  await p.locator('form[data-form="in"] [name="password"]').fill("secret1");
   await p.locator('form[data-form="in"] button[type="submit"]').click();
-  await p.locator('[data-form="code"]').waitFor({ state: "visible" });
-};
-const signedIn = async (p, t, email = "gina@example.com") => {
-  await askCode(p, email);
-  await p.locator("#otp input").first().click();
-  await p.keyboard.type(t.mail.codes[email]);                    // boxes auto-advance, 4th digit submits
   await p.waitForSelector("#acctBtn:not([hidden])");
 };
 const googleIn = async (p, g) => {
@@ -43,12 +37,11 @@ const googleIn = async (p, g) => {
   await p.click("#signInBtn"); await p.click("[data-google]");
   await p.waitForSelector("#acctBtn:not([hidden])");
 };
-const setLocation = async p => {
+const setLocation = async p => {                          // the exact-address form: one box per part
   await p.locator('#locForm [name="postcode"]').fill("SW1A 1AA");
-  await p.waitForFunction(() => document.querySelector("#locStatus").textContent.length > 0);
-  await p.locator('#locForm [name="number"]').fill("10"); await p.locator('#locForm [name="line1"]').fill("Example Road");
+  await p.waitForFunction(() => document.querySelector("#locForm [data-pcstatus]").classList.contains("ok"));
+  await p.locator('#locForm [name="number"]').fill("10"); await p.locator('#locForm [name="street"]').fill("Example Road");
   await p.locator('#locForm [name="city"]').fill("London");
-  await p.locator("#pinConfirm").waitFor({ state: "visible" }); await p.click("#pinConfirm");           // the customer places the pin on his door
 };
 
 /* ── look & theme ─────────────────────────────────── */
@@ -77,13 +70,12 @@ await test("signed-out: Sign in button shown, manage/account hidden", async ({ p
 });
 
 /* ── sign-in dialog ───────────────────────────────── */
-await test("dialog offers email code + Google only (no Apple, no password)", async ({ page: p }) => {
+await test("dialog offers email + password and Google only (no Apple, no codes)", async ({ page: p }) => {
   await p.click("#signInBtn");
   const txt = await p.locator("#au").innerText();
-  assert.doesNotMatch(txt, /apple/i);
-  assert.equal(await p.locator('#au input[type="password"]').count(), 0);
+  assert.doesNotMatch(txt, /apple|code/i);
+  assert.equal(await p.locator('#au input[type="password"]').count(), 1);
   assert.ok(await p.locator("[data-google]").isVisible());
-  assert.match(txt, /4-digit code/);
 });
 
 await test("checkout while signed-out asks to sign in (no order)", async ({ page: p }) => {
@@ -93,84 +85,38 @@ await test("checkout while signed-out asks to sign in (no order)", async ({ page
   assert.equal(Object.keys((await db(p)).orders || {}).length, 0);
 });
 
-await test("email -> code boxes -> typing 4 digits signs in; profile gets created; icon is a person", async (t) => {
-  const p = t.page;
-  await askCode(p, "Gina@Example.com");
-  assert.equal(t.mail.sent.length, 1);
-  assert.equal(t.mail.calls[0].email, "gina@example.com");
-  assert.match(await p.locator("#au").innerText(), /gina@example\.com/);
-  await p.locator("#otp input").first().click();
-  await p.keyboard.type(t.mail.codes["gina@example.com"]);
-  await p.waitForSelector("#acctBtn:not([hidden])");
-  assert.ok(!(await p.locator("#signInBtn").isVisible()));
-  assert.equal(await p.locator("#acctBtn svg circle").count(), 1, "person icon: head circle");
-  assert.equal(await p.locator("#acctBtn svg path").count(), 1, "person icon: shoulders");
-  assert.equal((await p.locator("#acctBtn").innerText()).trim(), "");
-  await p.click("#acctBtn");
-  assert.equal(await p.locator("#menuEmail").textContent(), "gina@example.com");   // email comes from the token claim
-});
-
-await test("pasting the 4-digit code fills all boxes and signs in", async (t) => {
-  const p = t.page;
-  await askCode(p, "gina@example.com");
-  await F(p, c => { const dt = new DataTransfer(); dt.setData("text", c);
-    document.querySelector("#otp input").dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true })); }, t.mail.codes["gina@example.com"]);
-  await p.waitForSelector("#acctBtn:not([hidden])");
-});
-
-await test("wrong code: shows tries left, clears the boxes; third wrong asks for a new code; resend works", async (t) => {
-  const p = t.page;
-  await askCode(p, "gina@example.com");
-  const real = t.mail.codes["gina@example.com"], bad = real === "0000" ? "1111" : "0000";
-  await p.locator("#otp input").first().click(); await p.keyboard.type(bad);
-  await p.waitForFunction(() => /2 tries left/.test(document.querySelector("#au .form-error:not([hidden])")?.textContent || ""));
-  assert.equal(await p.locator("#otp input").evaluateAll(b => b.map(x => x.value).join("")), "");
-  assert.equal(await p.locator("#acctBtn").isVisible(), false);
-  await p.keyboard.type(bad); await p.waitForTimeout(150); await p.keyboard.type(bad);
-  await p.waitForFunction(() => /expired|new one/i.test(document.querySelector("#au .form-error:not([hidden])")?.textContent || ""));
-  assert.ok(await p.locator("[data-resend]").isDisabled(), "resend is on a cooldown");
-  await F(p, () => { document.querySelector("[data-resend]").disabled = false; });    // skip the 30s wait
-  await p.click("[data-resend]");
-  await p.waitForFunction(() => /new code sent/i.test(document.querySelector("#toast").textContent));
-  assert.equal(t.mail.sent.length, 2);
-  await p.locator("#otp input").first().click(); await p.keyboard.type(t.mail.codes["gina@example.com"]);
-  await p.waitForSelector("#acctBtn:not([hidden])");
-});
-
-await test("owner's email via code is refused: tells them to use Google", async (t) => {
+await test("email + password signs in; icon is a person; wrong password is refused kindly", async (t) => {
   const p = t.page;
   await p.click("#signInBtn");
-  await p.locator('form[data-form="in"] [name="email"]').fill("housikiki@gmail.com");
+  await p.locator('form[data-form="in"] [name="email"]').fill("gina@example.com");
+  await p.locator('form[data-form="in"] [name="password"]').fill("wrongpass");
   await p.locator('form[data-form="in"] button[type="submit"]').click();
-  await p.waitForFunction(() => /Google/.test(document.querySelector("#au .form-error:not([hidden])")?.textContent || ""));
-  assert.equal(await p.locator('[data-form="code"]').count(), 0);
+  await p.waitForFunction(() => /don.t match/.test(document.querySelector("#au .form-error:not([hidden])")?.textContent || ""));
+  assert.equal(await p.locator("#acctBtn").isVisible(), false);
+  await p.locator('form[data-form="in"] [name="password"]').fill("secret1");
+  await p.locator('form[data-form="in"] button[type="submit"]').click();
+  await p.waitForSelector("#acctBtn:not([hidden])");
+  assert.equal(await p.locator("#acctBtn svg circle").count(), 1, "person icon: head circle");
+  await p.click("#acctBtn");
+  assert.equal(await p.locator("#menuEmail").textContent(), "gina@example.com");
 });
 
 await test("bad email is caught before anything is sent", async (t) => {
   const p = t.page;
   await p.click("#signInBtn");
   await p.locator('form[data-form="in"] [name="email"]').fill("not-an-email");
+  await p.locator('form[data-form="in"] [name="password"]').fill("secret1");
   await p.locator('form[data-form="in"] button[type="submit"]').click();
   await p.waitForFunction(() => /valid email/.test(document.querySelector("#au .form-error:not([hidden])")?.textContent || ""));
   assert.equal(t.mail.calls.length, 0);
 });
 
-await test("mailer not set up yet: friendly message, Google still offered", async (t) => {
-  const p = t.page;
-  await p.click("#signInBtn");
-  await p.locator('form[data-form="in"] [name="email"]').fill("gina@example.com");
-  await p.locator('form[data-form="in"] button[type="submit"]').click();
-  await p.waitForFunction(() => /aren.t set up yet/.test(document.querySelector("#au .form-error:not([hidden])")?.textContent || ""));
-  assert.ok(await p.locator("[data-google]").isVisible());
-}, { mailer: false });
-
 await test("Google sign-in works and is verified straight away", async ({ page: p }) => {
   await googleIn(p);
-  assert.equal(await p.locator('[data-form="code"]').count(), 0);
-});
+  });
 
 /* ── owner ────────────────────────────────────────── */
-await test("owner = housikiki@gmail.com via Google: Manage shows; other Google users and code users don't get it", async (t) => {
+await test("owner = housikiki@gmail.com via Google: Manage shows; other Google users and password users don't get it", async (t) => {
   const p = t.page;
   await googleIn(p, { email: "housikiki@gmail.com", name: "Owner", uid: "g_owner" });
   await p.waitForSelector("#manageBtn:not([hidden])");
@@ -188,26 +134,29 @@ await test("owner = housikiki@gmail.com via Google: Manage shows; other Google u
 }, { expectErr: /rules: / });             // the owner probe of a non-owner is refused on purpose
 
 /* ── location, checkout, feedback (same as before, new login) ── */
-await test("postcode: unknown → invalid, real → accepted; save writes the address", async (t) => {
+await test("address form: every part has its own box, the postcode is checked, save writes the exact address", async (t) => {
   const p = t.page; await signedIn(p, t);
   await p.click("#acctBtn"); await p.click("#menuAcct"); await p.click("#acctLoc");
-  await p.locator('#locForm [name="postcode"]').fill("LE99 9ZZ");
-  await p.waitForFunction(() => /couldn.t find|invalid|not a real|doesn.t exist|unknown/i.test(document.querySelector("#locStatus").textContent));
-  assert.ok(await p.locator("#locSave").isDisabled());
-  await setLocation(p);
-  await p.waitForFunction(() => document.querySelector("#locStatus").classList.contains("ok"));
+  for (const n of ["country", "postcode", "number", "street", "line2", "city", "state"]) assert.equal(await p.locator(`#locForm [name="${n}"]`).count(), 1, n);
+  await p.locator('#locForm [name="postcode"]').fill("LE99 9ZZ");                          // right shape, but no such postcode
+  await p.waitForFunction(() => document.querySelector("#locForm [data-pcstatus]").classList.contains("bad"));
   await p.click("#locSave");
-  await p.waitForFunction(() => Object.values(window.__FAKE.dump().users || {}).some(u => u.address && u.address.postcode === "SW1A 1AA" && u.address.verified === true));
+  await p.waitForFunction(() => /isn.t real|door|street|number|town/i.test(document.querySelector("#locErr").textContent));
+  await p.locator('#locForm [name="postcode"]').fill("12345");                             // not even shaped like a UK postcode
+  await p.keyboard.press("Tab");                                                           // leaving the box checks it
+  await p.waitForFunction(() => /doesn.t look like a United Kingdom postcode/.test(document.querySelector("#locForm [data-pcstatus]").textContent));
+  await setLocation(p);
+  await p.click("#locSave");
+  await p.waitForFunction(() => Object.values(window.__FAKE.dump().users || {}).some(u => u.address && u.address.postcode === "SW1A 1AA" && u.address.country === "GB" && u.address.line1 === "10 Example Road" && u.address.verified === true));
 });
 
-await test("town that doesn't match the postcode gets a soft warning (still saveable)", async (t) => {
+await test("address form: every missing part is flagged and the courier-country list only offers where the shop ships", async (t) => {
   const p = t.page; await signedIn(p, t);
   await p.click("#acctBtn"); await p.click("#menuAcct"); await p.click("#acctLoc");
-  await p.locator('#locForm [name="postcode"]').fill("SW1A 1AA");
-  await p.locator('#locForm [name="number"]').fill("10"); await p.locator('#locForm [name="line1"]').fill("Example Road");
-  await p.locator('#locForm [name="city"]').fill("Manchester");
-  await p.waitForFunction(() => /double-check your town/i.test(document.querySelector("#locStatus").textContent));
-  assert.ok(await p.locator("#locSave").isEnabled());
+  await p.click("#locSave");
+  await p.waitForFunction(() => document.querySelector("#locErr").textContent.length > 0);
+  for (const n of ["postcode", "number", "street", "city"]) assert.equal(await p.locator(`#locForm [name="${n}"]`).getAttribute("aria-invalid"), "true", n + " is flagged");
+  assert.equal(await p.locator("#locForm select[name=state]").count(), 0);                // the UK has no state list
 });
 
 await test("collection order end-to-end (code login): valid order, email from the token", async (t) => {
@@ -215,7 +164,7 @@ await test("collection order end-to-end (code login): valid order, email from th
   await p.click("[data-add]"); await p.click("#cartBtn"); await p.click("#checkout");
   await p.waitForSelector("#co[open]");
   assert.equal(await p.locator("#coEmail").textContent(), "gina@example.com");
-  assert.equal(await p.locator('input[name="how"]').count(), 2);
+  assert.equal(await p.locator('input[name="how"]').count(), 1, "no card payments → courier shipping isn't offered");
   await p.locator('#coForm [name="name"]').fill("Gina Test");
   await p.click("#coSubmit");
   await p.waitForSelector("#coDone:not([hidden])");
@@ -226,23 +175,46 @@ await test("collection order end-to-end (code login): valid order, email from th
   assert.ok(Object.values(d.users).some(u => u.lastOrderAt));
 });
 
-await test("delivery without an address is blocked; with address succeeds", async (t) => {
-  const p = t.page; await signedIn(p, t);
+await test("shipping: needs an address and a real phone, shows courier prices, saves the exact address + chosen courier", async (t) => {
+  const p = t.page; t.mail.pay = true; await signedIn(p, t);
+  await p.context().route("https://checkout.stripe.test/**", r => r.fulfill({ contentType: "text/html", body: "<title>stripe</title>" }));
   await p.click("[data-add]"); await p.click("#cartBtn"); await p.click("#checkout");
   await p.waitForSelector("#co[open]");
-  await p.check('input[name="how"][value="delivery"]');
+  await p.waitForSelector('input[name="how"][value="shipping"]');
+  await p.check('input[name="how"][value="shipping"]');
   await p.locator('#coForm [name="name"]').fill("Gina Test");
-  await p.locator('#coForm [name="phone"]').fill("07123 456789");
-  await p.click("#coSubmit");
-  await p.waitForFunction(() => /location/i.test(document.querySelector("#coError").textContent));
-  assert.equal(Object.keys((await db(p)).orders || {}).length, 0);
+  assert.match(await p.locator("#coRates").innerText(), /address/i);                       // nothing to price yet
+  await p.locator('#coForm [name="phone"]').fill("199929292931");                          // fake number
   await p.click("#coAddrBtn"); await p.waitForSelector("#loc[open]");
   await setLocation(p); await p.click("#locSave");
   await p.waitForFunction(() => !document.querySelector("#loc").open);
+  await p.waitForFunction(() => /real phone number/i.test(document.querySelector("#coRates").textContent));
+  assert.ok(await p.locator("#coSubmit").isDisabled());
+  assert.equal(t.mail.calls.filter(c => c.a === "rates").length, 0, "no price check for a fake number");
+  await p.locator('#coForm [name="phone"]').fill("07911 123456");
+  await p.waitForSelector('#coRates input[name="svc"]');
+  assert.equal(await p.locator('#coRates input[name="svc"]').count(), 2);
+  assert.match(await p.locator("#coSum").innerText(), /Evri/);
+  await p.locator('#coRates input[value="svc-rm"]').check();
+  await p.waitForFunction(() => /Pay £\d+\.\d\d by card/.test(document.querySelector("#coSubmit").innerText));
+  const rq = t.mail.calls.find(c => c.a === "rates");
+  assert.equal(rq.customer.phone, "+447911123456"); assert.equal(rq.address.postcode, "SW1A 1AA"); assert.equal(rq.address.country, "GB");
   await p.click("#coSubmit");
-  await p.waitForSelector("#coDone:not([hidden])");
-  const o = Object.values((await db(p)).orders)[0];
-  assert.equal(o.fulfilment, "delivery"); assert.equal(o.address.postcode, "SW1A 1AA"); assert.equal(o.customer.phone, "+447123456789");
+  await p.waitForURL(/checkout\.stripe\.test\/pay\?o=o_/);
+  const o = Object.values(t.mail.atPay.orders)[0];
+  assert.equal(o.fulfilment, "shipping"); assert.equal(o.address.postcode, "SW1A 1AA"); assert.equal(o.address.line1, "10 Example Road");
+  assert.equal(o.customer.phone, "+447911123456"); assert.equal(o.shipping.serviceId, "svc-rm");
+});
+
+await test("shipping: when no courier can be priced the customer is told and cannot pay", async (t) => {
+  const p = t.page; t.mail.pay = true; t.mail.ratesError = "no_rates"; await signedIn(p, t);
+  await p.click("[data-add]"); await p.click("#cartBtn"); await p.click("#checkout");
+  await p.waitForSelector('input[name="how"][value="shipping"]');
+  await p.check('input[name="how"][value="shipping"]');
+  await p.locator('#coForm [name="name"]').fill("Gina Test"); await p.locator('#coForm [name="phone"]').fill("07911 123456");
+  await p.click("#coAddrBtn"); await p.waitForSelector("#loc[open]"); await setLocation(p); await p.click("#locSave");
+  await p.waitForFunction(() => /No courier can deliver/i.test(document.querySelector("#coRates").textContent));
+  assert.ok(await p.locator("#coSubmit").isDisabled());
 });
 
 await test("second order within 30s is rejected by the rate-limit rule", async (t) => {
