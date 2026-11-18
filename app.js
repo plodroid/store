@@ -1040,7 +1040,7 @@ function drawChoices() {
     ? opts.map(([v, label, fee], i) => `
         <label><input type="radio" name="how" value="${v}" ${keep === v || (!keep && i === 0) ? "checked" : ""}>
         <span>${label}</span><span class="fee">${fee}</span></label>`).join("") +
-      (canShip ? "" : `<label class="is-off"><input type="radio" disabled><span>Ship to my address</span><span class="fee">${f.shipping ? "Connecting…" : "Not available yet"}</span></label>`)
+      (canShip || !EASYSHIP ? "" : `<label class="is-off"><input type="radio" disabled><span>Ship to my address</span><span class="fee">${f.shipping ? "Connecting…" : "Not available yet"}</span></label>`)
     : `<p class="muted">Online ordering is paused right now. Please check back soon.</p>`;
 }
 

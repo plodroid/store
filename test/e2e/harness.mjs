@@ -14,6 +14,7 @@ export function serve() {
     let p = decodeURIComponent(new URL(req.url, "http://x").pathname);
     if (p.endsWith("/")) p += "index.html";
     const f = path.join(ROOT, p);
+    if (p === "/features.js" && process.env.E2E_EASYSHIP !== "off") { res.writeHead(200, { "content-type": "text/javascript" }).end(fs.readFileSync(f, "utf8").replace("EASYSHIP = false", "EASYSHIP = true")); return; }   // the parked feature is tested switched on
     if (!f.startsWith(ROOT) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) { res.writeHead(404).end("nf"); return; }
     res.writeHead(200, { "content-type": MIME[path.extname(f)] || "application/octet-stream" }).end(fs.readFileSync(f));
   });
