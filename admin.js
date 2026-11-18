@@ -5,6 +5,7 @@
 
 import { $, $$, esc, money, openDialog, closeDialog, showError, setBusy, toast, millis, timeAgo, store, priceOf, onSale } from "./ui.js?v=16";
 import { addressFormHtml, readAddressForm, validateAddress, validatePhone, formatAddress, COUNTRIES, countryName } from "./address.js?v=1";
+import { EASYSHIP } from "./features.js?v=1";
 import { trackerHtml } from "./flow.js?v=17";
 import { analyticsHtml, wireAnalytics } from "./analytics.js?v=19";
 import { LOOKS, SWATCHES, isLive, todayUK, heroHtml, heroVars } from "./events.js?v=16";
@@ -1033,6 +1034,7 @@ function settingsView() {
       <label class="inp"><span>WhatsApp link <em>(optional)</em></span><input name="whatsapp" maxlength="200" value="${esc(s.whatsapp || "")}" placeholder="https://wa.me/447123456789"></label>
       <h3 class="gap">How customers get their order</h3>
       <label class="check"><input type="checkbox" name="collection" ${s.collection !== false ? "checked" : ""}><span>Pick-up from the shop</span></label>
+      <div ${EASYSHIP ? "" : "hidden"}>
       <label class="check"><input type="checkbox" name="shipping" ${s.shipping === true ? "checked" : ""}><span>Courier shipping (Royal Mail, Evri, DPD and more, priced live by Easyship)</span></label>
       <details class="ship-set" ${s.shipping === true ? "" : "open"}><summary><h3>Shipping setup</h3></summary>
         <p class="muted">Shipping only works once the Easyship token is saved in your Apps Script (see the README) and the address you post from is filled in below.</p>
@@ -1065,6 +1067,7 @@ function settingsView() {
         </div>
         <p class="hint">Set each product's weight when you edit it, so the courier prices are right.</p>
       </details>
+      </div>
       <p class="form-error" id="setErr" role="alert" hidden></p>
       <button class="btn-primary wide" id="setSave" type="submit">Save settings</button>
     </form>
@@ -1085,7 +1088,7 @@ async function saveSettings(form) {
   const free = v("freeShippingOver") === "" ? 0 : parsePrice(v("freeShippingOver"));
   if (free === null || free > 100000) return showError(err, "Free shipping over must be a number like 30, or 0 for never.");
   if (v("whatsapp") && !/^https:\/\//i.test(v("whatsapp"))) return showError(err, "The WhatsApp link must start with https://");
-  const ship = form.elements.shipping.checked;
+  const ship = EASYSHIP && form.elements.shipping.checked;
   const fail = m => { const d = form.querySelector(".ship-set"); if (d) d.open = true; return showError(err, m); };   // the broken box may be hidden in the folded "Shipping setup"
   const shipTo = [...form.querySelectorAll('input[name="shipTo"]:checked')].map(x => x.value);
   const packagingG = num("packagingG", 0, 5000), defaultWeightG = num("defaultWeightG", 1, 30000), boxL = num("boxL", 1, 200), boxW = num("boxW", 1, 200), boxH = num("boxH", 1, 200);

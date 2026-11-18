@@ -12,6 +12,7 @@ import { validatePhone, PHONE_HELP, formatAddress, countryName } from "./address
 import { liveEvents, withEvents, applyTheme, paintMeta, heroHtml, heroVars, tickerText } from "./events.js?v=16";
 import { paintTicker, splitMessages, resetTicker } from "./ticker.js?v=16";
 import { initI18n } from "./i18n.js?v=19";
+import { EASYSHIP } from "./features.js?v=1";
 import { trackerHtml } from "./flow.js?v=17";
 
 const DEF = window.STORE_DEFAULTS;
@@ -970,7 +971,7 @@ const coForm = $("#coForm");
 const fulfil = () => {
   const s = S.site, free = Number(s.freeShippingOver);
   const codes = String(s.shipTo || "GB").toUpperCase().split(/[^A-Z]+/).filter(Boolean);
-  return { collection: s.collection !== false, shipping: s.shipping === true, countries: codes.map(countryName).join(", ") || "the UK", codes,
+  return { collection: s.collection !== false, shipping: EASYSHIP && s.shipping === true, countries: codes.map(countryName).join(", ") || "the UK", codes,
     freeOver: Number.isFinite(free) && free > 0 ? free : 0 };
 };
 const chosen = () => coForm.querySelector('input[name="how"]:checked')?.value || null;
