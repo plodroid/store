@@ -1,6 +1,7 @@
 /* Owner page (plodroid.github.io/store/admin/). A page of its own: sign in with Google, then the admin panel.
    Only the owner's Google account gets past the gate, and the security rules decide who that is, not this file. */
 import { $, wireDialogs, toast } from "../ui.js?v=16";
+import { googleAccessToken } from "../google.js?v=1";
 import { startNativeDock } from "../nativedock.js?v=17";
 
 const FB = "https://www.gstatic.com/firebasejs/10.12.2/";
@@ -23,7 +24,7 @@ async function main() {
   const [{ initializeApp }, fs, au] = await Promise.all([import(FB + "firebase-app.js"), import(FB + "firebase-firestore.js"), import(FB + "firebase-auth.js")]);
   step = "starting Firebase";
   const app = initializeApp(cfg);
-  const FS = { db: fs.getFirestore(app), fs, auth: au.getAuth(app), au };
+  const FS = { db: fs.getFirestore(app), fs, auth: au.initializeAuth(app, { persistence: [au.indexedDBLocalPersistence, au.browserLocalPersistence, au.browserSessionPersistence] }), au };
   const PATHS = window.STORE_PATHS || { settings: "settings", siteDoc: "site" };
   let nativeAuth = null;
   if (native) { try { nativeAuth = typeof cap.registerPlugin === "function" ? cap.registerPlugin("FirebaseAuthentication") : cap.Plugins && cap.Plugins.FirebaseAuthentication;   // the app loads the live site, so only the native bridge exists (no registerPlugin there)
@@ -46,16 +47,15 @@ async function main() {
         if (!idToken) throw Object.assign(new Error("no token"), { code: "owner/no-token" });
         await au.signInWithCredential(FS.auth, au.GoogleAuthProvider.credential(idToken));
       } else {
-        const provider = new au.GoogleAuthProvider();
-        provider.setCustomParameters({ prompt: "select_account" });
-        await au.signInWithPopup(FS.auth, provider);
+        step = "Google sign-in (window)";
+        await au.signInWithCredential(FS.auth, au.GoogleAuthProvider.credential(null, await googleAccessToken()));
       }
     } catch (e) {
       console.warn("[admin] sign-in", e && e.code, e && e.message);
       const quiet = /popup-closed|cancelled|canceled|12501|-5/.test(`${e && e.code} ${e && e.message}`);
       if (!quiet) why(e);
       const setup = /DEVELOPER_ERROR|\b10\b|12500|invalid_audience|auth\/invalid-credential/i.test(`${e && e.code} ${e && e.message}`);
-      if (!quiet) msg(e && e.code === "auth/popup-blocked" ? "Your browser blocked the sign-in window. Allow pop-ups and try again."
+      if (!quiet) msg(e && e.code === "auth/popup-blocked" ? "Your browser blocked the Google window. Allow pop-ups and try again."
         : setup && native ? "Google doesn't recognise this app build yet. Send the grey line below to your developer." : "Couldn't sign in. Please try again.", true);
     } finally { btn.disabled = false; }
   }

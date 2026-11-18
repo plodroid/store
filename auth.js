@@ -1,6 +1,7 @@
 /* Customer accounts: log in with email + password (or Google), the account page and the exact-address form. */
 
 import { $, $$, esc, openDialog, closeDialog, showError, setBusy, toast } from "./ui.js?v=16";
+import { preloadGoogle, googleAccessToken } from "./google.js?v=1";
 import { lookupPostcode, REASONS } from "./uk.js?v=16";
 import { addressFormHtml, readAddressForm, validateAddress, tidyPostcode, countryOf, countryName, formatAddress, validatePhone, PHONE_HELP, ERR } from "./address.js?v=1";
 
@@ -17,8 +18,8 @@ const MESSAGES = {
   "auth/operation-not-allowed": "Email and password sign-in isn't switched on yet. The shop owner needs to enable it.",
   "auth/network-request-failed": "We couldn't reach the server. Check your connection and try again.",
   "auth/too-many-requests": "Too many attempts. Please wait a few minutes and try again.",
-  "auth/popup-blocked": "Your browser blocked the sign-in window. Allow pop-ups for this site and try again.",
-  "auth/operation-not-allowed": "This way of signing in isn't switched on yet. The shop owner needs to enable it.",
+  "auth/popup-blocked": "Your browser blocked the Google window. Allow pop-ups for this site and try again, or log in with email.",
+  "google/script-blocked": "Google sign-in couldn't load (an ad blocker or the network may be blocking it). Log in with email instead, or try again.",
   "auth/unauthorized-domain": "This website address isn't approved for sign-in yet. The shop owner needs to add it in Firebase.",
   "auth/user-disabled": "This account has been disabled.",
 };
@@ -74,7 +75,6 @@ export function createAuth({ FS, onChange = () => {} }) {
     paintNav();
   }
 
-  au.getRedirectResult(auth).catch(e => console.warn("[auth] redirect", e && e.code));   // finishes a Google sign-in that went through a full-page redirect
   au.onAuthStateChanged(auth, async user => {
     st.user = user;
     await loadProfile(user);
@@ -182,6 +182,7 @@ export function createAuth({ FS, onChange = () => {} }) {
     pendingEmail = "";
     go("in");
     openDialog(dlg);
+    if (!nativeGoogle()) preloadGoogle().catch(() => {});      // so the Google window can open the instant the button is tapped
   }
 
   dlg.addEventListener("click", e => {
@@ -242,17 +243,10 @@ export function createAuth({ FS, onChange = () => {} }) {
       const { user } = await au.signInWithCredential(auth, au.GoogleAuthProvider.credential(idToken));
       return afterSignIn(user);
     }
-    const provider = new au.GoogleAuthProvider();
-    provider.setCustomParameters({ prompt: "select_account" });
-    // no awaits before the popup: it must open straight from the click or the browser delays/blocks it (web persistence is already "local" by default)
-    try {
-      const { user } = await au.signInWithPopup(auth, provider);
-      await afterSignIn(user);
-    } catch (e) {
-      // some phone browsers refuse pop-ups: go to Google in the same tab instead and come back signed in
-      if (e && /popup-blocked|operation-not-supported-in-this-environment/.test(e.code || "")) return au.signInWithRedirect(auth, provider);
-      throw e;
-    }
+    // the website: Google's own small window (google.js). It opens straight from this click; Firebase then just verifies the result.
+    const accessToken = await googleAccessToken();
+    const { user } = await au.signInWithCredential(auth, au.GoogleAuthProvider.credential(null, accessToken));
+    await afterSignIn(user);
   }
 
   async function afterSignIn(user) {
@@ -273,7 +267,7 @@ export function createAuth({ FS, onChange = () => {} }) {
 
   /** Resolves true once the customer is signed in and verified; false if they close the dialog. */
   async function requireLogin(why = "") {
-    await readyP;                                   // a saved login may still be loading
+    await Promise.race([readyP, new Promise(r => setTimeout(r, 4000))]);   // a saved login may still be loading, but never leave the button dead
     if (st.user && st.verified) return true;
     return new Promise(resolve => {
       pending = { resolve };
@@ -328,8 +322,8 @@ export function createAuth({ FS, onChange = () => {} }) {
     try {
       let phone = "";
       if (rawPhone) {                                  // must be a number that really exists (country from the saved address, else UK)
-        const ph = await validatePhone(rawPhone, (p.address && p.address.country) || "GB");
-        if (!ph.ok) { f.elements.phone.setAttribute("aria-invalid", "true"); return showError(err, PHONE_HELP((p.address && p.address.country) || "GB")); }
+        const ph = await validatePhone(rawPhone, (st.profile.address && st.profile.address.country) || "GB");
+        if (!ph.ok) { f.elements.phone.setAttribute("aria-invalid", "true"); return showError(err, PHONE_HELP((st.profile.address && st.profile.address.country) || "GB")); }
         phone = ph.e164;
       }
       await saveProfile({ name, phone });

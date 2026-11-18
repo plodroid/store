@@ -7,7 +7,7 @@ import { startNativeDock } from "./nativedock.js?v=17";
 import { initAppUpdate } from "./appupdate.js?v=17";
 import { $, $$, esc, store, money, pence, reduced, uid, openDialog, closeDialog, wireDialogs,
          toast, showError, setBusy, priceOf, onSale, percentOff, millis } from "./ui.js?v=16";
-import { createAuth } from "./auth.js?v=29";
+import { createAuth } from "./auth.js?v=30";
 import { validatePhone, PHONE_HELP, formatAddress, countryName } from "./address.js?v=1";
 import { liveEvents, withEvents, applyTheme, paintMeta, heroHtml, heroVars, tickerText } from "./events.js?v=16";
 import { paintTicker, splitMessages, resetTicker } from "./ticker.js?v=16";
@@ -150,7 +150,7 @@ async function connect() {
     }
     const app = initializeApp(window.FIREBASE_CONFIG);
     const db = fs.getFirestore(app);
-    FS = { db, fs, auth: au.getAuth(app), au };
+    FS = { db, fs, auth: au.initializeAuth(app, { persistence: [au.indexedDBLocalPersistence, au.browserLocalPersistence, au.browserSessionPersistence] }), au };
     acct = createAuth({ FS, onChange: onAccountChange });
 
     // If nothing arrives from the server in time, say so instead of showing an empty shop.

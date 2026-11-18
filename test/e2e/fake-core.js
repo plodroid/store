@@ -51,9 +51,10 @@
   F.signedInUid = () => auth.currentUser && auth.currentUser.uid;
   F.auth = {
     getAuth: () => auth,
-    onAuthStateChanged: (a, cb) => { authListeners.add(cb); refreshUser(); setTimeout(() => cb(auth.currentUser), 0); return () => authListeners.delete(cb); },
+    initializeAuth: () => auth,
+    onAuthStateChanged: (a, cb) => { authListeners.add(cb); refreshUser(); if (!F.authSilent) setTimeout(() => cb(auth.currentUser), 0); return () => authListeners.delete(cb); },
     setPersistence: async (a, mode) => { persist = mode; },
-    browserLocalPersistence: "local", browserSessionPersistence: "session",
+    browserLocalPersistence: "local", indexedDBLocalPersistence: "idb", browserSessionPersistence: "session",
     createUserWithEmailAndPassword: async (a, email, pw) => {
       email = email.toLowerCase();
       if (accounts()[email]) throw err("auth/email-already-in-use");
@@ -68,6 +69,13 @@
     },
     signInWithRedirect: async () => { throw err("auth/operation-not-supported-in-this-environment"); },
     getRedirectResult: async () => null,
+    signInWithCredential: async (a, cred) => {      // the Google window's token (see the fake accounts.google.com script in harness.mjs)
+      let g; try { g = JSON.parse(cred.accessToken); } catch { throw err("auth/invalid-credential"); }
+      const acc = accounts();
+      acc[g.email] = acc[g.email] || { uid: g.uid || "g_" + g.email.split("@")[0], verified: true, displayName: g.name, provider: "google.com" };
+      putAccounts(acc);
+      return { user: signInAs(g.email) };
+    },
     signInWithPopup: async () => {
       if (F.popupClosed) throw err("auth/popup-closed-by-user");
       const g = F.nextGoogle, acc = accounts();
@@ -82,7 +90,7 @@
       putAccounts(acc);
       return { user: signInAs(key) };
     },
-    GoogleAuthProvider: class { setCustomParameters() {} },
+    GoogleAuthProvider: class { setCustomParameters() {} static credential(id, access) { return { idToken: id, accessToken: access }; } },
     sendEmailVerification: async u => { F.mails.push({ type: "verify", to: u.email }); },
     sendPasswordResetEmail: async (a, email) => { F.mails.push({ type: "reset", to: email }); },
     updateProfile: async (u, p) => { const acc = accounts(); Object.assign(acc[u.email], p); putAccounts(acc); },

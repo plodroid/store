@@ -85,6 +85,22 @@ await test("checkout while signed-out asks to sign in (no order)", async ({ page
   assert.equal(Object.keys((await db(p)).orders || {}).length, 0);
 });
 
+await test("checkout still opens sign-in when Firebase never reports the login state (Chrome hang)", async ({ page: p }) => {
+  await p.evaluate(() => { window.__FAKE.authSilent = true; });
+  await p.reload(); await p.waitForSelector("[data-add]");
+  await p.click("[data-add]"); await p.click("#cartBtn"); await p.click("#checkout");
+  await p.waitForSelector("#au[open]", { timeout: 9000 });
+});
+
+await test("Google window closed without choosing: no error stuck, dialog stays usable", async (t) => {
+  const p = t.page;
+  await p.evaluate(() => { window.__FAKE.popupClosed = true; });
+  await p.click("#signInBtn"); await p.locator("[data-google]").first().click();
+  await p.waitForTimeout(400);
+  assert.equal(await p.locator("#acctBtn").isVisible(), false);
+  assert.equal(await p.locator("#au[open]").count(), 1);
+});
+
 await test("email + password signs in; icon is a person; wrong password is refused kindly", async (t) => {
   const p = t.page;
   await p.click("#signInBtn");
@@ -134,6 +150,17 @@ await test("owner = housikiki@gmail.com via Google: Manage shows; other Google u
 }, { expectErr: /rules: / });             // the owner probe of a non-owner is refused on purpose
 
 /* ── location, checkout, feedback (same as before, new login) ── */
+await test("account details: a fake phone is refused, a real one saves", async (t) => {
+  const p = t.page; await signedIn(p, t);
+  await p.click("#acctBtn"); await p.click("#menuAcct");
+  await p.locator('#acctForm [name="phone"]').fill("199929292931");
+  await p.click("#acctSave");
+  await p.waitForFunction(() => /phone/i.test(document.querySelector("#acctErr").textContent));
+  await p.locator('#acctForm [name="phone"]').fill("07911 123456");
+  await p.click("#acctSave");
+  await p.waitForFunction(() => Object.values(window.__FAKE.dump().users || {}).some(u => u.phone === "+447911123456"));
+});
+
 await test("address form: every part has its own box, the postcode is checked, save writes the exact address", async (t) => {
   const p = t.page; await signedIn(p, t);
   await p.click("#acctBtn"); await p.click("#menuAcct"); await p.click("#acctLoc");

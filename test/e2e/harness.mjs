@@ -82,6 +82,9 @@ export async function launch(base, { seed = SEED, accounts = {}, viewport, maile
     return reply({ ok: true, token: JSON.stringify({ mail: b.email, uid: "e_" + b.email }) });
   });
   const pcCalls = [];
+  // Google's sign-in script, faked: the "window" answers at once with the account the test chose (window.__FAKE.nextGoogle), or reports it was closed
+  await ctx.route("https://accounts.google.com/gsi/client", r => r.fulfill({ contentType: "text/javascript", body: `window.google = { accounts: { oauth2: { initTokenClient: o => ({ requestAccessToken() {
+    const F = window.__FAKE; setTimeout(() => F.popupClosed ? o.error_callback({ type: "popup_closed" }) : o.callback({ access_token: JSON.stringify(F.nextGoogle) }), 0); } }) } } };` }));
   await ctx.route("https://api.postcodes.io/**", r => {
     const u = new URL(r.request().url());
     const h = { "access-control-allow-origin": "*" };
