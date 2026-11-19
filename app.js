@@ -4,10 +4,9 @@
    locked down by firestore.rules, so the whole thing runs on the free Firebase plan. */
 
 import { startNativeDock } from "./nativedock.js?v=17";
-import { initAppUpdate } from "./appupdate.js?v=19";
 import { $, $$, esc, store, money, pence, reduced, uid, openDialog, closeDialog, wireDialogs,
          toast, showError, setBusy, priceOf, onSale, percentOff, millis } from "./ui.js?v=16";
-import { createAuth } from "./auth.js?v=32";
+import { createAuth } from "./auth.js?v=33";
 import { validatePhone, PHONE_HELP, formatAddress, countryName } from "./address.js?v=1";
 import { liveEvents, withEvents, applyTheme, paintMeta, heroHtml, heroVars, tickerText } from "./events.js?v=16";
 import { paintTicker, splitMessages, resetTicker } from "./ticker.js?v=16";
@@ -1382,7 +1381,6 @@ function init() {
   addEventListener("resize", () => { syncNavHeight(); moveIndicator(); paintDock(); });
   document.fonts?.ready.then(() => { syncNavHeight(); moveIndicator(); paintDock(); });
   document.addEventListener("dockchange", paintDock);
-  initAppUpdate({ host: $(".nav-actions"), before: $("#cartBtn"), kind: "customer" });      // Android app only: green download icon + "New update" popup
   startNativeDock({     // inside the iPhone app the bottom bar is a real iOS tab bar (Liquid Glass on iOS 26+)
     items: [{ id: "home", title: "Home", symbol: "house" }, { id: "saved", title: "Saved", symbol: "heart" }, { id: "cart", title: "Basket", symbol: "bag" }, { id: "acct", title: "Account", symbol: "person" }],
     read() {

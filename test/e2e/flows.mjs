@@ -101,15 +101,14 @@ await test("Google window closed without choosing: no error stuck, dialog stays 
   assert.equal(await p.locator("#au[open]").count(), 1);
 });
 
-await test("old Android app build: Google button still there, tapping it opens the one-tap install instead of failing silently", async ({ page: p }) => {
+await test("Android app build without the Google plugin: no update popup, a plain message", async ({ page: p }) => {
   await p.setViewportSize({ width: 393, height: 851 });
   await p.addInitScript(() => { window.Capacitor = { isNativePlatform: () => true, getPlatform: () => "android", Plugins: {} }; });
-  await p.route("https://api.github.com/**", r => r.fulfill({ headers: { "access-control-allow-origin": "*" }, json: [{ tag_name: "apps-9", assets: [{ name: "bee-hive-customer-debug.apk", browser_download_url: "https://x/a.apk" }] }] }));
-  await p.reload(); await p.waitForSelector("#updDlg[open]", { timeout: 6000 });
-  await p.click("#updNo");
+  await p.reload(); await p.waitForSelector("[data-add]");
   await p.click("#dockAcct"); await p.waitForSelector("#au[open]");
   await p.locator("[data-google]").first().click();
-  await p.waitForSelector("#updDlg[open]");
+  await p.waitForFunction(() => /isn.t built into this app/.test(document.querySelector("#au .form-error:not([hidden])")?.textContent || ""));
+  assert.equal(await p.locator("#updDlg").count(), 0);
 });
 
 await test("new Android app build: Google goes through the phone's own account picker", async ({ page: p }) => {

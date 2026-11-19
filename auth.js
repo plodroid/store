@@ -7,9 +7,8 @@ import { addressFormHtml, readAddressForm, validateAddress, tidyPostcode, countr
 
 const GOOGLE = `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.4h6.5a5.6 5.6 0 0 1-2.4 3.7v3h3.9c2.3-2.1 3.5-5.2 3.5-8.8z"/><path fill="#34A853" d="M12 24c3.2 0 6-1.1 7.9-2.9l-3.9-3c-1.1.7-2.5 1.2-4 1.2-3.1 0-5.7-2.1-6.6-4.9H1.4v3.1A12 12 0 0 0 12 24z"/><path fill="#FBBC05" d="M5.4 14.3a7.2 7.2 0 0 1 0-4.6V6.6H1.4a12 12 0 0 0 0 10.8z"/><path fill="#EA4335" d="M12 4.8c1.8 0 3.3.6 4.6 1.8l3.4-3.4A12 12 0 0 0 1.4 6.6l4 3.1C6.3 6.9 8.9 4.8 12 4.8z"/></svg>`;
 
-import { offerUpdate } from "./appupdate.js?v=19";
 const MESSAGES = {
-  "app/update": "This version of the app can't open Google sign-in. Install the newest app on the screen that just opened, or log in with email.",
+  "app/no-plugin": "Google sign-in isn't built into this app. Log in with email for now.",
   "auth/invalid-credential": "That email and password don't match. Try again, or tap \"Forgot password?\".",
   "auth/wrong-password": "That email and password don't match. Try again, or tap \"Forgot password?\".",
   "auth/user-not-found": "That email and password don't match. Try again, or tap \"Forgot password?\".",
@@ -31,12 +30,15 @@ const SILENT = new Set(["auth/popup-closed-by-user", "auth/cancelled-popup-reque
 function nativeGoogle() {
   try {
     const c = window.Capacitor; if (!c || !c.isNativePlatform || !c.isNativePlatform()) return null;
-    return (typeof c.registerPlugin === "function" ? c.registerPlugin("FirebaseAuthentication") : c.Plugins && c.Plugins.FirebaseAuthentication) || null;   // an old build without the plugin answers "not implemented" when used
+    const p = (typeof c.registerPlugin === "function" ? c.registerPlugin("FirebaseAuthentication") : c.Plugins && c.Plugins.FirebaseAuthentication);
+    if (p) return p;
+    if (typeof c.nativePromise === "function") return { signInWithGoogle: o => c.nativePromise("FirebaseAuthentication", "signInWithGoogle", o || {}), signOut: () => c.nativePromise("FirebaseAuthentication", "signOut", {}) };   // the bridge itself, if the page got no plugin objects
+    return null;
   } catch { return null; }
 }
 if (nativeGoogle()) document.documentElement.dataset.gnative = "1";
 const CANCELLED = /popup-closed|cancelled|canceled|12501|-5\b|user.?cancel/i;
-const errText = e => MESSAGES[e && e.code] || (/DEVELOPER_ERROR|\b10\b|12500/.test(`${e && e.code} ${e && e.message}`) && nativeGoogle() && "Google doesn't recognise this app build yet. Please sign in with email and password instead, and tell the shop.") || (e && e.code === "google/no-token" && "Google didn't send back a sign-in. Please try again.") || "Something went wrong. Please try again in a moment.";
+const errText = e => MESSAGES[e && e.code] || (/DEVELOPER_ERROR|\b10\b|12500/.test(`${e && e.code} ${e && e.message}`) && nativeGoogle() && "Google doesn't recognise this app build yet. Please sign in with email and password instead, and tell the shop.") || (e && e.code === "google/no-token" && "Google didn't send back a sign-in. Please try again.") || (nativeGoogle() && e && (e.code || e.message) ? `Google sign-in failed (${e.code || ""} ${String(e.message || "").slice(0, 120)}). Please try again or use email.` : "Something went wrong. Please try again in a moment.");
 
 export function createAuth({ FS, onChange = () => {} }) {
   const { db, fs, auth, au } = FS;
@@ -234,12 +236,10 @@ export function createAuth({ FS, onChange = () => {} }) {
   const inApp = () => { try { const c = window.Capacitor; return !!(c && c.isNativePlatform && c.isNativePlatform()); } catch { return false; } };
   async function googleSignIn() {
     const g = nativeGoogle();
-    if (!g && inApp()) { offerUpdate(); throw Object.assign(new Error("old app"), { code: "app/update" }); }
+    if (!g && inApp()) throw Object.assign(new Error("the Google sign-in plugin is missing from this app build"), { code: "app/no-plugin" });
     if (g) {
       await persistence();   // the Android app: ask the phone's own Google account picker, then hand the token to Firebase
-      let r;
-      try { r = await g.signInWithGoogle(); }
-      catch (e) { if (/not implemented|UNIMPLEMENTED|not available/i.test(`${e && e.code} ${e && e.message}`)) { offerUpdate(); throw Object.assign(new Error("old app"), { code: "app/update" }); } throw e; }   // this build predates native Google: Google refuses its page inside a web view, so offer the one-tap install
+      const r = await g.signInWithGoogle();
       const idToken = r && r.credential && r.credential.idToken;
       if (!idToken) throw Object.assign(new Error("no token"), { code: "google/no-token" });
       const { user } = await au.signInWithCredential(auth, au.GoogleAuthProvider.credential(idToken));
