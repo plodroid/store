@@ -101,15 +101,26 @@ await test("Google window closed without choosing: no error stuck, dialog stays 
   assert.equal(await p.locator("#au[open]").count(), 1);
 });
 
-await test("old Android app build on a phone: email only (no dead Google button) and the green update button is visible", async ({ page: p }) => {
+await test("old Android app build: Google button still there, tapping it opens the one-tap install instead of failing silently", async ({ page: p }) => {
   await p.setViewportSize({ width: 393, height: 851 });
   await p.addInitScript(() => { window.Capacitor = { isNativePlatform: () => true, getPlatform: () => "android", Plugins: {} }; });
   await p.route("https://api.github.com/**", r => r.fulfill({ headers: { "access-control-allow-origin": "*" }, json: [{ tag_name: "apps-9", assets: [{ name: "bee-hive-customer-debug.apk", browser_download_url: "https://x/a.apk" }] }] }));
   await p.reload(); await p.waitForSelector("#updDlg[open]", { timeout: 6000 });
   await p.click("#updNo");
-  assert.equal(await p.locator("#updBtn").isVisible(), true);
   await p.click("#dockAcct"); await p.waitForSelector("#au[open]");
-  assert.equal(await p.locator("[data-google]").count(), 0);
+  await p.locator("[data-google]").first().click();
+  await p.waitForSelector("#updDlg[open]");
+});
+
+await test("new Android app build: Google goes through the phone's own account picker", async ({ page: p }) => {
+  await p.setViewportSize({ width: 393, height: 851 });
+  await p.addInitScript(() => { window.__nat = 0; window.Capacitor = { isNativePlatform: () => true, getPlatform: () => "android", registerPlugin: () => ({ signInWithGoogle: async () => { window.__nat++; return { credential: { idToken: JSON.stringify(window.__FAKE.nextGoogle) } }; }, signOut: async () => {} }) }; });
+  await p.route("https://api.github.com/**", r => r.fulfill({ headers: { "access-control-allow-origin": "*" }, json: [] }));
+  await p.reload(); await p.waitForSelector("[data-add]");
+  await p.evaluate(() => { window.__FAKE.nextGoogle = { email: "amy@example.com", name: "Amy", uid: "g_amy" }; });
+  await p.click("#dockAcct"); await p.waitForSelector("#au[open]");
+  await p.locator("[data-google]").first().click();
+  await p.waitForFunction(() => window.__nat === 1 && document.querySelector("#acctBtn:not([hidden])"));
 });
 
 await test("email + password signs in; icon is a person; wrong password is refused kindly", async (t) => {

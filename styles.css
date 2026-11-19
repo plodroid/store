@@ -939,6 +939,3 @@ dialog.pd .modal-body { padding-bottom: max(22px, calc(var(--sab) / 2 + 18px)); 
 .rates-h { margin: 16px 0 8px; font-size: 15px; }
 .choice .eta { display: block; font-size: 12px; color: var(--muted); }
 #locBody .modal-sub { margin-bottom: 14px; }
-
-/* phones: the header's button group is hidden, so the green update button floats just above the bottom bar */
-.nav > .upd-btn { position: fixed; right: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 92px); z-index: 60; width: 52px; height: 52px; border-radius: 50%; }

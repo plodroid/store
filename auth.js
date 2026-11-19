@@ -7,8 +7,9 @@ import { addressFormHtml, readAddressForm, validateAddress, tidyPostcode, countr
 
 const GOOGLE = `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.4h6.5a5.6 5.6 0 0 1-2.4 3.7v3h3.9c2.3-2.1 3.5-5.2 3.5-8.8z"/><path fill="#34A853" d="M12 24c3.2 0 6-1.1 7.9-2.9l-3.9-3c-1.1.7-2.5 1.2-4 1.2-3.1 0-5.7-2.1-6.6-4.9H1.4v3.1A12 12 0 0 0 12 24z"/><path fill="#FBBC05" d="M5.4 14.3a7.2 7.2 0 0 1 0-4.6V6.6H1.4a12 12 0 0 0 0 10.8z"/><path fill="#EA4335" d="M12 4.8c1.8 0 3.3.6 4.6 1.8l3.4-3.4A12 12 0 0 0 1.4 6.6l4 3.1C6.3 6.9 8.9 4.8 12 4.8z"/></svg>`;
 
+import { offerUpdate } from "./appupdate.js?v=19";
 const MESSAGES = {
-  "app/update": "This version of the app can't open Google sign-in. Log in with email, or install the newest app.",
+  "app/update": "This version of the app can't open Google sign-in. Install the newest app on the screen that just opened, or log in with email.",
   "auth/invalid-credential": "That email and password don't match. Try again, or tap \"Forgot password?\".",
   "auth/wrong-password": "That email and password don't match. Try again, or tap \"Forgot password?\".",
   "auth/user-not-found": "That email and password don't match. Try again, or tap \"Forgot password?\".",
@@ -30,9 +31,7 @@ const SILENT = new Set(["auth/popup-closed-by-user", "auth/cancelled-popup-reque
 function nativeGoogle() {
   try {
     const c = window.Capacitor; if (!c || !c.isNativePlatform || !c.isNativePlatform()) return null;
-    const has = (c.isPluginAvailable && c.isPluginAvailable("FirebaseAuthentication")) || (c.PluginHeaders || []).some(h => h && h.name === "FirebaseAuthentication") || !!(c.Plugins && c.Plugins.FirebaseAuthentication);
-    if (!has) return null;
-    return (typeof c.registerPlugin === "function" ? c.registerPlugin("FirebaseAuthentication") : c.Plugins && c.Plugins.FirebaseAuthentication) || null;
+    return (typeof c.registerPlugin === "function" ? c.registerPlugin("FirebaseAuthentication") : c.Plugins && c.Plugins.FirebaseAuthentication) || null;   // an old build without the plugin answers "not implemented" when used
   } catch { return null; }
 }
 if (nativeGoogle()) document.documentElement.dataset.gnative = "1";
@@ -138,8 +137,7 @@ export function createAuth({ FS, onChange = () => {} }) {
   }
 
   /* ── sign-in dialog ───────────────────────────────── */
-  // an old app build can't do Google (Google refuses web views), so there it is email only
-  const social = () => inApp() && !nativeGoogle() ? "" : `
+  const social = () => `
     <div class="or"><span>or</span></div>
     <div class="social"><button class="soc" type="button" data-google>${GOOGLE}<span>Continue with Google</span></button></div>`;
 
@@ -236,10 +234,13 @@ export function createAuth({ FS, onChange = () => {} }) {
   const inApp = () => { try { const c = window.Capacitor; return !!(c && c.isNativePlatform && c.isNativePlatform()); } catch { return false; } };
   async function googleSignIn() {
     const g = nativeGoogle();
-    if (!g && inApp()) throw Object.assign(new Error("old app"), { code: "app/update" });   // Google refuses its sign-in page inside an app's web view
+    if (!g && inApp()) { offerUpdate(); throw Object.assign(new Error("old app"), { code: "app/update" }); }
     if (g) {
       await persistence();   // the Android app: ask the phone's own Google account picker, then hand the token to Firebase
-      const r = await g.signInWithGoogle(), idToken = r && r.credential && r.credential.idToken;
+      let r;
+      try { r = await g.signInWithGoogle(); }
+      catch (e) { if (/not implemented|UNIMPLEMENTED|not available/i.test(`${e && e.code} ${e && e.message}`)) { offerUpdate(); throw Object.assign(new Error("old app"), { code: "app/update" }); } throw e; }   // this build predates native Google: Google refuses its page inside a web view, so offer the one-tap install
+      const idToken = r && r.credential && r.credential.idToken;
       if (!idToken) throw Object.assign(new Error("no token"), { code: "google/no-token" });
       const { user } = await au.signInWithCredential(auth, au.GoogleAuthProvider.credential(idToken));
       return afterSignIn(user);

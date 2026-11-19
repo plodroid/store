@@ -70,7 +70,7 @@
     signInWithRedirect: async () => { throw err("auth/operation-not-supported-in-this-environment"); },
     getRedirectResult: async () => null,
     signInWithCredential: async (a, cred) => {      // the Google window's token (see the fake accounts.google.com script in harness.mjs)
-      let g; try { g = JSON.parse(cred.accessToken); } catch { throw err("auth/invalid-credential"); }
+      let g; try { g = JSON.parse(cred.accessToken || cred.idToken); } catch { throw err("auth/invalid-credential"); }
       const acc = accounts();
       acc[g.email] = acc[g.email] || { uid: g.uid || "g_" + g.email.split("@")[0], verified: true, displayName: g.name, provider: "google.com" };
       putAccounts(acc);

@@ -56,7 +56,6 @@ function paint(busyText) {
 
 function icon(host, before) {
   let b = $("#updBtn");
-  if (!host.offsetParent) { host = $("#nav") || host; before = null; }      // on a phone the header's button group is hidden (the dock replaces it), so sit in the header itself
   if (!b) {
     b = document.createElement("button");
     b.id = "updBtn"; b.type = "button"; b.className = "icon-btn upd-btn"; b.setAttribute("aria-label", "Update the app"); b.innerHTML = ICON;
@@ -98,4 +97,14 @@ export async function initAppUpdate({ host, before, kind }) {
   if (!info || info.build <= mine) { const b = $("#updBtn"); if (b) b.hidden = true; return; }
   icon(host, before);
   if (!asked && store.get("upd.never", 0) !== info.build) { asked = true; setTimeout(() => ask(false), 1200); }
+}
+
+/* Called when Google sign-in finds the app build too old to do it natively: opens the one-tap installer straight away. */
+export async function offerUpdate() {
+  if (!isApp) return false;
+  const kind = marker[1] || "customer";
+  try { info = await latest(kind); } catch {}
+  if (!info) info = { kind, build: 0, url: "https://github.com/plodroid/store/releases/latest" };
+  ask(true);
+  return true;
 }
