@@ -396,7 +396,10 @@ function accessToken_() {
   const cache = CacheService.getScriptCache(), hit = cache.get('fs_token');
   if (hit) return hit;
   const p = PropertiesService.getScriptProperties();
-  const clientEmail = p.getProperty('FB_CLIENT_EMAIL'), privateKey = (p.getProperty('FB_PRIVATE_KEY') || '').replace(/\\n/g, '\n');
+  const clientEmail = p.getProperty('FB_CLIENT_EMAIL');
+  // forgiving about how the key was pasted (with or without the BEGIN/END lines, real or typed-out line breaks)
+  const body = (p.getProperty('FB_PRIVATE_KEY') || '').replace(/\\n/g, '').replace(/-----[A-Z ]+-----/g, '').replace(/\s+/g, '');
+  const privateKey = '-----BEGIN PRIVATE KEY-----\n' + (body.match(/.{1,64}/g) || []).join('\n') + '\n-----END PRIVATE KEY-----\n';
   const now = Math.floor(Date.now() / 1000);
   const input = b64u_(JSON.stringify({ alg: 'RS256', typ: 'JWT' })) + '.' + b64u_(JSON.stringify({
     iss: clientEmail, scope: 'https://www.googleapis.com/auth/datastore', aud: 'https://oauth2.googleapis.com/token', iat: now, exp: now + 3300 }));
