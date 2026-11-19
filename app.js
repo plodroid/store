@@ -4,10 +4,10 @@
    locked down by firestore.rules, so the whole thing runs on the free Firebase plan. */
 
 import { startNativeDock } from "./nativedock.js?v=17";
-import { initAppUpdate } from "./appupdate.js?v=17";
+import { initAppUpdate } from "./appupdate.js?v=18";
 import { $, $$, esc, store, money, pence, reduced, uid, openDialog, closeDialog, wireDialogs,
          toast, showError, setBusy, priceOf, onSale, percentOff, millis } from "./ui.js?v=16";
-import { createAuth } from "./auth.js?v=30";
+import { createAuth } from "./auth.js?v=31";
 import { validatePhone, PHONE_HELP, formatAddress, countryName } from "./address.js?v=1";
 import { liveEvents, withEvents, applyTheme, paintMeta, heroHtml, heroVars, tickerText } from "./events.js?v=16";
 import { paintTicker, splitMessages, resetTicker } from "./ticker.js?v=16";

@@ -56,6 +56,7 @@ function paint(busyText) {
 
 function icon(host, before) {
   let b = $("#updBtn");
+  if (!host.offsetParent) { host = $("#nav") || host; before = null; }      // on a phone the header's button group is hidden (the dock replaces it), so sit in the header itself
   if (!b) {
     b = document.createElement("button");
     b.id = "updBtn"; b.type = "button"; b.className = "icon-btn upd-btn"; b.setAttribute("aria-label", "Update the app"); b.innerHTML = ICON;

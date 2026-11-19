@@ -101,6 +101,17 @@ await test("Google window closed without choosing: no error stuck, dialog stays 
   assert.equal(await p.locator("#au[open]").count(), 1);
 });
 
+await test("old Android app build on a phone: email only (no dead Google button) and the green update button is visible", async ({ page: p }) => {
+  await p.setViewportSize({ width: 393, height: 851 });
+  await p.addInitScript(() => { window.Capacitor = { isNativePlatform: () => true, getPlatform: () => "android", Plugins: {} }; });
+  await p.route("https://api.github.com/**", r => r.fulfill({ headers: { "access-control-allow-origin": "*" }, json: [{ tag_name: "apps-9", assets: [{ name: "bee-hive-customer-debug.apk", browser_download_url: "https://x/a.apk" }] }] }));
+  await p.reload(); await p.waitForSelector("#updDlg[open]", { timeout: 6000 });
+  await p.click("#updNo");
+  assert.equal(await p.locator("#updBtn").isVisible(), true);
+  await p.click("#dockAcct"); await p.waitForSelector("#au[open]");
+  assert.equal(await p.locator("[data-google]").count(), 0);
+});
+
 await test("email + password signs in; icon is a person; wrong password is refused kindly", async (t) => {
   const p = t.page;
   await p.click("#signInBtn");
