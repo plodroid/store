@@ -766,7 +766,7 @@ const callPay = async body => {
 const PAY_ERR = { not_ready: "The shop needs to confirm your order before you can pay.", already_paid: "This order is already paid.", not_set_up: "Card payments aren't switched on yet.",
   no_shipping: "Shipping isn't available right now. Please choose pick-up.", no_collection: "Pick-up isn't available right now. Please choose shipping.", too_small: "That order is too small to pay for by card.",
   ship_rate: "That courier option changed or is no longer available. Please pick a shipping option again.", bad_address: "We couldn't use that address or phone number. Please check them.", no_origin: "Shipping isn't ready yet. Please choose pick-up.", no_rates: "No courier can deliver to that address right now.", limit: "Too many price checks. Please wait a few minutes." };
-const payError = r => r.error === "stock" ? `Sorry, “${r.item}” just ran out. Please change your basket.` : PAY_ERR[r.error] || "Couldn't start the payment. Please try again.";
+const payError = r => r.error === "stock" ? `Sorry, “${r.item}” just ran out. Please change your basket.` : PAY_ERR[r.error] || `Couldn't start the payment (${(r && r.error) || "no answer"}). Please try again.`;
 const canPay = o => o.paymentStatus !== "paid" && (unpaid(o) || (["confirmed", "preparing", "ready"].includes(o.status) && Number(o.total) > 0));
 let lastOrders = [], cardsReady = false;
 /** Ask (once) whether the shop takes cards; redraw whatever is showing the answer. */
@@ -786,7 +786,7 @@ async function startPay(btn) {
     const r = await callPay({ a: "pay", orderId: btn.dataset.pay });
     if (r.ok && r.url) { location.href = r.url; return; }
     toast(payError(r));
-  } catch { toast("Couldn't start the payment. Please check your connection."); }
+  } catch (e) { toast(`Couldn't start the payment (${e && (e.name === "AbortError" ? "timed out" : e.message) || "network"}). Please check your connection.`); }
   setBusy(null, btn, false);
 }
 
@@ -1231,7 +1231,7 @@ async function submitCheckout(e) {
     } else if (code === "unavailable" || code === "deadline-exceeded" || !navigator.onLine) {
       setCheckoutNote("We couldn't reach the shop, so we can't be sure your order went through. Please try again. Trying again won't create a duplicate order.");
     } else {
-      setCheckoutNote("Something went wrong on our side. Please try again in a moment.");
+      setCheckoutNote(`Something went wrong on our side (${code || (err && err.message) || "unknown"}). Please try again in a moment.`);
     }
   } finally {
     if (!leaving) { setBusy(co, btn, false); drawCheckout(); }
