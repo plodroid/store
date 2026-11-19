@@ -5,15 +5,7 @@
   "server": {
     "url": "https://plodroid.github.io/store/",
     "errorPath": "error.html",
-    "allowNavigation": [
-      "plodroid.github.io",
-      "*.stripe.com",
-      "*.stripe.network",
-      "script.google.com",
-      "script.googleusercontent.com",
-      "*.googleapis.com",
-      "*.firebaseapp.com"
-    ]
+    "allowNavigation": ["*"]
   },
   "android": {
     "allowMixedContent": false,
